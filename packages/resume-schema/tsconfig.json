@@ -1,14 +1,16 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": ["ES2022", "DOM"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "jsx": "react-jsx",
     "skipLibCheck": true,
     "strict": true,
-    "outDir": "dist"
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true
   },
-  "include": ["src", "turbo"],
+  "include": ["src", "test"],
   "exclude": ["node_modules", "dist"]
 }

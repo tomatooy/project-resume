@@ -8,59 +8,242 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from "./routes/__root"
-import { Route as IndexRouteImport } from "./routes/index"
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
+import { Route as AppRResumeIdRouteImport } from './routes/_app.r.$resumeId'
+import { Route as AppRResumeIdIndexRouteImport } from './routes/_app.r.$resumeId.index'
+import { Route as AppRResumeIdEditRouteImport } from './routes/_app.r.$resumeId.edit'
+import { Route as AppRResumeIdExportRouteImport } from './routes/_app.r.$resumeId.export'
+import { Route as AppRResumeIdHistoryRouteImport } from './routes/_app.r.$resumeId.history'
+import { Route as AppRResumeIdInterviewRouteImport } from './routes/_app.r.$resumeId.interview'
 
 const IndexRoute = IndexRouteImport.update({
-  id: "/",
-  path: "/",
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppDashboardRoute = AppDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRResumeIdRoute = AppRResumeIdRouteImport.update({
+  id: '/r/$resumeId',
+  path: '/r/$resumeId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRResumeIdIndexRoute = AppRResumeIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRResumeIdRoute,
+} as any)
+const AppRResumeIdEditRoute = AppRResumeIdEditRouteImport.update({
+  id: '/edit',
+  path: '/edit',
+  getParentRoute: () => AppRResumeIdRoute,
+} as any)
+const AppRResumeIdExportRoute = AppRResumeIdExportRouteImport.update({
+  id: '/export',
+  path: '/export',
+  getParentRoute: () => AppRResumeIdRoute,
+} as any)
+const AppRResumeIdHistoryRoute = AppRResumeIdHistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
+  getParentRoute: () => AppRResumeIdRoute,
+} as any)
+const AppRResumeIdInterviewRoute = AppRResumeIdInterviewRouteImport.update({
+  id: '/interview',
+  path: '/interview',
+  getParentRoute: () => AppRResumeIdRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof IndexRoute
+  '/': typeof IndexRoute
+  '/dashboard': typeof AppDashboardRoute
+  '/r/$resumeId': typeof AppRResumeIdRouteWithChildren
+  '/r/$resumeId/edit': typeof AppRResumeIdEditRoute
+  '/r/$resumeId/export': typeof AppRResumeIdExportRoute
+  '/r/$resumeId/history': typeof AppRResumeIdHistoryRoute
+  '/r/$resumeId/interview': typeof AppRResumeIdInterviewRoute
+  '/r/$resumeId/': typeof AppRResumeIdIndexRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof IndexRoute
+  '/': typeof IndexRoute
+  '/dashboard': typeof AppDashboardRoute
+  '/r/$resumeId/edit': typeof AppRResumeIdEditRoute
+  '/r/$resumeId/export': typeof AppRResumeIdExportRoute
+  '/r/$resumeId/history': typeof AppRResumeIdHistoryRoute
+  '/r/$resumeId/interview': typeof AppRResumeIdInterviewRoute
+  '/r/$resumeId': typeof AppRResumeIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  "/": typeof IndexRoute
+  '/': typeof IndexRoute
+  '/_app': typeof AppRouteWithChildren
+  '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/r/$resumeId': typeof AppRResumeIdRouteWithChildren
+  '/_app/r/$resumeId/edit': typeof AppRResumeIdEditRoute
+  '/_app/r/$resumeId/export': typeof AppRResumeIdExportRoute
+  '/_app/r/$resumeId/history': typeof AppRResumeIdHistoryRoute
+  '/_app/r/$resumeId/interview': typeof AppRResumeIdInterviewRoute
+  '/_app/r/$resumeId/': typeof AppRResumeIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: "/"
+  fullPaths:
+    | '/'
+    | '/dashboard'
+    | '/r/$resumeId'
+    | '/r/$resumeId/edit'
+    | '/r/$resumeId/export'
+    | '/r/$resumeId/history'
+    | '/r/$resumeId/interview'
+    | '/r/$resumeId/'
   fileRoutesByTo: FileRoutesByTo
-  to: "/"
-  id: "__root__" | "/"
+  to:
+    | '/'
+    | '/dashboard'
+    | '/r/$resumeId/edit'
+    | '/r/$resumeId/export'
+    | '/r/$resumeId/history'
+    | '/r/$resumeId/interview'
+    | '/r/$resumeId'
+  id:
+    | '__root__'
+    | '/'
+    | '/_app'
+    | '/_app/dashboard'
+    | '/_app/r/$resumeId'
+    | '/_app/r/$resumeId/edit'
+    | '/_app/r/$resumeId/export'
+    | '/_app/r/$resumeId/history'
+    | '/_app/r/$resumeId/interview'
+    | '/_app/r/$resumeId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
 }
 
-declare module "@tanstack/react-router" {
+declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    "/": {
-      id: "/"
-      path: "/"
-      fullPath: "/"
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/dashboard': {
+      id: '/_app/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/r/$resumeId': {
+      id: '/_app/r/$resumeId'
+      path: '/r/$resumeId'
+      fullPath: '/r/$resumeId'
+      preLoaderRoute: typeof AppRResumeIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/r/$resumeId/': {
+      id: '/_app/r/$resumeId/'
+      path: '/'
+      fullPath: '/r/$resumeId/'
+      preLoaderRoute: typeof AppRResumeIdIndexRouteImport
+      parentRoute: typeof AppRResumeIdRoute
+    }
+    '/_app/r/$resumeId/edit': {
+      id: '/_app/r/$resumeId/edit'
+      path: '/edit'
+      fullPath: '/r/$resumeId/edit'
+      preLoaderRoute: typeof AppRResumeIdEditRouteImport
+      parentRoute: typeof AppRResumeIdRoute
+    }
+    '/_app/r/$resumeId/export': {
+      id: '/_app/r/$resumeId/export'
+      path: '/export'
+      fullPath: '/r/$resumeId/export'
+      preLoaderRoute: typeof AppRResumeIdExportRouteImport
+      parentRoute: typeof AppRResumeIdRoute
+    }
+    '/_app/r/$resumeId/history': {
+      id: '/_app/r/$resumeId/history'
+      path: '/history'
+      fullPath: '/r/$resumeId/history'
+      preLoaderRoute: typeof AppRResumeIdHistoryRouteImport
+      parentRoute: typeof AppRResumeIdRoute
+    }
+    '/_app/r/$resumeId/interview': {
+      id: '/_app/r/$resumeId/interview'
+      path: '/interview'
+      fullPath: '/r/$resumeId/interview'
+      preLoaderRoute: typeof AppRResumeIdInterviewRouteImport
+      parentRoute: typeof AppRResumeIdRoute
     }
   }
 }
 
+interface AppRResumeIdRouteChildren {
+  AppRResumeIdEditRoute: typeof AppRResumeIdEditRoute
+  AppRResumeIdExportRoute: typeof AppRResumeIdExportRoute
+  AppRResumeIdHistoryRoute: typeof AppRResumeIdHistoryRoute
+  AppRResumeIdInterviewRoute: typeof AppRResumeIdInterviewRoute
+  AppRResumeIdIndexRoute: typeof AppRResumeIdIndexRoute
+}
+
+const AppRResumeIdRouteChildren: AppRResumeIdRouteChildren = {
+  AppRResumeIdEditRoute: AppRResumeIdEditRoute,
+  AppRResumeIdExportRoute: AppRResumeIdExportRoute,
+  AppRResumeIdHistoryRoute: AppRResumeIdHistoryRoute,
+  AppRResumeIdInterviewRoute: AppRResumeIdInterviewRoute,
+  AppRResumeIdIndexRoute: AppRResumeIdIndexRoute,
+}
+
+const AppRResumeIdRouteWithChildren = AppRResumeIdRoute._addFileChildren(
+  AppRResumeIdRouteChildren,
+)
+
+interface AppRouteChildren {
+  AppDashboardRoute: typeof AppDashboardRoute
+  AppRResumeIdRoute: typeof AppRResumeIdRouteWithChildren
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppDashboardRoute: AppDashboardRoute,
+  AppRResumeIdRoute: AppRResumeIdRouteWithChildren,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
 
-import type { getRouter } from "./router.tsx"
-import type { createStart } from "@tanstack/react-start"
-declare module "@tanstack/react-start" {
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>

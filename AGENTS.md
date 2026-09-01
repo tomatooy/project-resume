@@ -1,0 +1,312 @@
+# AGENTS.md
+
+Baseline guidance for Pi working in this repository. These instructions
+override default behavior. Follow them exactly.
+
+Résumé Studio is an AI resume builder. A user keeps structured (JSON) resumes,
+edits them in a form editor beside a live PDF preview, and asks an AI assistant
+to improve them. The assistant never edits the resume directly: it proposes
+validated patches, the user accepts or rejects them, and accepted patches are
+applied as a new immutable version. The resume is the first-class citizen;
+conversations, suggestions, versions, and memory all hang off it.
+
+## Working principles
+
+- **Understand before you change.** Trace how a feature is wired before
+  editing: schema (`packages/resume-schema`) -> store and actions
+  (`apps/web/src/features/resume`) -> editor/preview/chat UI -> data layer
+  (`apps/web/src/lib/api`). Match existing structure and conventions rather
+  than inventing new ones.
+- **Follow established patterns.** The codebase has consistent idioms: patches
+  as the single mutation path, TanStack Store for the live document, TanStack
+  Query for server state, and Zod schemas as the source of truth. New code
+  should look like the code already there.
+- **Reuse over duplication.** Check `packages/ui` for shared primitives and
+  existing feature components before writing a new one. Extend or refactor
+  into a shared component rather than forking a near-identical copy.
+- **Avoid em dashes in text.** When generating any text (user-facing copy,
+  prompts, or docs), use commas, sentence breaks, or parentheses instead of the
+  em dash (`—`). Do not insert `—` into generated text.
+- **Keep comments terse.** Comments are read mainly by agents, not humans.
+  Prefer a short fragment over a sentence, one line over several. Comment only
+  what the code cannot say itself: non-obvious intent, invariants, workarounds,
+  upstream quirks. This repo's comments explain the why (why a document
+  replace, why two saves must not overlap), never restate the next line.
+
+## Toolchain
+
+- Use **Bun** for package management and script execution (`bun`, `bunx`), not
+  npm/pnpm/yarn. `packageManager` is `bun@1.3.14`.
+- Lint and format are **Biome only** (`biome.json`, schema 2.5.11). There is
+  no Prettier and no ESLint; those configs were removed from the repo.
+- Do **not** run `build` after writing code. The user runs it manually.
+- Biome version pitfall: a Homebrew global `biome` (2.4.16) shadows the
+  workspace `@biomejs/biome` (2.5.11). Always go through `bun run format`,
+  `bun run check`, or `bunx biome`, never the bare `biome` binary, or the
+  config (which uses 2.5.x keys such as `linter.rules.preset`) will fail to
+  parse.
+
+## TypeScript and type safety
+
+- Enhance type safety at all times. Never use `any`; avoid `as` and `unknown`
+  unless there is genuinely no alternative.
+- Prefer inference; define explicit types for function parameters, return
+  values, and shared structures.
+- Derive types from the Zod schemas in `packages/resume-schema`
+  (`z.infer<typeof Schema>`); never redefine document types in the app. The
+  schemas use Zod v4 (`z.email()`, `z.url()`).
+- `tsconfig` is strict with `noUnusedLocals`, `noUnusedParameters`,
+  `noFallthroughCasesInSwitch`, and `noUncheckedSideEffectImports`.
+- Path aliases: `@/*` -> `apps/web/src/*`, `@workspace/ui/*` ->
+  `packages/ui/src/*`. `@workspace/resume-schema` and
+  `@workspace/resume-render` resolve through their package `exports`.
+
+## Monorepo overview
+
+Bun workspaces + Turborepo.
+
+- `apps/web`: the app (TanStack Start + Vite 8 + React 19 + TypeScript 6).
+- `packages/resume-schema`: the Zod document schema, node ids, the patch
+  contract (`applyPatches` / `validatePatches`), fixtures, migrate, diff, hash,
+  and format helpers. Deps: `zod` + `nanoid` only. No React, no Supabase, no
+  AI SDK.
+- `packages/resume-render`: react-pdf templates and fonts. Depends on
+  `resume-schema`. Re-exports `pdf` and `usePDF` so the app never imports
+  `@react-pdf/renderer` directly.
+- `packages/ui`: shadcn on Base UI components, the `cn` helper, and the
+  `globals.css` design tokens. Import via `@workspace/ui/components/*`,
+  `@workspace/ui/lib/utils`, and `@workspace/ui/globals.css`.
+- `packages/eslint-config`, `packages/typescript-config`: shared config
+  (legacy; the app is moving off eslint).
+
+Dependency direction (arrows point at dependencies):
+
+```text
+apps/web -> packages/ui
+apps/web -> packages/resume-schema
+apps/web -> packages/resume-render -> packages/resume-schema
+packages/resume-schema -> (nothing internal)
+```
+
+## Architecture: target vs current
+
+The specs in `docs/specs/` (`over-all-design.md`, `front-end.md`,
+`back-end.md`) define the **target**: a single Cloudflare Worker (TanStack
+Start SSR + server functions + `POST /api/chat`), Supabase Postgres + Auth with
+Row Level Security, the Vercel AI SDK for model orchestration, and three-layer
+memory. Read `over-all-design.md` first; the other two are its implementation
+detail.
+
+The current code implements the front-end slice of that against a **local mock
+store**, not Supabase:
+
+- `apps/web/src/lib/api.ts` is the data layer. Each function mirrors a server
+  function from `back-end.md` section 4 (`listResumes`, `getResume`,
+  `updateResume`, `listVersions`, `decideSuggestions`, and so on). Today each
+  body reads/writes `lib/mock-store.ts` (in-memory, mirrored to localStorage
+  under `resume-studio.store.v1`). When the Worker lands, each body becomes a
+  `createServerFn` call; nothing above `api.ts` changes.
+- Auth is stubbed: `getSession()` returns a fixed demo user.
+- The `_app` layout route sets `ssr: false` because a localStorage store cannot
+  serve an SSR loader (the server would seed a different copy and the first
+  autosave would conflict). Delete that flag when server functions are real.
+- `lib/assistant.ts` (`runAssistant`) runs in demo mode: it produces fixed
+  candidate patches and puts them through the real `validatePatches` gate, so
+  accept, reject, and grounding all genuinely work. The real implementation
+  posts to `/api/chat` and reads the AI SDK stream.
+
+Where the code and the spec diverge, the code is the current reality. The
+specs' template section is the most obvious drift: it names three templates
+(`modern`, `classic`, `compact`), but the code ships six (`lisbon`, `meridian`,
+`plainsong`, `harbor`, `ledger`, `atlas`). Do not "fix" the code toward a stale
+spec detail; when the back end is built, follow the spec while keeping the
+code's established front-end conventions.
+
+## State and data flow
+
+Live document state:
+
+- One `ResumeSession` (`features/resume/store.ts`) per open resume, wrapping a
+  TanStack Store. `ResumeSessionProvider` (`features/resume/session-context.tsx`)
+  owns it, keyed on the resume id so switching resumes mounts a fresh session.
+  Access it via `useSession()` and `useResumeState(selector)`.
+- Every mutation, a keystroke or an accepted suggestion, is a patch through
+  `session.apply` -> `applyPatches` (resume-schema). One mutation path means
+  undo is just the inverse patches `applyPatches` returns. Editor gestures are
+  thin patch builders in `features/resume/actions.ts`.
+- Undo/redo via `session.undo` / `session.redo`; Cmd/Ctrl+Z and Shift+Z are
+  bound in the edit route. Consecutive edits to one field coalesce into one
+  undo entry.
+
+Autosave (`ResumeSession.save`):
+
+- 800ms debounce after the last mutation. Calls `updateResume` with
+  `expectedUpdatedAt` as the optimistic-concurrency token.
+- Conflict (409): `saveStatus = "conflict"`; a banner offers Reload / Overwrite.
+- Network error: `saveStatus = "error"`; backoff retry (1s to 30s), keep editing.
+- `hasFieldErrors` or a schema-invalid document pauses autosave; the status bar
+  shows "Fix errors to save".
+- `beforeunload` warns when not saved.
+
+Server state (TanStack Query):
+
+- Query keys are centralized in `lib/query-keys.ts` (`qk`). Invalidate
+  `["resumes"]` after create/rename/duplicate/delete; `["versions", id]` after
+  accept/save/restore.
+- `getRouter` (`router.tsx`) sets `refetchOnWindowFocus: false` and
+  `staleTime: 30_000`: once loaded, the store is authoritative.
+
+## Schema-first data layer
+
+- `packages/resume-schema/src/schema.ts`: `Resume` = `{ schemaVersion: 1,
+  basics, sections[] }`. Node kinds are section, item (experience / education /
+  project / skills / custom), bullet, link, plus the fixed `basics` node. A
+  section type holds a matching item kind (`SECTION_ITEM_KIND`). Node ids must
+  be unique across the document.
+- `packages/resume-schema/src/ids.ts`: `newId(prefix)` returns
+  `${prefix}_${nanoid(10)}`; prefixes `sec`, `exp`, `edu`, `prj`, `skl`, `cus`,
+  `bul`, `lnk`. `basics` is the one fixed, unprefixed id. `regenerateIds`
+  deep-copies with fresh ids (used by duplicate).
+- `packages/resume-schema/src/nodes.ts`: `indexNodes`, `findNode`, `breadcrumb`
+  ("Experience > Acme > bullet 2"), `textFields` (what `replace_text` may
+  target), `collectText`, `isWithin`.
+- `packages/resume-schema/src/patch.ts`: the patch contract. Five ops
+  (`replace_text`, `update_fields`, `insert_after`, `delete`, `move`), each
+  addressed by node id and carrying `before` for grounding. `applyPatches` is
+  pure, applies in order on a structural copy, and reports inverses.
+  `validatePatches` is the deterministic gate: shape, op allowed for the skill,
+  target exists, scope, field allowed, `before` matches, move bounds, non-empty
+  text, and the grounding rule (every number in `after` must appear in
+  `before` or the grounding text; this stops invented metrics). It runs on the
+  server before persisting and again at accept time against the current head.
+- `packages/resume-schema/src/{format,diff,hash,migrate}.ts`: `formatRange`,
+  `diffDocuments` (History compare), `contentHash` / `canonicalJson` (Web
+  Crypto, used for version dedupe), `migrateResume` (schema upgrades).
+- `packages/resume-schema/src/fixtures/`: `starter` plus minimal/one-page and
+  other fixtures, used by template tests and seeding.
+
+## Editor (`/r/:resumeId/edit`)
+
+- Layout in `features/resume/editor/`: `SectionRail` (left nav, Add section,
+  side-panel toggles), `EditorPane` (routes the active pane to Contact, Summary,
+  or a `SectionPane`), `SectionPane` (items as sortable `ItemCard`s),
+  `SortableRow` / `SortableList` (dnd-kit), `BulletList`, `ItemCard`, and
+  `SaveBar` (save status + undo/redo + "Save version").
+- Fields are custom primitives in `features/resume/editor/fields.tsx`
+  (`TextInput`, `TextAreaInput`, `MonthInput`, `EndDateInput`, `ChipInput`),
+  not the shadcn form components. They write straight to the store on every
+  keystroke; there is no local form state.
+- Validation runs against the per-node Zod schemas (`validateNode` in
+  `editor/validate.ts`); errors render under the field, invalid values still
+  reach the store (so the preview stays live), and autosave is paused while
+  invalid.
+- Node selection: focusing a field or clicking an item sets
+  `selectedNodeId`, which scopes AI requests; Escape clears it.
+- Reordering dispatches a `move` patch. Cross-container moves are not supported.
+- Adding a top-level section is a whole-document replace
+  (`session.replaceDocument`), because a section has no parent for
+  `insert_after` to target.
+
+## Preview and PDF
+
+- `packages/resume-render` renders with `@react-pdf/renderer` (Yoga flexbox, no
+  CSS). Six templates: `lisbon` (default), `meridian`, `plainsong`, `harbor`,
+  `ledger`, `atlas`. `ResumeDocument` resolves the template id and falls back
+  to `lisbon` on unknown ids.
+- Naming trap: `@react-pdf/renderer` and `react-pdf` both export `Document` and
+  `Page`. The renderer is imported only inside `packages/resume-render`; the
+  viewer only inside `features/resume/preview/PdfViewer.tsx`. `resume-render`
+  re-exports `pdf` and `usePDF`; the app imports those, never the renderer.
+- Pipeline: `PdfEngine` (lazy, client-only, mounted by `PreviewProvider`) ->
+  300ms debounce -> `ResumeDocument` -> `usePDF` -> blob -> `PdfViewer` (lazy,
+  pdf.js). The previous blob is kept while a new render is in flight so the
+  viewer never blanks. `previewPatches` (a hovered suggestion) are applied to a
+  copy before rendering.
+- `checkFit` (`preview/check-fit.tsx`) renders a one-off blob with
+  `pdf().toBlob()` off the main pane and reads the page count back with pdf.js;
+  the assistant's page-target skill uses it. It never throws; a failed render
+  returns `ok: false`.
+- Download reuses the preview blob (export is free); the filename is
+  `${slug(basics.name)}-resume.pdf`.
+
+## Chat / assistant (`features/chat`)
+
+- Skill registry in `lib/skills.ts`: seven skills, four selectable in this
+  release (`bullet_rewrite`, `jd_match`, `grammar_clarity`,
+  `condense_to_pages`); the rest render disabled. Each skill declares
+  `allowedOps` (the whitelist `validatePatches` enforces) and optional
+  requirements (`needsJobDescription`, `needsTargetPages`).
+- `lib/assistant.ts` is the single entry point the console talks to. Demo mode
+  today; see above.
+- `AssistantPanel` renders messages and `SuggestionCard`s. A card shows a word
+  diff (`replace_text`), a field table (`update_fields`), a summary
+  (insert/delete/move), and the patch's reason. Hovering a card sets
+  `session.previewPatches` so the preview shows the effect.
+- Accept/reject calls `decideSuggestions`, which applies accepted patches,
+  snapshots a version (`created_by: "agent"`), and returns the new head;
+  `session.replaceHead` swaps it in. Patches that no longer match come back
+  `stale` ("Outdated").
+
+## Versions, history, export, interview
+
+- Versions are created when the user accepts suggestions (agent), clicks
+  "Save version" (user), or restores an older version (user). Autosave never
+  creates a version. `snapshot` in `mock-store.ts` dedupes by content hash.
+- History (`features/history/HistoryScreen.tsx`) lists versions, diffs the
+  selected version against the head via `diffDocuments`, and restores.
+- Export (`features/export/ExportScreen.tsx`): PDF is live; DOCX, TXT, and JSON
+  are stubbed "not in this release". `Preflight` lists flags.
+- Interview (`features/interview/InterviewScreen.tsx`): fixed demo content; no
+  generator behind it yet.
+- Flags (`features/resume/flags.ts`): the one automated judgement is a bullet
+  with no number ("no measurable outcome"). Counts surface in the section rail.
+
+## UI development
+
+- Keep UI consistent. Components live in `packages/ui` (shadcn on Base UI, not
+  Radix). Use `cn` from `@workspace/ui/lib/utils`.
+- Tailwind v4 tokens come from `@workspace/ui/globals.css`. Use the theme
+  tokens (`bg-canvas`, `bg-paper`, `border-border`, `text-muted-foreground`,
+  `text-primary-deep`, `bg-primary/9`, `text-flag-foreground`, and similar)
+  rather than hardcoding colors.
+- Add shadcn components via the shadcn MCP (`.mcp.json`) or
+  `bunx shadcn@latest add <component> -c apps/web`; they land in `packages/ui`.
+- Do not use Tailwind or CSS inside resume templates; react-pdf cannot see it.
+  Templates use react-pdf `StyleSheet` and the `tokens.ts` palette.
+
+## Common commands (run from repo root)
+
+- Install: `bun install`
+- Dev (port 3000): `bun run dev`
+- Lint: `bun run lint`
+- Typecheck: `bun run typecheck`
+- Format: `bun run format`
+- Check/fix (Biome): `bun run check`
+- Tests (only `resume-schema` and `resume-render` have Vitest suites):
+  `cd packages/resume-schema && bun test` (and the same for `resume-render`).
+  There is no root `test` script yet.
+
+## Verifying changes
+
+- **Do not use browser automation to verify UI changes.** No Puppeteer,
+  Playwright, headless Chrome, or Chrome DevTools MCP to visually confirm a
+  change. The user verifies UI manually; after a UI change, stop and say what
+  to look at (route, section, and what should have changed). Do not start a dev
+  server or click through flows to prove it works.
+- Verify with static checks instead: `bun run typecheck`, `bun run lint`
+  (`bun run check`), and reading the code. Cheap and catches the errors that
+  matter here.
+- Exception: only drive a browser if the user explicitly asks for it in that
+  message.
+
+## Cross-cutting notes
+
+- Errors: `ApiError` (`lib/types.ts`) with codes `UNAUTHENTICATED`,
+  `NOT_FOUND`, `CONFLICT`, `VALIDATION`, `RATE_LIMITED`, `INTERNAL`. Server
+  functions map to these.
+- Privacy: resume data is sensitive. Never write document content, message
+  content, or patch text to logs, traces, or analytics (see
+  `over-all-design.md` section 9).
+- Design-sync artifacts: `.design-sync/`, `.ds-sync/`, `ds-bundle/`, and
+  `packages/ui/.ds-css/` are generated by the claude.ai/design sync tooling.
+  Do not hand-edit them.
