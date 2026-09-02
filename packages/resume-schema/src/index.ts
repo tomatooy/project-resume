@@ -1,4 +1,5 @@
 export * from "./schema"
+export * from "./template"
 export * from "./ids"
 export * from "./nodes"
 export * from "./patch"

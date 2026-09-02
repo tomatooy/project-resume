@@ -18,7 +18,15 @@ export type ResumeState = {
   doc: Resume
   /** The last document the server acknowledged, for conflict recovery. */
   savedDoc: Resume
+  /**
+   * The optimistic-concurrency token. Moved by document writes only, so a
+   * rename or a template switch cannot make the next autosave a false conflict.
+   */
+  revision: number
+  /** Display only. `revision` is what guards a save. */
   updatedAt: string
+  /** The conversation this resume's assistant runs belong to. */
+  conversationId: string
   templateId: TemplateId
   templateOptions: TemplateOptions
   saveStatus: SaveStatus
@@ -83,12 +91,14 @@ export class ResumeSession {
   /** The save currently in flight, so a second one cannot overlap it. */
   private inFlight: Promise<void> | null = null
 
-  constructor(record: ResumeRecord) {
+  constructor(record: ResumeRecord, conversationId: string) {
     this.store = new Store<ResumeState>({
       resumeId: record.id,
       doc: record.data,
       savedDoc: record.data,
+      revision: record.revision,
       updatedAt: record.updatedAt,
+      conversationId,
       templateId: record.templateId,
       templateOptions: record.templateOptions,
       saveStatus: "saved",
@@ -205,7 +215,7 @@ export class ResumeSession {
   }
 
   /** Replaces the head wholesale, as after accepting suggestions or restoring. */
-  replaceHead(doc: Resume, updatedAt: string): void {
+  replaceHead(doc: Resume, revision: number, updatedAt: string): void {
     this.lastCoalesceKey = null
     this.undoStack = []
     this.redoStack = []
@@ -213,6 +223,7 @@ export class ResumeSession {
       ...s,
       doc,
       savedDoc: doc,
+      revision,
       updatedAt,
       saveStatus: "saved",
     }))
@@ -265,14 +276,14 @@ export class ResumeSession {
     if (this.disposed) return
 
     // Two saves must never overlap. Both would carry the same
-    // `expectedUpdatedAt`; the first would move the server past it and the
+    // `expectedRevision`; the first would move the server past it and the
     // second would come back as a conflict the user never caused. Typing for
     // longer than the debounce window is enough to trigger it. Returning here
     // is safe because the save in flight re-schedules itself whenever the
     // document has moved on beneath it.
     if (this.inFlight) return
 
-    const { doc, resumeId, updatedAt, hasFieldErrors } = this.state
+    const { doc, resumeId, revision, hasFieldErrors } = this.state
 
     // A document failing its own schema would be rejected anyway; wait for the
     // user to fix the field rather than burning a request and showing an error.
@@ -282,7 +293,7 @@ export class ResumeSession {
     const request = updateResume({
       id: resumeId,
       data: doc,
-      expectedUpdatedAt: updatedAt,
+      expectedRevision: revision,
     })
     this.inFlight = request.then(
       () => undefined,
@@ -295,6 +306,7 @@ export class ResumeSession {
         ...s,
         // `doc` may have moved on while the request was in flight.
         savedDoc: doc,
+        revision: result.revision,
         updatedAt: result.updatedAt,
         saveStatus: s.doc === doc ? "saved" : "dirty",
       }))
@@ -323,6 +335,7 @@ export class ResumeSession {
     this.store.setState((s) => ({
       ...s,
       savedDoc: s.doc,
+      revision: result.revision,
       updatedAt: result.updatedAt,
       saveStatus: "saved",
     }))
@@ -330,7 +343,7 @@ export class ResumeSession {
 
   /** Conflict recovery: throw away local edits. */
   discardLocal(record: ResumeRecord): void {
-    this.replaceHead(record.data, record.updatedAt)
+    this.replaceHead(record.data, record.revision, record.updatedAt)
   }
 
   /**

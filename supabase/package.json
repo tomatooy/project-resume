@@ -1,0 +1,16 @@
+{
+  "name": "@workspace/supabase",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "supabase start -o pretty",
+    "stop": "supabase stop",
+    "reset": "supabase db reset",
+    "test:db": "supabase test db --local tests",
+    "types": "supabase gen types typescript --local > types/database.ts"
+  },
+  "exports": {
+    ".": "./types/database.ts"
+  }
+}

@@ -46,7 +46,7 @@ export function HistoryScreen() {
   const restore = useMutation({
     mutationFn: (versionId: string) => restoreVersion({ resumeId, versionId }),
     onSuccess: async (result) => {
-      session.replaceHead(result.head, result.updatedAt)
+      session.replaceHead(result.head, result.revision, result.updatedAt)
       await queryClient.invalidateQueries({ queryKey: qk.versions(resumeId) })
       setSelectedId(null)
       toast.success(result.version.label)

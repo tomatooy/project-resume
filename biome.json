@@ -13,7 +13,8 @@
       "!**/coverage",
       "!**/.pnpm-store",
       "!**/pnpm-lock.yaml",
-      "!**/routeTree.gen.ts"
+      "!**/routeTree.gen.ts",
+      "!supabase/types/database.ts"
     ]
   },
   "formatter": {

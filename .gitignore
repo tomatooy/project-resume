@@ -4,6 +4,9 @@ dist
 dist-ssr
 *.local
 .env*
+# The template is the one env file that must be committed; `.env*` above
+# and `*.local` both swallow it otherwise.
+!.env.local.example
 .tanstack
 .wrangler
 .output

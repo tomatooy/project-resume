@@ -1,61 +1,31 @@
-import type { Resume, ResumePatch } from "@workspace/resume-schema"
-import type { TemplateId, TemplateOptions } from "@workspace/resume-render"
+/**
+ * The application's view of the domain.
+ *
+ * The types themselves live in `@workspace/resume-core`, which is where the
+ * services that produce them live. They are re-exported here so screens keep
+ * importing from one place, and so this file stays the answer to "what does the
+ * browser know about".
+ */
+export type {
+  AgentRun,
+  DecideResult,
+  ResumeRecord,
+  ResumeSummary,
+  SkillId,
+  Suggestion,
+  SuggestionStatus,
+  VersionSummary,
+} from "@workspace/resume-core"
 
-export type ResumeSummary = {
-  id: string
-  title: string
-  /** Short line under the title in the rail, e.g. "Tailored · Senior PD". */
-  subtitle: string
-  templateId: TemplateId
-  updatedAt: string
-}
-
-export type ResumeRecord = ResumeSummary & {
-  data: Resume
-  schemaVersion: number
-  templateOptions: TemplateOptions
-  currentVersionId: string | null
-}
-
-export type VersionSummary = {
-  id: string
-  versionNo: number
-  label: string
-  createdBy: "user" | "agent" | "system"
-  createdAt: string
-}
-
-export type SuggestionStatus = "pending" | "accepted" | "rejected" | "stale"
-
-export type Suggestion = {
-  id: string
-  runId: string
-  patch: ResumePatch
-  status: SuggestionStatus
-}
-
-export type RejectedSuggestion = {
-  index: number
-  code: string
-  message: string
-}
-
-export type SkillId =
-  | "bullet_rewrite"
-  | "jd_match"
-  | "grammar_clarity"
-  | "condense_to_pages"
-  | "ats_keyword"
-  | "impact_quantification"
-  | "summary_optimize"
-
-export type DecideResult = {
-  head: Resume
-  updatedAt: string
-  version?: VersionSummary
-  results: { suggestionId: string; status: SuggestionStatus }[]
-}
-
+/**
+ * The browser's error type.
+ *
+ * It exists separately from `AppError` because an error that crosses a server
+ * function boundary is serialized: what arrives is a plain `Error` carrying the
+ * same `code`, not an instance of the class that was thrown. `lib/api.ts`
+ * rebuilds one of these from it, which is what lets `store.ts` keep asking
+ * `error instanceof ApiError && error.code === "CONFLICT"`.
+ */
 export class ApiError extends Error {
   constructor(
     readonly code:

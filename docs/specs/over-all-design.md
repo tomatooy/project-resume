@@ -276,7 +276,7 @@ The repo is a Bun + Turborepo monorepo. The architecture document's Appendix B s
 | `src/features/resume/{editor,preview,versions}` | `apps/web/src/features/resume/{editor,preview,versions,dashboard}` | |
 | `src/features/chat` | `apps/web/src/features/chat` | `useChat`, diff cards, skill picker |
 | `src/server/auth` | `apps/web/src/server/auth` | Supabase SSR client, `requireUser` |
-| `src/server/db` | `apps/web/src/server/db` | generated types, one query module per table |
+| `src/server/db` | `supabase/types/database.ts` | generated types, owned by the package that owns the migrations |
 | `src/server/resume-service` | `apps/web/src/server/resume` | resume and version services |
 | `src/server/memory` | `apps/web/src/server/memory` | context builder, consolidation |
 | `src/server/ai/orchestrator.ts` | `apps/web/src/server/chat/run.ts` | wires request to `packages/agent` |

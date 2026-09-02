@@ -44,7 +44,7 @@ docs/specs               over-all, front-end, and back-end specs
 
 ```bash
 bun install
-bun run dev      # http://localhost:3000
+bun run dev      # starts Supabase (Docker) then http://localhost:3000
 ```
 
 Typecheck and lint:

@@ -11,7 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as LogoutRouteImport } from './routes/logout'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
+import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AppRResumeIdRouteImport } from './routes/_app.r.$resumeId'
 import { Route as AppRResumeIdIndexRouteImport } from './routes/_app.r.$resumeId.index'
 import { Route as AppRResumeIdEditRouteImport } from './routes/_app.r.$resumeId.edit'
@@ -28,10 +31,25 @@ const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LogoutRoute = LogoutRouteImport.update({
+  id: '/logout',
+  path: '/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
   getParentRoute: () => AppRoute,
+} as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/auth/callback',
+  path: '/auth/callback',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppRResumeIdRoute = AppRResumeIdRouteImport.update({
   id: '/r/$resumeId',
@@ -66,7 +84,10 @@ const AppRResumeIdInterviewRoute = AppRResumeIdInterviewRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/logout': typeof LogoutRoute
   '/dashboard': typeof AppDashboardRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/r/$resumeId': typeof AppRResumeIdRouteWithChildren
   '/r/$resumeId/edit': typeof AppRResumeIdEditRoute
   '/r/$resumeId/export': typeof AppRResumeIdExportRoute
@@ -76,7 +97,10 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/logout': typeof LogoutRoute
   '/dashboard': typeof AppDashboardRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/r/$resumeId/edit': typeof AppRResumeIdEditRoute
   '/r/$resumeId/export': typeof AppRResumeIdExportRoute
   '/r/$resumeId/history': typeof AppRResumeIdHistoryRoute
@@ -87,7 +111,10 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
+  '/login': typeof LoginRoute
+  '/logout': typeof LogoutRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/_app/r/$resumeId': typeof AppRResumeIdRouteWithChildren
   '/_app/r/$resumeId/edit': typeof AppRResumeIdEditRoute
   '/_app/r/$resumeId/export': typeof AppRResumeIdExportRoute
@@ -99,7 +126,10 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/login'
+    | '/logout'
     | '/dashboard'
+    | '/auth/callback'
     | '/r/$resumeId'
     | '/r/$resumeId/edit'
     | '/r/$resumeId/export'
@@ -109,7 +139,10 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/login'
+    | '/logout'
     | '/dashboard'
+    | '/auth/callback'
     | '/r/$resumeId/edit'
     | '/r/$resumeId/export'
     | '/r/$resumeId/history'
@@ -119,7 +152,10 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_app'
+    | '/login'
+    | '/logout'
     | '/_app/dashboard'
+    | '/auth/callback'
     | '/_app/r/$resumeId'
     | '/_app/r/$resumeId/edit'
     | '/_app/r/$resumeId/export'
@@ -131,6 +167,9 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
+  LoginRoute: typeof LoginRoute
+  LogoutRoute: typeof LogoutRoute
+  AuthCallbackRoute: typeof AuthCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -149,12 +188,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/logout': {
+      id: '/logout'
+      path: '/logout'
+      fullPath: '/logout'
+      preLoaderRoute: typeof LogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/dashboard': {
       id: '/_app/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/auth/callback': {
+      id: '/auth/callback'
+      path: '/auth/callback'
+      fullPath: '/auth/callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/r/$resumeId': {
       id: '/_app/r/$resumeId'
@@ -236,6 +296,9 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
+  LoginRoute: LoginRoute,
+  LogoutRoute: LogoutRoute,
+  AuthCallbackRoute: AuthCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

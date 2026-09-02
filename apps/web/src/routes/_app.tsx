@@ -1,20 +1,21 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router"
+import { createFileRoute, Outlet, redirect } from "@tanstack/react-router"
 
 import { AppHeader } from "@/features/shell/AppHeader"
 import { ResumeRail } from "@/features/shell/ResumeRail"
-import { getSession } from "@/lib/api"
+import { getSession } from "@/server/fns/session"
 
 export const Route = createFileRoute("/_app")({
-  // Everything under here reads through `lib/api`, which is backed by
-  // localStorage until the Worker lands. A localStorage store cannot serve an
-  // SSR loader: the server seeds its own copy, so the record the loader
-  // returns has different timestamps from the one the browser holds, and the
-  // first autosave fails as a conflict against a document nobody else touched.
-  // Rendering this subtree on the client keeps one store, one truth. Delete
-  // this line when the server functions are real.
-  ssr: false,
-  // Supabase Auth replaces this call; the guard and redirect belong here.
-  loader: () => getSession(),
+  // Every screen below here is private. The guard runs before the loaders of
+  // the child routes, so a signed-out visitor never triggers a data fetch that
+  // would only come back empty.
+  beforeLoad: async ({ location }) => {
+    const session = await getSession()
+    if (!session) {
+      throw redirect({ to: "/login", search: { next: location.href } })
+    }
+    return { session }
+  },
+  loader: ({ context }) => context.session,
   component: AppLayout,
 })
 
@@ -23,7 +24,7 @@ function AppLayout() {
 
   return (
     <div className="flex h-svh flex-col overflow-hidden bg-canvas">
-      <AppHeader email={session?.email ?? "you@example.com"} />
+      <AppHeader email={session.email} />
       <div className="relative flex min-h-0 flex-1">
         <ResumeRail />
         <Outlet />

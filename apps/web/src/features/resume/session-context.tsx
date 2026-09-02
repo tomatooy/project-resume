@@ -9,14 +9,19 @@ const SessionContext = createContext<ResumeSession | null>(null)
 
 export function ResumeSessionProvider({
   record,
+  conversationId,
   children,
 }: {
   record: ResumeRecord
+  conversationId: string
   children: ReactNode
 }) {
   // Keyed on the resume id by the route, so switching resumes mounts a fresh
   // session rather than mutating the open one.
-  const session = useMemo(() => new Session(record), [record])
+  const session = useMemo(
+    () => new Session(record, conversationId),
+    [record, conversationId]
+  )
 
   useEffect(() => {
     // Paired with `dispose` below: the effect can be torn down and mounted

@@ -3,26 +3,29 @@ import type { ComponentType } from "react"
 
 import type { ResolvedFonts } from "./fonts"
 
-export type PageSize = "A4" | "LETTER"
-export type FontScale = 0.9 | 1 | 1.1
+/**
+ * The template contract is defined in `resume-schema` because it is stored on
+ * the `resumes` row and the server needs it without react-pdf. Re-exported
+ * here so template code keeps reading it from the package that owns rendering.
+ */
+export {
+  DEFAULT_TEMPLATE_ID,
+  defaultTemplateOptions,
+  FontScaleSchema,
+  isTemplateId,
+  PageSizeSchema,
+  TEMPLATE_IDS,
+  TemplateIdSchema,
+  TemplateOptionsSchema,
+  toTemplateId,
+  toTemplateOptions,
+  type FontScale,
+  type PageSize,
+  type TemplateId,
+  type TemplateOptions,
+} from "@workspace/resume-schema"
 
-export type TemplateOptions = {
-  pageSize: PageSize
-  fontScale: FontScale
-  /** Hex. Templates that are deliberately monochrome ignore it. */
-  accent?: string
-}
-
-export const TEMPLATE_IDS = [
-  "lisbon",
-  "meridian",
-  "plainsong",
-  "harbor",
-  "ledger",
-  "atlas",
-] as const
-
-export type TemplateId = (typeof TEMPLATE_IDS)[number]
+import type { TemplateId, TemplateOptions } from "@workspace/resume-schema"
 
 export type TemplateProps = {
   resume: Resume
@@ -42,16 +45,4 @@ export type TemplateDefinition = {
   ruledHeader: boolean
   accent: string
   Document: ComponentType<TemplateProps>
-}
-
-export const defaultTemplateOptions: TemplateOptions = {
-  pageSize: "LETTER",
-  fontScale: 1,
-}
-
-export function isTemplateId(value: unknown): value is TemplateId {
-  return (
-    typeof value === "string" &&
-    (TEMPLATE_IDS as readonly string[]).includes(value)
-  )
 }

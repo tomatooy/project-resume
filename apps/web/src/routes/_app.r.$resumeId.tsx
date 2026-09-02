@@ -25,13 +25,17 @@ export const Route = createFileRoute("/_app/r/$resumeId")({
  * here so both survive switching between Editor, Export, Interview and History.
  */
 function ResumeShell() {
-  const { record } = Route.useLoaderData()
+  const { record, conversationId } = Route.useLoaderData()
   const { resumeId } = Route.useParams()
 
   return (
     // Keyed so opening a different resume mounts a fresh session rather than
     // mutating the one already open.
-    <ResumeSessionProvider key={record.id} record={record}>
+    <ResumeSessionProvider
+      key={record.id}
+      record={record}
+      conversationId={conversationId}
+    >
       <PreviewProvider>
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <Outlet />

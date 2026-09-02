@@ -1,6 +1,4 @@
-import { ArrowCounterClockwiseIcon, SignOutIcon } from "@phosphor-icons/react"
-import { useQueryClient } from "@tanstack/react-query"
-import { useRouter } from "@tanstack/react-router"
+import { SignOutIcon } from "@phosphor-icons/react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,9 +7,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
-import { toast } from "sonner"
-
-import { resetStore } from "@/lib/api"
 
 function initials(email: string): string {
   const [name = ""] = email.split("@")
@@ -22,9 +17,6 @@ function initials(email: string): string {
 }
 
 export function UserMenu({ email }: { email: string }) {
-  const queryClient = useQueryClient()
-  const router = useRouter()
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -43,21 +35,20 @@ export function UserMenu({ email }: { email: string }) {
           {email}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() => {
-            resetStore()
-            void queryClient.invalidateQueries()
-            void router.navigate({ to: "/dashboard" })
-            toast.success("Demo data reset")
-          }}
-        >
-          <ArrowCounterClockwiseIcon />
-          Reset demo data
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled>
-          <SignOutIcon />
-          Sign out
-        </DropdownMenuItem>
+        {/*
+          A real form POST rather than a fetch. Signing out has to be a POST so
+          a prefetched link cannot end the session, and letting the browser
+          navigate is what guarantees every cached query and open editor session
+          is gone rather than left holding the previous user's document.
+        */}
+        <form method="post" action="/logout">
+          <DropdownMenuItem
+            render={<button type="submit" className="w-full" />}
+          >
+            <SignOutIcon />
+            Sign out
+          </DropdownMenuItem>
+        </form>
       </DropdownMenuContent>
     </DropdownMenu>
   )

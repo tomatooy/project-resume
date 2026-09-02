@@ -79,7 +79,7 @@ Bindings are read with `import { env } from 'cloudflare:workers'` inside server 
 
 ```ts
 import { createServerClient, parseCookieHeader, serializeCookieHeader } from '@supabase/ssr'
-import type { Database } from '../db/types'
+import type { Database } from '@workspace/supabase'
 
 export function createSupabaseForRequest(request: Request, responseHeaders: Headers) {
   return createServerClient<Database>(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
@@ -124,7 +124,7 @@ Every query runs through the per-request client carrying the user's JWT, so Post
 
 ## 3. Database
 
-Supabase Postgres. Migrations live in `supabase/migrations/` and are applied with the Supabase CLI. Types are generated to `apps/web/src/server/db/types.ts` with `supabase gen types typescript --local`.
+Supabase Postgres. Migrations live in `supabase/migrations/` and are applied with the Supabase CLI. Types are generated to `supabase/types/database.ts` with `bun run db:types` and imported as `@workspace/supabase`.
 
 ### 3.1 Schema
 

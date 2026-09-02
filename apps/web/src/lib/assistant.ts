@@ -8,7 +8,7 @@ import {
   type ResumePatch,
 } from "@workspace/resume-schema"
 
-import { saveSuggestions } from "./api"
+import { createRun, saveSuggestions } from "./api"
 import { skillById } from "./skills"
 import type { SkillId, Suggestion } from "./types"
 
@@ -22,6 +22,12 @@ export type AssistantRequest = {
   jobDescription?: string
   targetPages?: number
 }
+
+/**
+ * Recorded on the run so History and the run log say plainly that no model was
+ * involved. It becomes the real model id when `/api/chat` lands.
+ */
+const DEMO_MODEL = "demo"
 
 export type AssistantRun = {
   runId: string
@@ -49,7 +55,6 @@ export async function runAssistant(
   const skill = skillById.get(request.skillId)
   if (!skill) throw new Error(`Unknown skill ${request.skillId}`)
 
-  const runId = `run_${Math.random().toString(36).slice(2, 12)}`
   const candidates = demoCandidates(request)
 
   // The same deterministic gate the Worker applies before persisting anything.
@@ -63,17 +68,37 @@ export async function runAssistant(
     ].join("\n"),
   })
 
-  const suggestions: Suggestion[] = valid.map((patch, i) => ({
-    id: `sug_${runId}_${i}`,
-    runId,
-    patch,
-    status: "pending",
-  }))
+  // The run has to exist before its suggestions do: it records which skill was
+  // used, and that is what the server re-checks the op whitelist against when
+  // one of these is accepted. A client-supplied whitelist would let a caller
+  // accept a delete the skill was never allowed to propose.
+  const run = await createRun({
+    conversationId: request.conversationId,
+    resumeId: request.resumeId,
+    skillId: request.skillId,
+    model: DEMO_MODEL,
+    selectedNodeId: request.selectedNodeId ?? null,
+  })
 
-  await saveSuggestions(suggestions)
+  // Ids come back from the server rather than being minted here, so a
+  // suggestion the server never issued cannot be accepted later.
+  const saved = await saveSuggestions({ runId: run.id, patches: valid })
+
+  const suggestions: Suggestion[] = []
+  for (const row of saved) {
+    const patch = valid[row.ordinal]
+    if (!patch) continue
+    suggestions.push({
+      id: row.id,
+      runId: run.id,
+      ordinal: row.ordinal,
+      patch,
+      status: "pending",
+    })
+  }
 
   return {
-    runId,
+    runId: run.id,
     text: buildReply(request, suggestions.length, rejected.length),
     suggestions,
     rejected,

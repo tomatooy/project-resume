@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "resume-studio",
+  "main": "@tanstack/react-start/server-entry",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "PUBLIC_APP_NAME": "Résumé Studio"
+  },
+  "observability": { "enabled": true }
+
+  // The chat phase adds the per-user hourly rate limiter on /api/chat:
+  //   "kv_namespaces": [{ "binding": "RATE_LIMIT", "id": "<per environment>" }]
+  // Left out until something reads it, so `wrangler deploy` does not need a
+  // namespace that exists only to sit idle.
+}

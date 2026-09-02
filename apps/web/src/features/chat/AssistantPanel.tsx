@@ -43,6 +43,7 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
   const session = useSession()
   const doc = useResumeState((s) => s.doc)
   const resumeId = useResumeState((s) => s.resumeId)
+  const conversationId = useResumeState((s) => s.conversationId)
   const selectedNodeId = useResumeState((s) => s.selectedNodeId)
   const templateId = useResumeState((s) => s.templateId)
   const templateOptions = useResumeState((s) => s.templateOptions)
@@ -83,7 +84,7 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
       const wantsTarget = skill?.needsTargetPages === true
       const run = await runAssistant({
         resumeId,
-        conversationId: resumeId,
+        conversationId,
         resume: doc,
         skillId,
         message: text.trim(),
@@ -161,11 +162,10 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
     session.previewPatches([])
     try {
       const result = await decideSuggestions({
-        resumeId,
         runId,
         decisions: ids.map((suggestionId) => ({ suggestionId, status })),
       })
-      session.replaceHead(result.head, result.updatedAt)
+      session.replaceHead(result.head, result.revision, result.updatedAt)
       setSuggestions((prev) =>
         prev.map((suggestion) => {
           const outcome = result.results.find(
