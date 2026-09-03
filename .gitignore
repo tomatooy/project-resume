@@ -7,6 +7,8 @@ dist-ssr
 # The template is the one env file that must be committed; `.env*` above
 # and `*.local` both swallow it otherwise.
 !.env.local.example
+# Worker secrets for `vite dev`, read by the Cloudflare plugin.
+.dev.vars*
 .tanstack
 .wrangler
 .output

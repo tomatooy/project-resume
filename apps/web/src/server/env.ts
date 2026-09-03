@@ -40,3 +40,32 @@ export function supabasePublishableKey(): string {
     import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY
   )
 }
+
+/* ------------------------------------------------------------------- AI */
+
+/**
+ * Real secrets, so these come from `process.env`, which is where `wrangler
+ * secret` and `.dev.vars` land, and never through a `PUBLIC_` name that Vite
+ * would inline into the browser bundle.
+ */
+export function deepseekApiKey(): string {
+  const key = process.env.DEEPSEEK_API_KEY
+  if (!key) {
+    throw new Error(
+      "DEEPSEEK_API_KEY is not set. Add it to apps/web/.dev.vars locally, or `wrangler secret put DEEPSEEK_API_KEY` in production."
+    )
+  }
+  return key
+}
+
+/** Empty means the provider default; an override is a deploy-time choice. */
+export function aiModelIds(): { smart?: string; fast?: string } {
+  return {
+    smart: process.env.AI_MODEL_SMART || undefined,
+    fast: process.env.AI_MODEL_FAST || undefined,
+  }
+}
+
+export function aiBaseUrl(): string | undefined {
+  return process.env.AI_BASE_URL || undefined
+}

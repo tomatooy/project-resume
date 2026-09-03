@@ -5,12 +5,13 @@
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "PUBLIC_APP_NAME": "Résumé Studio"
+    "PUBLIC_APP_NAME": "Résumé Studio",
+    // Both tiers on the same model until the fast tier earns a cheaper one.
+    // The provider switch lives in `packages/agent/src/models.ts`.
+    "AI_MODEL_SMART": "deepseek-v4-flash",
+    "AI_MODEL_FAST": "deepseek-v4-flash"
   },
+  // DEEPSEEK_API_KEY is a secret: `wrangler secret put DEEPSEEK_API_KEY` in
+  // production, `apps/web/.dev.vars` locally. Never a var.
   "observability": { "enabled": true }
-
-  // The chat phase adds the per-user hourly rate limiter on /api/chat:
-  //   "kv_namespaces": [{ "binding": "RATE_LIMIT", "id": "<per environment>" }]
-  // Left out until something reads it, so `wrangler deploy` does not need a
-  // namespace that exists only to sit idle.
 }

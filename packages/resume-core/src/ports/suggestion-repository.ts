@@ -35,6 +35,8 @@ export interface SuggestionRepository {
     suggestions: NewSuggestion[]
   ): Promise<Suggestion[]>
   listForRun(runId: string): Promise<Suggestion[]>
+  /** Every suggestion of these runs, in one query; for hydrating a history. */
+  listForRuns(runIds: string[]): Promise<Suggestion[]>
   /**
    * Records every decision and, when anything was accepted, creates the
    * resulting version. One transaction: a suggestion must never end up marked

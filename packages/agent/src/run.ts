@@ -1,5 +1,6 @@
 import { collectText } from "@workspace/resume-schema"
 import {
+  type LanguageModelUsage,
   type ModelMessage,
   type StopCondition,
   stepCountIs,
@@ -30,6 +31,11 @@ export type RunSkillInput = {
   persist: PersistProposal
   memory: RunMemory
   abortSignal?: AbortSignal
+  /**
+   * Fired per completed model turn. Callers sum usage here rather than await
+   * the result's totals, which never settle when the stream is aborted.
+   */
+  onStepEnd?: (step: { usage: LanguageModelUsage }) => void
 }
 
 /** Model turns per run. A proposal normally lands in one or two. */
@@ -96,5 +102,6 @@ export function runSkill(input: RunSkillInput) {
     stopWhen: [stepCountIs(MAX_STEPS), proposalAccepted],
     providerOptions: models.providerOptions,
     abortSignal: input.abortSignal,
+    onStepEnd: (step) => input.onStepEnd?.({ usage: step.usage }),
   })
 }

@@ -406,6 +406,32 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_memory_summary: {
+        Args: {
+          p_conversation_id: string
+          p_from_seq: number
+          p_model: string
+          p_summary: Json
+          p_summary_text: string
+          p_to_seq: number
+        }
+        Returns: {
+          conversation_id: string
+          created_at: string
+          id: string
+          model: string
+          source_from_seq: number
+          source_to_seq: number
+          summary: Json
+          summary_text: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "memory_summaries"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       create_resume_version: {
         Args: {
           p_agent_run_id?: string

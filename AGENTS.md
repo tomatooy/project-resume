@@ -97,23 +97,30 @@ Row Level Security, the Vercel AI SDK for model orchestration, and three-layer
 memory. Read `over-all-design.md` first; the other two are its implementation
 detail.
 
-The current code implements the front-end slice of that against a **local mock
-store**, not Supabase:
+The current code implements that target end to end:
 
-- `apps/web/src/lib/api.ts` is the data layer. Each function mirrors a server
-  function from `back-end.md` section 4 (`listResumes`, `getResume`,
-  `updateResume`, `listVersions`, `decideSuggestions`, and so on). Today each
-  body reads/writes `lib/mock-store.ts` (in-memory, mirrored to localStorage
-  under `resume-studio.store.v1`). When the Worker lands, each body becomes a
-  `createServerFn` call; nothing above `api.ts` changes.
-- Auth is stubbed: `getSession()` returns a fixed demo user.
-- The `_app` layout route sets `ssr: false` because a localStorage store cannot
-  serve an SSR loader (the server would seed a different copy and the first
-  autosave would conflict). Delete that flag when server functions are real.
-- `lib/assistant.ts` (`runAssistant`) runs in demo mode: it produces fixed
-  candidate patches and puts them through the real `validatePatches` gate, so
-  accept, reject, and grounding all genuinely work. The real implementation
-  posts to `/api/chat` and reads the AI SDK stream.
+- `apps/web/src/lib/api.ts` is the browser's data layer. Each function wraps a
+  server function from `apps/web/src/server/fns/` (`listResumes`, `getResume`,
+  `updateResume`, `listVersions`, `decideSuggestions`, and so on) or, for chat
+  history, the `GET /api/chat` route. Nothing above `api.ts` knows about
+  Supabase.
+- Server functions run `withSupabase(handler)`: a per-request Supabase client
+  built from the session cookie, `requireUser`, then the services from
+  `server/container.ts`. Every table has RLS and there is no service-role key;
+  the database is the authorization boundary.
+- Domain logic lives in `packages/resume-core` (types from Zod, ports, services,
+  in-memory doubles for every port). `apps/web/src/server/adapters/` implements
+  the ports on Supabase. `packages/agent` holds everything that touches the AI
+  SDK: skills, prompts, tools, the run loop, the summarizer, and message
+  conversion. Dependency direction is `web -> agent -> resume-core ->
+  resume-schema`.
+- The assistant is `POST /api/chat` (`server/chat/handle-chat.ts`) consumed by
+  `useChat` (`features/chat/use-assistant.ts`). Messages are stored in
+  Postgres and rehydrated on load; the client sends only the last two
+  messages. `check_fit` is a client tool: the browser renders the PDF, answers
+  with the page count, and the same run resumes. Models come from DeepSeek
+  through `packages/agent/src/models.ts`; the key is `DEEPSEEK_API_KEY` in
+  `apps/web/.dev.vars` locally and a Wrangler secret in production.
 
 Where the code and the spec diverge, the code is the current reality. The
 specs' template section is the most obvious drift: it names three templates
@@ -236,9 +243,16 @@ Server state (TanStack Query):
   `condense_to_pages`); the rest render disabled. Each skill declares
   `allowedOps` (the whitelist `validatePatches` enforces) and optional
   requirements (`needsJobDescription`, `needsTargetPages`).
-- `lib/assistant.ts` is the single entry point the console talks to. Demo mode
-  today; see above.
-- `AssistantPanel` renders messages and `SuggestionCard`s. A card shows a word
+- Skill facts come from `resume-core` (`SKILL_STATUS`, `SKILL_REQUIRES`,
+  `SKILL_ALLOWED_OPS`); `lib/skills.ts` only adds labels. The route enforces
+  the same tables, so the picker cannot offer what the server refuses.
+- `use-assistant.ts` wraps `useChat`: sends skill inputs in the request body,
+  answers `check_fit` from `onToolCall` (never awaited inside it), keeps the
+  suggestion status map beside the transcript, and maps route errors (401 to
+  `/login`, others to a toast).
+- `AssistantPanel` renders each assistant message part by part: text as it
+  streams, `tool-check_fit` as a fit chip, `tool-propose_patches` output as
+  `SuggestionCard`s. A card shows a word
   diff (`replace_text`), a field table (`update_fields`), a summary
   (insert/delete/move), and the patch's reason. Hovering a card sets
   `session.previewPatches` so the preview shows the effect.
@@ -251,7 +265,7 @@ Server state (TanStack Query):
 
 - Versions are created when the user accepts suggestions (agent), clicks
   "Save version" (user), or restores an older version (user). Autosave never
-  creates a version. `snapshot` in `mock-store.ts` dedupes by content hash.
+  creates a version. `VersionService.snapshot` dedupes by content hash.
 - History (`features/history/HistoryScreen.tsx`) lists versions, diffs the
   selected version against the head via `diffDocuments`, and restores.
 - Export (`features/export/ExportScreen.tsx`): PDF is live; DOCX, TXT, and JSON

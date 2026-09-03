@@ -1,5 +1,5 @@
-import { ArrowUpIcon, XIcon } from "@phosphor-icons/react"
-import { useQueryClient } from "@tanstack/react-query"
+import { ArrowUpIcon, StopIcon, XIcon } from "@phosphor-icons/react"
+import { useQuery } from "@tanstack/react-query"
 import type { RejectedPatch } from "@workspace/resume-schema"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -10,34 +10,25 @@ import {
 import { Spinner } from "@workspace/ui/components/spinner"
 import { cn } from "@workspace/ui/lib/utils"
 import { useEffect, useRef, useState } from "react"
-import { toast } from "sonner"
 
-import { decideSuggestions } from "@/lib/api"
-import { runAssistant } from "@/lib/assistant"
+import { listMessages } from "@/lib/api"
 import { qk } from "@/lib/query-keys"
 import { DEFAULT_SKILL, SKILLS, skillById } from "@/lib/skills"
-import type { SkillId, Suggestion } from "@/lib/types"
+import type {
+  ChatHistory,
+  ChatUIMessage,
+  SkillId,
+  Suggestion,
+  SuggestionStatus,
+} from "@/lib/types"
 import { breadcrumbOf } from "../resume/breadcrumb"
 import { useResumeState, useSession } from "../resume/session-context"
 import { SuggestionCard } from "./SuggestionCard"
+import { useAssistant } from "./use-assistant"
 
-/** Result of the page-fit measurement taken once a run has produced cards. */
-type Fit =
-  | { state: "pending" }
-  | { state: "ready"; pageCount: number; targetPages?: number }
-  | { state: "failed" }
-
-type ChatMessage =
-  | { id: string; role: "user"; text: string }
-  | {
-      id: string
-      role: "assistant"
-      text: string
-      runId?: string
-      rejected?: RejectedPatch[]
-      demo?: boolean
-      fit?: Fit
-    }
+type UIPart = ChatUIMessage["parts"][number]
+type FitPart = Extract<UIPart, { type: "tool-check_fit" }>
+type ProposePart = Extract<UIPart, { type: "tool-propose_patches" }>
 
 export function AssistantPanel({ onClose }: { onClose?: () => void }) {
   const session = useSession()
@@ -45,150 +36,17 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
   const resumeId = useResumeState((s) => s.resumeId)
   const conversationId = useResumeState((s) => s.conversationId)
   const selectedNodeId = useResumeState((s) => s.selectedNodeId)
-  const templateId = useResumeState((s) => s.templateId)
-  const templateOptions = useResumeState((s) => s.templateOptions)
-  const queryClient = useQueryClient()
-
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [skillId, setSkillId] = useState<SkillId>(DEFAULT_SKILL)
-  const [draft, setDraft] = useState("")
-  const [jobDescription, setJobDescription] = useState("")
-  const [targetPages, setTargetPages] = useState(1)
-  const [running, setRunning] = useState(false)
-  const [deciding, setDeciding] = useState(false)
-
   const skill = skillById.get(skillId)
-  const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Scroll when anything new arrives, message or card.
-  const streamLength = messages.length + suggestions.length
-  useEffect(() => {
-    if (streamLength === 0) return
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    })
-  }, [streamLength])
-
-  async function send(text: string) {
-    if (!text.trim() || running) return
-    setDraft("")
-    setMessages((prev) => [
-      ...prev,
-      { id: `u${Date.now()}`, role: "user", text: text.trim() },
-    ])
-    setRunning(true)
-
-    try {
-      const wantsTarget = skill?.needsTargetPages === true
-      const run = await runAssistant({
-        resumeId,
-        conversationId,
-        resume: doc,
-        skillId,
-        message: text.trim(),
-        selectedNodeId,
-        jobDescription: jobDescription.trim() || undefined,
-        targetPages: wantsTarget ? targetPages : undefined,
-      })
-      setSuggestions((prev) => [...prev, ...run.suggestions])
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: run.runId,
-          role: "assistant",
-          text: run.text,
-          runId: run.runId,
-          rejected: run.rejected,
-          demo: run.demo,
-          fit: run.suggestions.length > 0 ? { state: "pending" } : undefined,
-        },
-      ])
-
-      // Measured after the cards are on screen rather than before, because
-      // rendering a whole PDF takes long enough to be felt. The chip fills in
-      // a moment later; the cards do not wait on it.
-      if (run.suggestions.length > 0) {
-        // Imported here rather than at the top of the file because pdf.js
-        // touches DOMMatrix on load, which does not exist while the panel is
-        // being server-rendered. The same reason PdfViewer is lazy.
-        const { checkFit } = await import("../resume/preview/check-fit")
-        const result = await checkFit({
-          resume: doc,
-          templateId,
-          options: templateOptions,
-          patches: run.suggestions.map((suggestion) => suggestion.patch),
-        })
-        const fit: Fit = result.ok
-          ? {
-              state: "ready",
-              pageCount: result.pageCount,
-              targetPages: wantsTarget ? targetPages : undefined,
-            }
-          : { state: "failed" }
-        setMessages((prev) =>
-          prev.map((message) =>
-            message.id === run.runId && message.role === "assistant"
-              ? { ...message, fit }
-              : message
-          )
-        )
-      }
-    } catch (error) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `e${Date.now()}`,
-          role: "assistant",
-          text:
-            error instanceof Error
-              ? error.message
-              : "Something went wrong reaching the assistant.",
-        },
-      ])
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  async function decide(
-    ids: string[],
-    status: "accepted" | "rejected",
-    runId: string
-  ) {
-    if (ids.length === 0) return
-    setDeciding(true)
-    session.previewPatches([])
-    try {
-      const result = await decideSuggestions({
-        runId,
-        decisions: ids.map((suggestionId) => ({ suggestionId, status })),
-      })
-      session.replaceHead(result.head, result.revision, result.updatedAt)
-      setSuggestions((prev) =>
-        prev.map((suggestion) => {
-          const outcome = result.results.find(
-            (r) => r.suggestionId === suggestion.id
-          )
-          return outcome
-            ? { ...suggestion, status: outcome.status }
-            : suggestion
-        })
-      )
-      if (result.version) {
-        await queryClient.invalidateQueries({ queryKey: qk.versions(resumeId) })
-      }
-      const stale = result.results.filter((r) => r.status === "stale").length
-      if (stale > 0) {
-        toast.warning(
-          `${stale} ${stale === 1 ? "suggestion" : "suggestions"} no longer matched the text`
-        )
-      }
-    } finally {
-      setDeciding(false)
-    }
-  }
+  // The transcript is fetched once and handed to `useChat` as its starting
+  // state; from then on the stream keeps it current. Never refetched while
+  // the panel is open, since that would replace what the user is watching.
+  const history = useQuery({
+    queryKey: qk.messages(conversationId),
+    queryFn: () => listMessages(conversationId),
+    staleTime: Number.POSITIVE_INFINITY,
+  })
 
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col bg-paper">
@@ -227,6 +85,87 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
         ) : null}
       </header>
 
+      {history.data ? (
+        <Conversation
+          key={conversationId}
+          conversationId={conversationId}
+          resumeId={resumeId}
+          history={history.data}
+          skillId={skillId}
+          onSkillChange={setSkillId}
+        />
+      ) : history.error ? (
+        <div className="flex flex-col items-start gap-2 p-3.5 text-[12px] text-muted-foreground">
+          Could not load this conversation.
+          <Button size="sm" variant="outline" onClick={() => history.refetch()}>
+            Try again
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 p-3.5 text-[12px] text-muted-foreground">
+          <Spinner className="size-3.5" />
+          Loading the conversation
+        </div>
+      )}
+    </aside>
+  )
+}
+
+function Conversation({
+  conversationId,
+  resumeId,
+  history,
+  skillId,
+  onSkillChange,
+}: {
+  conversationId: string
+  resumeId: string
+  history: ChatHistory
+  skillId: SkillId
+  onSkillChange: (skillId: SkillId) => void
+}) {
+  const selectedNodeId = useResumeState((s) => s.selectedNodeId)
+  const assistant = useAssistant({
+    conversationId,
+    resumeId,
+    initialMessages: history.messages,
+    initialStatuses: history.suggestions,
+  })
+  const { messages, status, statuses, deciding, decide } = assistant
+  const busy = status === "submitted" || status === "streaming"
+
+  const [draft, setDraft] = useState("")
+  const [jobDescription, setJobDescription] = useState("")
+  const [targetPages, setTargetPages] = useState(1)
+  const skill = skillById.get(skillId)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Scroll when anything new arrives, message or streamed part.
+  const streamLength = messages.reduce((n, m) => n + m.parts.length, 0)
+  useEffect(() => {
+    if (streamLength === 0) return
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    })
+  }, [streamLength])
+
+  function send(text: string) {
+    const trimmed = text.trim()
+    if (!trimmed || busy) return
+    setDraft("")
+    assistant.send(trimmed, {
+      skillId,
+      selectedNodeId,
+      jobDescription: skill?.needsJobDescription
+        ? jobDescription.trim() || undefined
+        : undefined,
+      targetPages: skill?.needsTargetPages ? targetPages : undefined,
+    })
+  }
+
+  return (
+    <>
       <div
         ref={scrollRef}
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3.5"
@@ -241,56 +180,33 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
           </div>
         ) : null}
 
-        {messages.map((message) => (
-          <div key={message.id} className="flex flex-col gap-2">
-            <div
-              className={cn(
-                "flex",
-                message.role === "user" ? "justify-end" : "justify-start"
-              )}
-            >
-              <div
-                className={cn(
-                  "max-w-[88%] rounded-[10px] px-3 py-2.5 text-[12.5px] leading-[1.55]",
-                  message.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-foreground"
-                )}
-              >
-                {message.text}
-              </div>
-            </div>
+        {messages.map((message) =>
+          message.role === "user" ? (
+            <UserBubble key={message.id} message={message} />
+          ) : (
+            <AssistantTurn
+              key={message.id}
+              message={message}
+              statuses={statuses}
+              busy={deciding}
+              onDecide={decide}
+            />
+          )
+        )}
 
-            {message.role === "assistant" && message.demo ? (
-              <p className="text-[10.5px] text-muted-foreground">
-                Demo mode: no model is connected yet, so these cards come from a
-                fixed script. The validation and accept flow around them is
-                real.
-              </p>
-            ) : null}
-
-            {message.role === "assistant" && message.fit ? (
-              <FitChip fit={message.fit} />
-            ) : null}
-
-            {message.role === "assistant" && message.runId ? (
-              <SuggestionGroup
-                runId={message.runId}
-                suggestions={suggestions.filter(
-                  (s) => s.runId === message.runId
-                )}
-                rejected={message.rejected ?? []}
-                busy={deciding}
-                onDecide={decide}
-              />
-            ) : null}
-          </div>
-        ))}
-
-        {running ? (
+        {status === "submitted" ? (
           <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
             <Spinner className="size-3.5" />
             Working through the resume
+          </div>
+        ) : null}
+
+        {status === "error" ? (
+          <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+            That request did not finish.
+            <Button size="sm" variant="outline" onClick={assistant.retry}>
+              Retry
+            </Button>
           </div>
         ) : null}
       </div>
@@ -307,7 +223,7 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
                   ? option.description
                   : `${option.description} (not in this release)`
               }
-              onClick={() => setSkillId(option.id)}
+              onClick={() => onSkillChange(option.id)}
               className={cn(
                 "h-[26px] rounded-full border px-2.5 text-[11.5px] transition-colors",
                 option.id === skillId
@@ -352,7 +268,7 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            void send(draft)
+            send(draft)
           }}
           className="flex items-center gap-2 rounded-[9px] border border-border px-2.5 py-2 focus-within:border-primary focus-within:ring-[3px] focus-within:ring-primary/20"
         >
@@ -363,29 +279,122 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
             aria-label="Message the assistant"
             className="flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-muted-foreground/70"
           />
-          <button
-            type="submit"
-            aria-label="Send"
-            disabled={!draft.trim() || running}
-            className="flex size-6 flex-none items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
-          >
-            <ArrowUpIcon className="size-3" weight="bold" />
-          </button>
+          {busy ? (
+            <button
+              type="button"
+              aria-label="Stop"
+              onClick={() => void assistant.stop()}
+              className="flex size-6 flex-none items-center justify-center rounded-md bg-muted text-foreground transition-colors hover:bg-border"
+            >
+              <StopIcon className="size-3" weight="fill" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              aria-label="Send"
+              disabled={!draft.trim()}
+              className="flex size-6 flex-none items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+            >
+              <ArrowUpIcon className="size-3" weight="bold" />
+            </button>
+          )}
         </form>
       </div>
-    </aside>
+    </>
+  )
+}
+
+function UserBubble({ message }: { message: ChatUIMessage }) {
+  const text = message.parts
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("")
+  return (
+    <div className="flex justify-end">
+      <div className="max-w-[88%] rounded-[10px] bg-primary px-3 py-2.5 text-[12.5px] leading-[1.55] text-primary-foreground">
+        {text}
+      </div>
+    </div>
   )
 }
 
 /**
- * Reports what the resume would come to with this run's changes applied. The
- * count is measured from a real render, not estimated from character counts,
- * so it is the same number the export produces.
+ * One assistant message, rendered part by part in the order the model
+ * produced them: text as it streams, the fit check as a chip, the proposal
+ * as cards. Nothing here is reshaped; the stream is the source of truth.
  */
-function FitChip({ fit }: { fit: Fit }) {
-  if (fit.state === "failed") return null
+function AssistantTurn({
+  message,
+  statuses,
+  busy,
+  onDecide,
+}: {
+  message: ChatUIMessage
+  statuses: Record<string, SuggestionStatus>
+  busy: boolean
+  onDecide: (
+    ids: string[],
+    status: "accepted" | "rejected",
+    runId: string
+  ) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      {message.parts.map((part, index) => {
+        const key = `${message.id}-${index}`
+        if (part.type === "text") {
+          if (part.text.length === 0) return null
+          return (
+            <div key={key} className="flex justify-start">
+              <div className="max-w-[88%] whitespace-pre-wrap rounded-[10px] bg-muted px-3 py-2.5 text-[12.5px] leading-[1.55] text-foreground">
+                {part.text}
+              </div>
+            </div>
+          )
+        }
+        if (part.type === "tool-check_fit") {
+          return (
+            <FitChip
+              key={key}
+              part={part}
+              targetPages={message.metadata?.targetPages}
+            />
+          )
+        }
+        if (part.type === "tool-propose_patches") {
+          return (
+            <Proposal
+              key={key}
+              part={part}
+              statuses={statuses}
+              busy={busy}
+              onDecide={onDecide}
+            />
+          )
+        }
+        return null
+      })}
+      {message.metadata?.stopped ? (
+        <p className="text-[10.5px] text-muted-foreground">Stopped.</p>
+      ) : null}
+    </div>
+  )
+}
 
-  if (fit.state === "pending") {
+/**
+ * Reports what the resume would come to with the drafted changes applied. The
+ * count is measured from a real render in this browser, not estimated from
+ * character counts, so it is the same number the export produces.
+ */
+function FitChip({
+  part,
+  targetPages,
+}: {
+  part: FitPart
+  targetPages: number | undefined
+}) {
+  if (part.state === "output-error") return null
+
+  if (part.state !== "output-available") {
     return (
       <span className="flex w-fit items-center gap-1.5 rounded-full bg-muted px-2 py-[3px] text-[10.5px] text-muted-foreground">
         <Spinner className="size-2.5" />
@@ -394,9 +403,9 @@ function FitChip({ fit }: { fit: Fit }) {
     )
   }
 
-  const pages = `${fit.pageCount} ${fit.pageCount === 1 ? "page" : "pages"}`
-  const missedTarget =
-    fit.targetPages !== undefined && fit.pageCount > fit.targetPages
+  const count = part.output.pageCount
+  const pages = `${count} ${count === 1 ? "page" : "pages"}`
+  const missedTarget = targetPages !== undefined && count > targetPages
 
   return (
     <span
@@ -408,9 +417,83 @@ function FitChip({ fit }: { fit: Fit }) {
       )}
     >
       {missedTarget
-        ? `Checked fit: ${pages}, still over your ${fit.targetPages}-page target`
+        ? `Checked fit: ${pages}, still over your ${targetPages}-page target`
         : `Checked fit: ${pages}`}
     </span>
+  )
+}
+
+function Proposal({
+  part,
+  statuses,
+  busy,
+  onDecide,
+}: {
+  part: ProposePart
+  statuses: Record<string, SuggestionStatus>
+  busy: boolean
+  onDecide: (
+    ids: string[],
+    status: "accepted" | "rejected",
+    runId: string
+  ) => void
+}) {
+  if (part.state === "output-error") {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        The suggestions could not be checked. Try sending the request again.
+      </p>
+    )
+  }
+  if (part.state !== "output-available") {
+    return (
+      <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+        <Spinner className="size-3.5" />
+        Checking the suggestions
+      </div>
+    )
+  }
+
+  const { output } = part
+  const suggestions: Suggestion[] = output.suggestions.map((s) => ({
+    id: s.id,
+    runId: output.runId,
+    ordinal: s.ordinal,
+    patch: s.patch,
+    status: statuses[s.id] ?? "pending",
+  }))
+
+  return (
+    <>
+      {output.gaps.length > 0 ? (
+        <div className="rounded-[9px] border border-border bg-canvas p-2.5">
+          <p className="mb-1 text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
+            The posting asks for
+          </p>
+          <ul className="flex flex-col gap-0.5">
+            {output.gaps.map((gap) => (
+              <li key={gap} className="text-[11.5px] text-foreground">
+                {gap}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <SuggestionGroup
+        runId={output.runId}
+        suggestions={suggestions}
+        rejected={output.rejected}
+        busy={busy}
+        onDecide={onDecide}
+      />
+      {output.followUpQuestion ? (
+        <div className="flex justify-start">
+          <div className="max-w-[88%] rounded-[10px] bg-muted px-3 py-2.5 text-[12.5px] leading-[1.55] text-foreground">
+            {output.followUpQuestion}
+          </div>
+        </div>
+      ) : null}
+    </>
   )
 }
 

@@ -215,13 +215,37 @@ const bullet = current.data.sections
   .flatMap((i) => ("bullets" in i ? i.bullets : []))[0]
 if (!bullet) throw new Error("starter fixture has no bullets")
 
-const run = await a.suggestions.createRun({
+const run = await a.runs.start({
   conversationId: conversation.id,
   resumeId: created.id,
   skillId: "bullet_rewrite",
   model: "demo",
+  input: {},
 })
 check("run is created", run.resumeId === created.id)
+check("run snapshots the head first", run.resumeVersionId !== null)
+check(
+  "a running run blocks a second",
+  await a.runs
+    .start({
+      conversationId: conversation.id,
+      resumeId: created.id,
+      skillId: "bullet_rewrite",
+      model: "demo",
+      input: {},
+    })
+    .then(
+      () => false,
+      (error) => error instanceof AppError && error.code === "CONFLICT"
+    )
+)
+check(
+  "the hourly count sees the run",
+  await a.runs.assertWithinHourlyLimit(1).then(
+    () => false,
+    (error) => error instanceof AppError && error.code === "RATE_LIMITED"
+  )
+)
 
 const saved = await a.suggestions.persistProposal(run.id, [
   {
@@ -250,6 +274,32 @@ check(
   "accepting applied the patch",
   JSON.stringify(decided.head).includes("Checked.")
 )
+await a.runs.finish(run.id, {
+  status: "completed",
+  inputTokens: 10,
+  outputTokens: 5,
+  latencyMs: 100,
+})
+check(
+  "a finished run no longer blocks",
+  (await a.runs.findRunning(conversation.id)) === null
+)
+
+console.log("messages and memory")
+const userMessage = await a.messages.append({
+  conversationId: conversation.id,
+  role: "user",
+  parts: [{ type: "text", text: "Tighten this" }],
+  agentRunId: run.id,
+  metadata: { skillId: "bullet_rewrite" },
+})
+check("message gets a seq", userMessage.seq > 0)
+const context = await a.memory.buildContext(conversation.id)
+check("window holds the message", context.messages[0]?.id === userMessage.id)
+check("no summary yet", context.summaryText === null)
+const memoryService = a.memory
+const consolidated = await memoryService.maybeConsolidate(conversation.id)
+check("below threshold is skipped", consolidated === "skipped")
 
 console.log("isolation")
 check(

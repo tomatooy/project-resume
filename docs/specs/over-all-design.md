@@ -277,9 +277,9 @@ The repo is a Bun + Turborepo monorepo. The architecture document's Appendix B s
 | `src/features/chat` | `apps/web/src/features/chat` | `useChat`, diff cards, skill picker |
 | `src/server/auth` | `apps/web/src/server/auth` | Supabase SSR client, `requireUser` |
 | `src/server/db` | `supabase/types/database.ts` | generated types, owned by the package that owns the migrations |
-| `src/server/resume-service` | `apps/web/src/server/resume` | resume and version services |
-| `src/server/memory` | `apps/web/src/server/memory` | context builder, consolidation |
-| `src/server/ai/orchestrator.ts` | `apps/web/src/server/chat/run.ts` | wires request to `packages/agent` |
+| `src/server/resume-service` | `packages/resume-core/src/services/` | resume, version, run, suggestion services on ports; Supabase adapters in `apps/web/src/server/adapters/` |
+| `src/server/memory` | `packages/resume-core/src/services/memory-service.ts` | context builder, consolidation; the summarizer is a port implemented in `packages/agent` |
+| `src/server/ai/orchestrator.ts` | `apps/web/src/server/chat/handle-chat.ts` | wires request to `packages/agent` |
 | `src/server/ai/patch-schema.ts` | `packages/resume-schema/src/patch.ts` | shared with the browser for `check_fit` and diffs |
 | `src/server/ai/skills/*` | `packages/agent/src/skills/*` | headless, testable with a mock model |
 | `src/templates/*` | `packages/resume-render/src/templates/*` | react-pdf components |
@@ -290,11 +290,11 @@ Package dependency direction (arrows point at dependencies):
 apps/web -> packages/ui
 apps/web -> packages/resume-schema
 apps/web -> packages/resume-render -> packages/resume-schema
-apps/web -> packages/agent         -> packages/resume-schema
+apps/web -> packages/agent         -> packages/resume-core -> packages/resume-schema
 packages/resume-schema -> (nothing internal)
 ```
 
-`resume-schema` has no React, no Supabase, no AI SDK. `agent` has no Supabase and no React; it receives models, tools, and persistence callbacks by injection. `resume-render` has no app state and no network.
+`resume-schema` has no React, no Supabase, no AI SDK. `resume-core` holds the domain types, the ports, the services, and in-memory doubles for every port; it has no framework dependency at all. `agent` has no Supabase and no React; it receives models, tools, and persistence callbacks by injection. `resume-render` has no app state and no network. `apps/web` owns everything that touches Supabase or Cloudflare.
 
 ---
 
@@ -308,16 +308,17 @@ packages/resume-schema -> (nothing internal)
 | 4 | Auth | Supabase Auth with `@supabase/ssr` cookie sessions | Same vendor as the database; RLS uses `auth.uid()` |
 | 5 | Authorization | RLS on every table; the Worker uses the anon key plus the user's JWT; no service-role key in the request path | Ownership is enforced by the database, not remembered by each handler |
 | 6 | Agent runtime | Stateless server route with `streamText` and SSE; no Durable Object in MVP | Context is rebuilt from Postgres per request; DO only if stream resumption is needed |
-| 7 | AI SDK | Vercel AI SDK 6 | Streaming, provider abstraction, client-side tools, Zod tool schemas |
-| 8 | Model access | Cloudflare AI Gateway in front of Anthropic and OpenAI | Provider fallback, caching, cost analytics without code changes |
+| 7 | AI SDK | Vercel AI SDK 7 (`ai`, `@ai-sdk/react`) | Streaming, provider abstraction, client-side tools, Zod tool schemas, `MockLanguageModelV3` for deterministic tests |
+| 8 | Model access | DeepSeek direct (`@ai-sdk/deepseek`), `deepseek-v4-flash` on both tiers, behind a provider switch in `packages/agent/src/models.ts` | One key, one vendor to start; changing model or vendor is config plus one `case`, and a gateway can be put in front through `AI_BASE_URL` |
 | 9 | Skill selection | Explicit, chosen by the user in the UI | Predictable, cheaper, no classifier to tune; a router can be added later without changing the skill interface |
 | 10 | PDF engine | `@react-pdf/renderer` in the browser, preview is the PDF itself | Deterministic layout across browsers, no pagination code, no render infrastructure; resolves the "fidelity" open question |
 | 11 | Versioning | Working head in `resumes.data` plus explicit immutable versions | Autosave stays cheap; every AI change and every user checkpoint is recoverable |
-| 12 | Memory | Three layers in MVP, consolidation in-request after the stream via `waitUntil` | Full design present from day one; Queues deferred until volume demands |
-| 13 | Code layout | Monorepo packages `resume-schema`, `resume-render`, `agent`, `ui`, app in `apps/web` | Templates and the agent are testable without the app; schema is shared by browser and Worker |
+| 12 | Memory | Three layers in MVP, consolidation after the stream through a `Background` port (`waitUntil` on Workers) | Full design present from day one; Queues deferred until volume demands |
+| 13 | Code layout | Monorepo packages `resume-schema`, `resume-core`, `resume-render`, `agent`, `ui`, app in `apps/web` | Hexagonal: domain services on ports in `resume-core`, AI SDK code in `agent`, Supabase and Cloudflare adapters in the app; every layer is testable without the one above it |
 | 14 | Styling | Tailwind v4 + shadcn on Base UI for app chrome only; templates use react-pdf `StyleSheet` | react-pdf cannot see CSS; the separation is enforced by the library |
 | 15 | Lint and format | Biome | Already configured in the repo |
-| 16 | Skills to ship first | `bullet_rewrite`, `jd_match`, `grammar_clarity` | Cover the three most common requests; exercise single-node, multi-op, and whole-document scoping |
+| 16 | Skills to ship first | `bullet_rewrite`, `jd_match`, `grammar_clarity`, `condense_to_pages` | Cover the most common requests; exercise single-node, multi-op, and whole-document scoping, and the one client-side tool (`check_fit`) |
+| 17 | Rate limiting | Count of the user's `agent_runs` in the last hour, through RLS | One source of truth; no KV counter to drift from the rows it mirrors |
 
 ---
 

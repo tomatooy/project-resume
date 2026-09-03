@@ -10,19 +10,15 @@ import {
   setTemplate as setTemplateFn,
   updateResume as updateResumeFn,
 } from "@/server/fns/resumes"
-import {
-  createRun as createRunFn,
-  decideSuggestions as decideSuggestionsFn,
-  getOrCreateConversation as getOrCreateConversationFn,
-  saveSuggestions as saveSuggestionsFn,
-} from "@/server/fns/suggestions"
+import { getOrCreateConversation as getOrCreateConversationFn } from "@/server/fns/conversations"
+import { decideSuggestions as decideSuggestionsFn } from "@/server/fns/suggestions"
 import {
   createSnapshot as createSnapshotFn,
   getVersion as getVersionFn,
   listVersions as listVersionsFn,
   restoreVersion as restoreVersionFn,
 } from "@/server/fns/versions"
-import { ApiError } from "./types"
+import { ApiError, type ChatHistory } from "./types"
 
 /**
  * The application's data layer: one thin wrapper per server function.
@@ -132,8 +128,52 @@ export const restoreVersion = guard(restoreVersionFn)
 /* -------------------------------------------------- conversations, runs */
 
 export const getOrCreateConversation = guard(getOrCreateConversationFn)
-export const createRun = guard(createRunFn)
-export const saveSuggestions = guard(saveSuggestionsFn)
+
+/**
+ * Rebuilds an `ApiError` from the JSON the chat route answers with when it
+ * refuses a request. `useChat` surfaces that body as the error's message, so
+ * the same parser serves both the history fetch and the stream.
+ */
+export function apiErrorFromBody(text: string, status: number): ApiError {
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "error" in parsed &&
+      typeof parsed.error === "object" &&
+      parsed.error !== null &&
+      "message" in parsed.error &&
+      typeof parsed.error.message === "string"
+    ) {
+      const code = codeOf(parsed.error) ?? "INTERNAL"
+      return new ApiError(code, parsed.error.message, status)
+    }
+  } catch {
+    // Not JSON: fall through to the generic error.
+  }
+  return new ApiError("INTERNAL", "Something went wrong", status)
+}
+
+/**
+ * The stored conversation, as `useChat` expects to receive it, plus the
+ * current status of every suggestion card in it. Fetched from the chat route
+ * rather than a server function because patches carry `unknown` fields that
+ * the server-function serializer refuses.
+ */
+export async function listMessages(
+  conversationId: string
+): Promise<ChatHistory> {
+  const params = new URLSearchParams({ conversationId })
+  const response = await fetch(`/api/chat?${params}`, {
+    credentials: "same-origin",
+  })
+  if (!response.ok) {
+    throw apiErrorFromBody(await response.text(), response.status)
+  }
+  const history: ChatHistory = await response.json()
+  return history
+}
 
 /**
  * Accepting suggestions applies their patches to the head as it stands now and

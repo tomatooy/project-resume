@@ -14,6 +14,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LogoutRouteImport } from './routes/logout'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
+import { Route as ApiChatRouteImport } from './routes/api.chat'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AppRResumeIdRouteImport } from './routes/_app.r.$resumeId'
 import { Route as AppRResumeIdIndexRouteImport } from './routes/_app.r.$resumeId.index'
@@ -45,6 +46,11 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
   getParentRoute: () => AppRoute,
+} as any)
+const ApiChatRoute = ApiChatRouteImport.update({
+  id: '/api/chat',
+  path: '/api/chat',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AuthCallbackRoute = AuthCallbackRouteImport.update({
   id: '/auth/callback',
@@ -87,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/dashboard': typeof AppDashboardRoute
+  '/api/chat': typeof ApiChatRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/r/$resumeId': typeof AppRResumeIdRouteWithChildren
   '/r/$resumeId/edit': typeof AppRResumeIdEditRoute
@@ -100,6 +107,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/dashboard': typeof AppDashboardRoute
+  '/api/chat': typeof ApiChatRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/r/$resumeId/edit': typeof AppRResumeIdEditRoute
   '/r/$resumeId/export': typeof AppRResumeIdExportRoute
@@ -114,6 +122,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/api/chat': typeof ApiChatRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/_app/r/$resumeId': typeof AppRResumeIdRouteWithChildren
   '/_app/r/$resumeId/edit': typeof AppRResumeIdEditRoute
@@ -129,6 +138,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/logout'
     | '/dashboard'
+    | '/api/chat'
     | '/auth/callback'
     | '/r/$resumeId'
     | '/r/$resumeId/edit'
@@ -142,6 +152,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/logout'
     | '/dashboard'
+    | '/api/chat'
     | '/auth/callback'
     | '/r/$resumeId/edit'
     | '/r/$resumeId/export'
@@ -155,6 +166,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/logout'
     | '/_app/dashboard'
+    | '/api/chat'
     | '/auth/callback'
     | '/_app/r/$resumeId'
     | '/_app/r/$resumeId/edit'
@@ -169,6 +181,7 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
   LogoutRoute: typeof LogoutRoute
+  ApiChatRoute: typeof ApiChatRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
 }
 
@@ -208,6 +221,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/api/chat': {
+      id: '/api/chat'
+      path: '/api/chat'
+      fullPath: '/api/chat'
+      preLoaderRoute: typeof ApiChatRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/auth/callback': {
       id: '/auth/callback'
@@ -298,6 +318,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
   LogoutRoute: LogoutRoute,
+  ApiChatRoute: ApiChatRoute,
   AuthCallbackRoute: AuthCallbackRoute,
 }
 export const routeTree = rootRouteImport

@@ -40,6 +40,12 @@ export class InMemorySuggestionRepository implements SuggestionRepository {
       .map(toSuggestion)
   }
 
+  async listForRuns(runIds: string[]): Promise<Suggestion[]> {
+    return this.db.suggestions
+      .filter((s) => runIds.includes(s.runId))
+      .map(toSuggestion)
+  }
+
   async decide(input: DecideInput): Promise<DecideOutcome> {
     const run = this.db.runs.find((r) => r.id === input.runId)
     if (!run) throw new Error(`run ${input.runId} not found`)

@@ -77,6 +77,8 @@ export type MessagePart = z.infer<typeof MessagePartSchema>
 export const MessageMetadataSchema = z.object({
   skillId: z.string().optional(),
   selectedNodeId: z.string().optional(),
+  /** The page target the run was given, so a fit chip can say "over". */
+  targetPages: z.number().int().min(1).max(4).optional(),
   /** The user pressed Stop; the assistant text is whatever had streamed. */
   stopped: z.boolean().optional(),
 })

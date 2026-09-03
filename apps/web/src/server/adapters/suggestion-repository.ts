@@ -69,6 +69,16 @@ export class SupabaseSuggestionRepository implements SuggestionRepository {
     return data.map(toSuggestion)
   }
 
+  async listForRuns(runIds: string[]): Promise<Suggestion[]> {
+    if (runIds.length === 0) return []
+    const { data, error } = await this.db
+      .from("suggestions")
+      .select(COLUMNS)
+      .in("agent_run_id", runIds)
+    if (error) throw error
+    return data.map(toSuggestion)
+  }
+
   /**
    * Recording the decisions and creating the resulting version are one call, so
    * a suggestion can never end up marked accepted with no version to show for

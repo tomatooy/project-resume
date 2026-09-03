@@ -563,30 +563,35 @@ Validation is deterministic and runs in both the Worker (before persisting sugge
 
 ---
 
-## 7. Services (`apps/web/src/server/`)
+## 7. Services (`packages/resume-core/src/services/`)
 
-### 7.1 `resume/resume-service.ts`
+Services are framework-free and depend only on the ports in `packages/resume-core/src/ports/`. The app wires them to Supabase adapters in `apps/web/src/server/container.ts`; tests wire them to the in-memory doubles in `packages/resume-core/src/testing/`.
+
+### 7.1 `resume-service.ts`
 
 Thin typed wrappers over the `resumes` table used by the server functions in section 4.1. `update` validates with `ResumeSchema`, sets `schema_version`, and performs the `expectedUpdatedAt` check with `update ... where id = ? and updated_at = ?` returning the row (zero rows means conflict).
 
-### 7.2 `resume/version-service.ts`
+### 7.2 `version-service.ts`
 
 `snapshot(resumeId, { label, createdBy, agentRunId })`: reads head, computes `contentHash`, compares with current version's hash, returns the existing version if equal, otherwise calls `create_resume_version` RPC.
 
 `restore(resumeId, versionId)`: reads the version content, calls `create_resume_version` with that content and label `Restored from v{n}`.
 
-### 7.3 `chat/run-service.ts`
+### 7.3 `run-service.ts`
 
-`startRun({ conversationId, resumeId, skillId, selectedNodeId, model })`:
-1. `versionService.snapshot(resumeId, { label: 'Before AI run', createdBy: 'system' })` (no-op if unchanged).
-2. Insert `agent_runs` with `status = 'running'` and that `resume_version_id`.
-3. Return `{ runId, baseVersion }`.
+`start({ conversationId, resumeId, skillId, selectedNodeId, model, input })`:
+1. `runs.failAbandoned(conversationId, now - 10 min)`: a run still `running` after ten minutes is marked `failed` with error class `abandoned`.
+2. If a run is still `running`, throw `CONFLICT` ("A request is already in progress").
+3. `versionService.snapshot(resumeId, { label: 'Before AI run', createdBy: 'system' })` (no-op if unchanged).
+4. Insert `agent_runs` with `status = 'running'`, that `resume_version_id`, and the request's `jobDescription` and `targetPages` in `input`.
 
-`finishRun(runId, { status, usage, latencyMs, errorClass })` also clears `agent_runs.input` so job descriptions are not retained beyond the run.
+`finish(runId, { status, errorClass, inputTokens, outputTokens, latencyMs })` also clears `agent_runs.input` so job descriptions are not retained beyond the run.
+
+`assertWithinHourlyLimit(limit = 60)` counts the user's `agent_runs` in the last hour (RLS scopes the count) and throws `RATE_LIMITED` with `retryAfterSeconds` at the limit. See section 11.1.
 
 ### 7.4 `chat/suggestion-service.ts`
 
-`persistProposal(runId, resumeId, valid: ResumePatch[])`: inserts one `suggestions` row per patch with `ordinal`, returns rows with IDs.
+`persistProposal(runId, resumeId, valid: ResumePatch[])`: inserts one `suggestions` row per patch with `ordinal`, returns rows with IDs. Idempotent per run: a patch equal to one already stored for the run is not inserted again, and ordinals continue from the stored maximum, so a model that repeats a proposal after a correction does not duplicate cards.
 
 `decide(userId, runId, decisions)`:
 1. Load the run and its pending suggestions; unknown IDs or non-pending rows are `VALIDATION` errors.
@@ -596,7 +601,7 @@ Thin typed wrappers over the `resumes` table used by the server functions in sec
 5. Call `decide_suggestions` RPC with the statuses, the new content, and its hash. When nothing was accepted, the RPC only updates statuses and returns null.
 6. Return `{ head, updatedAt, version, results }`.
 
-### 7.5 `memory/memory-service.ts`
+### 7.5 `memory-service.ts`
 
 See section 9.
 
@@ -606,43 +611,56 @@ See section 9.
 
 ```ts
 export const Route = createFileRoute('/api/chat')({
-  server: { handlers: { POST: handleChat } },
+  server: {
+    handlers: {
+      GET: ({ request }) => withChat(({ services }) => loadHistory(services, request)),
+      POST: ({ request }) => withChat((deps) => handleChat(deps, request)),
+    },
+  },
 })
 ```
+
+`withChat` (`server/chat/deps.ts`) builds the per-request Supabase client, requires a user, creates the models and services, and turns any error into the JSON shape below. `handleChat` (`server/chat/handle-chat.ts`) takes those dependencies as a value, which is how the route tests run it with in-memory doubles and `MockLanguageModelV3`.
+
+`GET /api/chat?conversationId=` returns `{ messages: UIMessage[], suggestions: Record<suggestionId, status> }`: the stored transcript plus the current status of every card it references. It is a route rather than a server function because the server-function serializer refuses the `unknown`-typed patch fields inside tool outputs.
 
 ### 8.1 Request
 
 ```ts
-const ChatRequest = z.object({
-  conversationId: z.string().uuid(),
-  resumeId: z.string().uuid(),
-  skillId: SkillId.optional(),           // required on a new turn, absent on a client-tool continuation
-  selectedNodeId: NodeId.optional(),
-  jobDescription: z.string().max(20000).optional(),
-  targetPages: z.number().int().min(1).max(5).optional(),
-  messages: z.array(z.unknown()),        // UIMessage[] from useChat
+const ChatRequestSchema = z.object({
+  id: z.string().optional(),             // useChat's chat id
+  trigger: z.string().optional(),
+  messages: z.array(z.unknown()).min(1), // the last two UIMessages from useChat
+  conversationId: z.uuid(),
+  resumeId: z.uuid(),
+  skillId: z.string().optional(),        // required on a new turn
+  selectedNodeId: z.string().optional(),
+  jobDescription: z.string().trim().max(20000).optional(),
+  targetPages: z.number().int().min(1).max(4).optional(),
 })
 ```
 
 ### 8.2 Handler steps
 
-1. `createSupabaseForRequest`, `requireUser`.
-2. Parse body with `ChatRequest`; `VALIDATION` on failure.
-3. Rate limit: KV key `rl:${userId}:${hourBucket}`; increment; over 60 per hour → 429 with `Retry-After`.
-4. Load conversation (must belong to the user and to `resumeId`), the resume head, and the skill from the registry (`UNKNOWN_SKILL` → 400).
-5. Determine the turn type from the last UI message:
-   - `role: 'user'`: new turn. `skillId` is required (400 `VALIDATION` otherwise). Insert the message row. `startRun`, storing `skill_id`, `selected_node_id`, and the request's `jobDescription` and `targetPages` in `agent_runs.input` (jsonb).
-   - `role: 'assistant'` containing tool parts with outputs (client tool continuation): find the run with `status = 'running'` for this conversation (404 if none); read `skillId`, `selectedNodeId`, `jobDescription`, `targetPages` from that run; persist the tool output into the run's pending assistant message (`metadata.pendingParts`); do not start a new run.
-6. Build model messages: `[system, ...memoryContext, ...(continuation ? [inFlightAssistantMessage] : [])]` where `memoryContext = buildContext(conversationId)` (section 9.1) and the new user message is included by `buildContext` because it was inserted in step 5.
-7. Build the `AgentInput` (section 10.2) and call `runSkill()` from `packages/agent`, passing the tools with server-side `execute` bound to this request (`propose_patches`) and the client-side tool (`check_fit`, no `execute`).
-8. Return `result.toUIMessageStreamResponse({ onFinish, consumeSseStream: consumeStream })`.
-9. `onFinish({ responseMessage, isAborted })`: insert the assistant message row with all parts, `finishRun` with usage and status (`completed`, `cancelled` if aborted, `failed` on error), then `ctx.waitUntil(memoryService.maybeConsolidate(conversationId))`.
+1. Parse the body; `validateUIMessages` on `messages`. `VALIDATION` on failure.
+2. Load the resume (404 if not the user's) and the resume's conversation; the request's `conversationId` must match it (404 otherwise).
+3. Determine the turn type from the last UI message:
+   - `role: 'user'`: new turn. Resolve the skill (`VALIDATION` for an unknown or `phase2` skill, or a missing `jobDescription` / `targetPages` the skill requires). `assertWithinHourlyLimit`. If the message before it is an assistant message with an unanswered `check_fit` call, finish that run as `cancelled` with error class `superseded`. `runs.start`, then store the user message with `agent_run_id` and `metadata { skillId, selectedNodeId, targetPages }`.
+   - `role: 'assistant'` whose `check_fit` part carries an output or an error (client-tool continuation): reuse the run that is still `running` for this conversation (`CONFLICT` if none: the pause timed out or was superseded), and convert that one message with `convertToModelMessages` so the tool result is replayed after the stored history. No new run, no new message row.
+4. Build model messages: `memoryService.buildContext(conversationId)` (section 9.1) gives the summary text and the recent stored messages, which already include the new user message; a continuation appends the in-flight assistant message.
+5. `runSkill()` from `packages/agent` with `propose_patches` bound to `persistProposal` for this run and `check_fit` as a client tool (no `execute`). Abort on client disconnect or after 90 seconds.
+6. Return `result.toUIMessageStreamResponse({ originalMessages, messageMetadata, onError, onFinish })`. `messageMetadata` stamps `{ skillId, selectedNodeId, targetPages }` on the start part; `onError` logs the error class and returns a fixed message.
+7. `onFinish({ responseMessage, isAborted, outcome })`: if the stream ended with `check_fit` at `input-available`, the run stays `running` and nothing is stored (the browser will answer). Otherwise store the assistant message with all parts (`metadata.stopped` when aborted), `finish` the run with status (`completed`, `cancelled` if aborted, `failed` on error), token usage from `onStepEnd`, and latency, then `background.run(() => maybeConsolidate(conversationId))`.
 
-Errors after streaming has started are written as an `error` part; before streaming they are JSON `{ error }` with the status codes from section 4.
+Errors before streaming are JSON `{ error: { code, message } }` with the status codes from section 4 and a `Retry-After` header on 429. Errors during streaming are written as an error part with a fixed message; the class is logged.
 
 ### 8.3 Why history is rebuilt server-side
 
-The client sends its full `UIMessage[]` on each request, but the server uses only the last message from it. Everything before that comes from Postgres through the memory service. This keeps the client from being the source of truth for history and lets the server apply the three-layer context policy.
+The client sends only the last two `UIMessage`s (`prepareSendMessagesRequest` in `features/chat/use-assistant.ts`), and the server uses only the last one. Everything before that comes from Postgres through the memory service. This keeps the client from being the source of truth for history and lets the server apply the three-layer context policy.
+
+### 8.4 The `check_fit` round trip
+
+`check_fit` has no server `execute`, so the model's call ends the stream with the part at `input-available`. `useChat` runs `onToolCall`, which renders the resume with the drafted patches through the same react-pdf pipeline the preview uses, then `addToolOutput({ pageCount, pageSize })`. `sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls` posts the answered message back, and step 3's continuation branch resumes the same run. A pause the browser never answers is closed by the next user turn (superseded) or by the ten-minute sweep (abandoned).
 
 ---
 
@@ -650,13 +668,12 @@ The client sends its full `UIMessage[]` on each request, but the server uses onl
 
 ### 9.1 Context building
 
-`buildContext(conversationId): ModelMessage[]`
+`buildContext(conversationId): { summaryText: string | null, messages: ChatMessage[] }`
 
 1. Load `conversations.active_summary_id`; if present, load the summary.
 2. Load the last 12 messages with `seq > summary.source_to_seq` (or the last 12 overall when there is no summary), ordered by `seq`.
-3. Return `[ { role: 'system', content: 'Conversation memory:\n' + summary_text } (if summary), ...convertToModelMessages(messages) ]`.
 
-Tool parts in stored messages are kept only as compact text (`[check_fit: 2 pages]`, `[proposed 4 patches, ids ...]`) when converting, to save tokens.
+`packages/agent` puts `summaryText` into the system prompt and converts the messages with `toModelMessages`, which keeps tool parts only as compact text (`[check_fit: 2 pages]`, `[proposed 4 patches, 1 rejected]`). That saves tokens and, more importantly, means a run's prompt never replays a previous run's tool calls, so providers see no orphaned call and result pairs.
 
 ### 9.2 Summary schema
 
@@ -678,34 +695,33 @@ export const MemorySummary = z.object({
 
 1. Count messages with `seq > active summary.source_to_seq` (or all). If fewer than 12, return.
 2. Load the previous summary (if any) and those messages.
-3. `generateObject({ model: models.fast, schema: MemorySummary, prompt })` where the prompt includes the previous summary JSON and the messages as compact text (tool parts summarized as in 9.1). Instruction: merge, keep decisions, drop resolved open tasks.
-4. Insert `memory_summaries` with `source_from_seq` = first message seq covered, `source_to_seq` = last, `model`.
-5. Update `conversations.active_summary_id`.
+3. `generateText({ model: models.fast, output: Output.object({ schema: MemorySummary }), prompt })` where the prompt includes the previous summary JSON and the messages as compact text (tool parts summarized as in 9.1). Instruction: merge, keep decisions, drop resolved open tasks.
+4. Call the `create_memory_summary` RPC, which inserts `memory_summaries` (`source_from_seq` = first message seq covered, `source_to_seq` = last, `model`) and updates `conversations.active_summary_id` in one statement.
 
-Failure is logged (error class only) and ignored; the next run retries. This is the "full three-layer memory" of the MVP; Cloudflare Queues replace `waitUntil` in phase 2 without changing this function's contract.
+Failure is logged (error class only) and ignored; the next run retries. The `Background` port (`ports/background.ts`) runs it; the app's adapter uses `waitUntil` from `cloudflare:workers` and falls back to a detached promise. Cloudflare Queues can replace that adapter in phase 2 without changing this function's contract.
 
 ---
 
 ## 10. Agent package (`packages/agent`)
 
-Headless. Depends on `ai`, `@ai-sdk/anthropic`, `@ai-sdk/openai`, `zod`, `@workspace/resume-schema`. No Supabase, no React, no `cloudflare:workers`.
+Headless. Depends on `ai`, `@ai-sdk/deepseek`, `zod`, `@workspace/resume-core`, `@workspace/resume-schema`. No Supabase, no React, no `cloudflare:workers`. Everything that touches the AI SDK lives here; the app only supplies a `Models` value and persistence callbacks.
 
 ### 10.1 Models (`src/models.ts`)
 
 ```ts
 export type ModelTier = 'fast' | 'smart'
-export function createModels(cfg: { gatewayBaseUrl: string; anthropicApiKey: string; openaiApiKey: string; gatewayToken?: string }) {
-  const anthropic = createAnthropic({ baseURL: `${cfg.gatewayBaseUrl}/anthropic`, apiKey: cfg.anthropicApiKey, headers: gatewayHeaders })
-  const openai = createOpenAI({ baseURL: `${cfg.gatewayBaseUrl}/openai`, apiKey: cfg.openaiApiKey, headers: gatewayHeaders })
-  return {
-    smart: anthropic('claude-sonnet-5'),
-    fast: anthropic('claude-haiku-4-5-20251001'),
-    fallbackSmart: openai('gpt-5'),
-  }
+export type ModelProvider = 'deepseek'
+export type ModelConfig = {
+  provider: ModelProvider
+  apiKey: string
+  baseURL?: string
+  modelIds?: Partial<Record<ModelTier, string>>
 }
+export function createModels(config: ModelConfig): Models
+// Models = { smart, fast, ids: { smart, fast }, providerOptions }
 ```
 
-Skills use `smart`; consolidation uses `fast`. Provider fallback is configured in the AI Gateway, not in code. With `AI_MOCK=1` the app substitutes `MockLanguageModelV2` from `ai/test` with canned responses per skill fixture.
+`createModels` switches on `config.provider`; adding a vendor is one `case` plus one dependency. The default for both tiers is `deepseek-v4-flash`, with thinking disabled through `providerOptions`; `AI_MODEL_SMART` and `AI_MODEL_FAST` override the ids per environment (`wrangler.jsonc` vars). Skills use `smart`; consolidation uses `fast`. The app reads the key from `DEEPSEEK_API_KEY` (`server/ai.ts`); tests pass `MockLanguageModelV3` from `ai/test` in the same `Models` shape, so no mock mode exists in the app.
 
 ### 10.2 Skill interface (`src/skills/types.ts`)
 
@@ -802,9 +818,9 @@ export function runSkill(input: {
 
 `stopWhen` ends the loop after `propose_patches` succeeds or after six steps. The route wires `scopeNodeId` and the grounding text into the `ValidationContext` given to `proposePatchesTool`.
 
-### 10.6 Evals (`packages/agent/test/`)
+### 10.6 Tests (`packages/agent/test/`)
 
-For each MVP skill, a fixture: resume, user message, optional JD, and assertions run with the real `smart` model behind an `EVAL=1` flag (skipped in CI): at least one valid patch, zero `UNGROUNDED_NUMBER` rejections, all targets inside scope, `propose_patches` called exactly once. Unit tests with `MockLanguageModelV2` cover the loop mechanics without a network.
+Deterministic only, on `MockLanguageModelV3`: the loop stops after `propose_patches`; a rejected proposal earns one correction and only the additions are persisted; the step budget holds; scoping excludes other items from the prompt; `check_fit` is offered only to skills that declare it; message conversion round-trips and compacts tool parts; the summarizer rejects output that misses the schema. Evals against a real model are a phase 2 item; nothing in CI needs a key.
 
 ---
 
@@ -812,11 +828,11 @@ For each MVP skill, a fixture: resume, user message, optional JD, and assertions
 
 ### 11.1 Rate limiting
 
-KV counter per user per hour on `/api/chat` (60 requests). Server functions are not rate limited in the MVP beyond Cloudflare's defaults.
+`RunService.assertWithinHourlyLimit` counts the user's `agent_runs` rows created in the last hour (an index on `created_at`; RLS scopes the count to the user) and refuses the 61st with 429 and `Retry-After`. No KV: a run row is written anyway, and one source of truth is easier to reason about than a counter that can drift from it. Server functions are not rate limited in the MVP beyond Cloudflare's defaults.
 
 ### 11.2 Logging
 
-Structured JSON via `console.log` picked up by Workers observability. Allowed fields: `requestId, userId, resumeId, conversationId, runId, skillId, model, status, errorClass, latencyMs, inputTokens, outputTokens, patchCount, rejectedCount`. Forbidden: message text, resume content, patch text, job descriptions, email addresses.
+Structured JSON via `console.log` picked up by Workers observability. `server/log.ts` defines the allowed fields as a closed type: `requestId, userId, resumeId, conversationId, runId, skillId, model, status, errorClass, inputTokens, outputTokens, latencyMs, steps, outcome, count`. Errors are logged as `errorClassOf(error)` (the error's name or code), never the message. Forbidden: message text, resume content, patch text, job descriptions, email addresses.
 
 ### 11.3 Metrics derived from tables
 
@@ -826,7 +842,7 @@ Structured JSON via `console.log` picked up by Workers observability. Allowed fi
 
 ### 11.4 Error classes on `agent_runs.error_class`
 
-`provider`, `schema_validation`, `database`, `authorization`, `rate_limit`, `user_cancelled`, `internal`.
+The error's class name or code as `errorClassOf` reports it (for example `AI_APICallError`, `ZodError`, `TimeoutError`), plus three the services assign: `aborted` (the user pressed Stop or the client disconnected), `superseded` (a paused `check_fit` was overtaken by the next user turn), `abandoned` (still `running` after ten minutes).
 
 ### 11.5 Backups and retention
 
@@ -839,10 +855,11 @@ Supabase daily backups (managed). Messages and versions are never deleted in the
 | Layer | Tool | Coverage |
 |---|---|---|
 | `resume-schema` | Vitest | schema accepts fixtures and rejects malformed docs; `applyPatches` for every op and inverse; `validatePatches` for every error code; `contentHash` stable across key order |
-| Database | Vitest against local Supabase | RLS: user B cannot read or write user A's rows in any table; RPC functions create versions atomically |
-| Server functions | Vitest with a test user session | each function's happy path and each error code; `updateResume` conflict; `restoreVersion` labels |
-| Chat route | Vitest with `MockLanguageModelV2` | new turn creates a run and a version snapshot; `propose_patches` persists suggestions; client-tool continuation does not create a second run; `onFinish` persists the assistant message and triggers consolidation at 12 messages |
-| Agent | Vitest (mock) and `EVAL=1` (real model) | section 10.6 |
+| `resume-core` | Vitest on in-memory doubles | run start, conflict, abandoned sweep, rate limit; memory window, threshold, chained summaries; suggestion decide and idempotent persist |
+| Database | pgTAP (`supabase/tests/`) | RLS: user B cannot read or write user A's rows in any table; RPCs create versions, decide suggestions, and activate summaries atomically; grants |
+| Adapters | `bun run db:check` against the local stack | the Supabase adapters agree with the schema, as two signed-in users |
+| Chat route | Vitest with `MockLanguageModelV3` and in-memory services | new turn creates a run and a version snapshot; `propose_patches` persists suggestions; `check_fit` pauses the run and the continuation resumes it; a stalled pause is superseded; 429, 400, 404, 409 paths; `onFinish` persists the assistant message and schedules consolidation |
+| Agent | Vitest with `MockLanguageModelV3` | section 10.6 |
 | End to end | Playwright | see `front-end.md` section 10 |
 
 CI runs `bun run check`, `bun run typecheck`, `bun run test` on every push; e2e and evals run on demand.

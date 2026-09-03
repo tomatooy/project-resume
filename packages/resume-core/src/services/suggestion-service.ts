@@ -90,6 +90,21 @@ export class SuggestionService {
    * have edited that bullet since. Anything whose `before` no longer matches is
    * marked stale rather than silently overwriting the newer text.
    */
+  /**
+   * Current status of every suggestion these runs produced, keyed by id. The
+   * chat history stores a suggestion's patch inside the message, but its
+   * status lives on the row, so a reload asks here for what has been decided.
+   */
+  async statusesForRuns(
+    runIds: string[]
+  ): Promise<Record<string, SuggestionStatus>> {
+    if (runIds.length === 0) return {}
+    const rows = await this.suggestions.listForRuns(runIds)
+    const statuses: Record<string, SuggestionStatus> = {}
+    for (const row of rows) statuses[row.id] = row.status
+    return statuses
+  }
+
   async decide(input: DecideSuggestionsInput): Promise<DecideResult> {
     const run = await this.runs.findById(input.runId)
     if (!run) throw new AppError("NOT_FOUND", "Run not found")
