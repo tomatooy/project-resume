@@ -81,18 +81,21 @@ export const PATCH_OPS: PatchOp[] = [
   "move",
 ]
 
-export type PatchErrorCode =
-  | "TARGET_NOT_FOUND"
-  | "PARENT_NOT_FOUND"
-  | "OP_NOT_ALLOWED"
-  | "FIELD_NOT_ALLOWED"
-  | "BEFORE_MISMATCH"
-  | "SCHEMA_INVALID"
-  | "KIND_MISMATCH"
-  | "EMPTY_TEXT"
-  | "UNGROUNDED_NUMBER"
-  | "OUT_OF_SCOPE"
-  | "INDEX_OUT_OF_RANGE"
+export const PATCH_ERROR_CODES = [
+  "TARGET_NOT_FOUND",
+  "PARENT_NOT_FOUND",
+  "OP_NOT_ALLOWED",
+  "FIELD_NOT_ALLOWED",
+  "BEFORE_MISMATCH",
+  "SCHEMA_INVALID",
+  "KIND_MISMATCH",
+  "EMPTY_TEXT",
+  "UNGROUNDED_NUMBER",
+  "OUT_OF_SCOPE",
+  "INDEX_OUT_OF_RANGE",
+] as const
+
+export type PatchErrorCode = (typeof PATCH_ERROR_CODES)[number]
 
 /** Fields no patch may ever write, because they are structural. */
 const PROTECTED_FIELDS = new Set(["id", "kind", "items", "bullets", "links"])
@@ -223,11 +226,18 @@ function normalize(text: string): string {
  * Applies patches in order on a structural copy. A failing patch is skipped
  * (or halts the run with `stopOnError`), and each success reports the inverse
  * patch that undoes it, which is what the editor's undo stack is built from.
+ *
+ * `allowInvalid` waives the final whole-document check, and only that check:
+ * every per-patch rule still applies. Typing writes through on each keystroke,
+ * so a field is invalid for as long as it takes to retype it, and refusing
+ * those states puts the deleted character straight back in the box. The
+ * editor's document is therefore allowed to be work in progress; `save` in the
+ * session store is where a document has to be whole before it goes anywhere.
  */
 export function applyPatches(
   resume: Resume,
   patches: ResumePatch[],
-  opts: { stopOnError?: boolean } = {}
+  opts: { stopOnError?: boolean; allowInvalid?: boolean } = {}
 ): ApplyResult {
   const draft = structuredClone(resume)
   const applied: AppliedPatch[] = []
@@ -245,6 +255,8 @@ export function applyPatches(
 
   const parsed = ResumeSchema.safeParse(draft)
   if (!parsed.success) {
+    if (opts.allowInvalid) return { resume: draft, applied, failed }
+
     // The document as a whole is invalid, so nothing is applied. Attribute the
     // failure to the last patch, which is the one that broke it.
     const culprit = applied.at(-1)?.patch ?? patches.at(-1)

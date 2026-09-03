@@ -6,14 +6,20 @@ import {
 
 import {
   InMemoryAgentRunRepository,
+  InMemoryBackground,
   InMemoryConversationRepository,
   InMemoryDb,
+  InMemoryMessageRepository,
   InMemoryResumeRepository,
   InMemorySuggestionRepository,
+  InMemorySummaryRepository,
   InMemoryVersionRepository,
+  StubSummarizer,
 } from "../src/testing/index"
 import {
+  MemoryService,
   ResumeService,
+  RunService,
   SuggestionService,
   VersionService,
 } from "../src/services/index"
@@ -25,6 +31,12 @@ export function harness() {
   const runs = new InMemoryAgentRunRepository(db)
   const suggestions = new InMemorySuggestionRepository(db)
   const conversations = new InMemoryConversationRepository(db)
+  const messages = new InMemoryMessageRepository(db)
+  const summaries = new InMemorySummaryRepository(db)
+  const summarizer = new StubSummarizer()
+  const background = new InMemoryBackground()
+
+  const versionService = new VersionService(resumes, versions)
 
   return {
     db,
@@ -33,9 +45,15 @@ export function harness() {
     runs,
     suggestions,
     conversations,
+    messages,
+    summaries,
+    summarizer,
+    background,
     resumeService: new ResumeService(resumes),
-    versionService: new VersionService(resumes, versions),
+    versionService,
     suggestionService: new SuggestionService(resumes, runs, suggestions),
+    runService: new RunService(versionService, runs, () => db.now()),
+    memoryService: new MemoryService(messages, summaries, summarizer),
   }
 }
 

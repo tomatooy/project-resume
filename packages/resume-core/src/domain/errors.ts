@@ -27,7 +27,9 @@ export class AppError extends Error {
   constructor(
     readonly code: AppErrorCode,
     message: string,
-    status?: number
+    status?: number,
+    /** Set on RATE_LIMITED; becomes the `Retry-After` header. */
+    readonly retryAfterSeconds?: number
   ) {
     super(message)
     this.name = "AppError"

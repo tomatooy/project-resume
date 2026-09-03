@@ -5,6 +5,8 @@ import type {
   TemplateOptions,
 } from "@workspace/resume-schema"
 
+import type { ChatMessage } from "../domain/chat"
+import type { SummaryRecord } from "../domain/memory"
 import type { AgentRun, SuggestionStatus } from "../domain/suggestion"
 import type { CreatedByKind } from "../domain/version"
 
@@ -56,8 +58,13 @@ export class InMemoryDb {
   conversations: { id: string; resumeId: string }[] = []
   runs: AgentRun[] = []
   suggestions: SuggestionRow[] = []
+  messages: ChatMessage[] = []
+  summaries: SummaryRecord[] = []
+  /** conversation id -> active summary id */
+  activeSummaries = new Map<string, string>()
 
   private seq = 0
+  private messageSeq = 0
   private tick = 0
 
   uuid(): string {
@@ -66,10 +73,21 @@ export class InMemoryDb {
     return `00000000-0000-4000-8000-${String(this.seq).padStart(12, "0")}`
   }
 
+  /** Stands in for the identity column on `messages`. */
+  nextMessageSeq(): number {
+    this.messageSeq += 1
+    return this.messageSeq
+  }
+
   /** Monotonic, so `updatedAt` ordering is deterministic across fast writes. */
   advance(): number {
     this.tick += 1
     return this.tick
+  }
+
+  /** The current fake time without advancing it; what services read as "now". */
+  now(): Date {
+    return new Date(EPOCH + this.tick * 1000)
   }
 }
 

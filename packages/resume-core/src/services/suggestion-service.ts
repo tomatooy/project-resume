@@ -1,5 +1,6 @@
 import {
   applyPatches,
+  canonicalJson,
   collectText,
   contentHash,
   validatePatches,
@@ -10,17 +11,13 @@ import {
 import { AppError } from "../domain/errors"
 import { SKILL_ALLOWED_OPS, isSkillId } from "../domain/skill"
 import type {
-  AgentRun,
   DecideResult,
   DecisionStatus,
   Suggestion,
   SuggestionOutcome,
   SuggestionStatus,
 } from "../domain/suggestion"
-import type {
-  AgentRunRepository,
-  NewAgentRun,
-} from "../ports/agent-run-repository"
+import type { AgentRunRepository } from "../ports/agent-run-repository"
 import type { ResumeRepository } from "../ports/resume-repository"
 import type {
   NewSuggestion,
@@ -37,6 +34,15 @@ function addressOf(patch: ResumePatch): string {
   return patch.op === "insert_after" ? patch.parentId : patch.targetNodeId
 }
 
+/**
+ * Identity of a patch for dedupe: what it does, not why. A model retrying a
+ * tool call may reword its reason or confidence for the same change.
+ */
+function patchKey(patch: ResumePatch): string {
+  const { reason: _reason, confidence: _confidence, ...rest } = patch
+  return canonicalJson(rest)
+}
+
 export class SuggestionService {
   constructor(
     private readonly resumes: ResumeRepository,
@@ -44,10 +50,12 @@ export class SuggestionService {
     private readonly suggestions: SuggestionRepository
   ) {}
 
-  createRun(input: NewAgentRun): Promise<AgentRun> {
-    return this.runs.create(input)
-  }
-
+  /**
+   * Idempotent per run: the model may call `propose_patches` more than once
+   * in one loop (a rejected batch followed by a corrected one), so patches
+   * already stored are kept and only additions are inserted. The full list is
+   * returned so the tool output is complete regardless of which call it was.
+   */
   async persistProposal(
     runId: string,
     patches: ResumePatch[]
@@ -55,12 +63,23 @@ export class SuggestionService {
     const run = await this.runs.findById(runId)
     if (!run) throw new AppError("NOT_FOUND", "Run not found")
 
-    const rows: NewSuggestion[] = patches.map((patch, ordinal) => ({
-      ordinal,
-      patch,
-      targetNodeId: addressOf(patch),
-    }))
-    return this.suggestions.insertMany(runId, run.resumeId, rows)
+    const existing = await this.suggestions.listForRun(runId)
+    const seen = new Set(existing.map((s) => patchKey(s.patch)))
+    let ordinal = existing.reduce((max, s) => Math.max(max, s.ordinal + 1), 0)
+
+    const rows: NewSuggestion[] = []
+    for (const patch of patches) {
+      const key = patchKey(patch)
+      if (seen.has(key)) continue
+      seen.add(key)
+      rows.push({ ordinal: ordinal++, patch, targetNodeId: addressOf(patch) })
+    }
+
+    const inserted =
+      rows.length > 0
+        ? await this.suggestions.insertMany(runId, run.resumeId, rows)
+        : []
+    return [...existing, ...inserted].sort((a, b) => a.ordinal - b.ordinal)
   }
 
   /**

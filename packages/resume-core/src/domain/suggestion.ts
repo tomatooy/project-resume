@@ -1,4 +1,5 @@
 import type { Resume, ResumePatch } from "@workspace/resume-schema"
+import { z } from "zod"
 
 import type { VersionSummary } from "./version"
 
@@ -17,6 +18,17 @@ export type Suggestion = {
 
 export type AgentRunStatus = "running" | "completed" | "failed" | "cancelled"
 
+/**
+ * Per-request inputs a run needs again on a client-tool continuation. Held on
+ * the row only while the run is in flight and cleared when it finishes, so a
+ * pasted job description is not retained.
+ */
+export const RunInputSchema = z.object({
+  jobDescription: z.string().optional(),
+  targetPages: z.number().int().optional(),
+})
+export type RunInput = z.infer<typeof RunInputSchema>
+
 export type AgentRun = {
   id: string
   conversationId: string
@@ -24,7 +36,15 @@ export type AgentRun = {
   skillId: string
   model: string
   selectedNodeId: string | null
+  /** The snapshot taken before the run; what the patches were proposed against. */
+  resumeVersionId: string | null
+  input: RunInput
   status: AgentRunStatus
+  errorClass: string | null
+  inputTokens: number | null
+  outputTokens: number | null
+  latencyMs: number | null
+  createdAt: string
 }
 
 export type SuggestionOutcome = {

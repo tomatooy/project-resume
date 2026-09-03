@@ -7,11 +7,12 @@ async function seeded(skillId = "bullet_rewrite") {
   const h = harness()
   const { id: resumeId } = await h.resumeService.create({ title: "CV" })
   const { id: conversationId } = await h.conversations.getOrCreate(resumeId)
-  const run = await h.suggestionService.createRun({
+  const run = await h.runService.start({
     conversationId,
     resumeId,
     skillId,
-    model: "demo",
+    model: "test-model",
+    input: {},
   })
   const record = await h.resumeService.get(resumeId)
   return { ...h, resumeId, run, bullet: firstBullet(record.data) }
@@ -106,7 +107,8 @@ describe("SuggestionService.decide", () => {
 
     expect(result.results[0]?.status).toBe("rejected")
     expect(result.version).toBeUndefined()
-    expect(await h.versionService.list(h.resumeId)).toEqual([])
+    // Only the "Before AI run" snapshot that starting the run wrote.
+    expect(await h.versionService.list(h.resumeId)).toHaveLength(1)
     expect(firstBullet(result.head).text).toBe(h.bullet.text)
   })
 
@@ -180,7 +182,8 @@ describe("SuggestionService.decide", () => {
     expect(result.results.every((r) => r.status === "accepted")).toBe(true)
     expect(result.head.basics.headline).toBe("Staff engineer")
     expect(firstBullet(result.head).text).toBe("First rewrite.")
-    expect(await h.versionService.list(h.resumeId)).toHaveLength(1)
+    // The system snapshot from starting the run, then the agent version.
+    expect(await h.versionService.list(h.resumeId)).toHaveLength(2)
   })
 
   it("refuses an unknown or already-decided suggestion", async () => {
@@ -209,5 +212,35 @@ describe("SuggestionService.decide", () => {
         decisions: [{ suggestionId: suggestion.id, status: "accepted" }],
       })
     ).rejects.toMatchObject({ code: "VALIDATION" })
+  })
+})
+
+describe("SuggestionService.persistProposal", () => {
+  it("stores each distinct patch once per run, keeping ordinals stable", async () => {
+    // The model may call propose_patches again after rejections. Only the
+    // patches it did not already submit are new rows.
+    const h = await seeded()
+    const record = await h.resumeService.get(h.resumeId)
+    const first = rewriteBullet(h.bullet, "First rewrite.")
+    const second: ResumePatch = {
+      op: "replace_text",
+      targetNodeId: "basics",
+      field: "headline",
+      before: record.data.basics.headline ?? "",
+      after: "Staff engineer",
+      reason: "Sharper.",
+      skillId: "bullet_rewrite",
+    }
+
+    const initial = await h.suggestionService.persistProposal(h.run.id, [first])
+    const again = await h.suggestionService.persistProposal(h.run.id, [
+      { ...first, reason: "Same change, reworded reason." },
+      second,
+    ])
+
+    expect(initial.map((s) => s.ordinal)).toEqual([0])
+    expect(again.map((s) => s.ordinal)).toEqual([0, 1])
+    expect(again[0]?.id).toBe(initial[0]?.id)
+    expect(await h.suggestions.listForRun(h.run.id)).toHaveLength(2)
   })
 })
