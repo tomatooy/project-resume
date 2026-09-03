@@ -14,7 +14,7 @@
 -- one that does not exist.
 
 begin;
-select plan(35);
+select plan(36);
 
 set local role postgres;
 
@@ -28,7 +28,11 @@ insert into resumes (id, user_id, title, data) values
   ('22222222-0000-4000-8000-000000000001', '11111111-0000-4000-8000-000000000001', 'A''s CV',
    '{"schemaVersion":1,"basics":{"id":"basics","name":"A","links":[]},"sections":[]}'),
   ('22222222-0000-4000-8000-000000000002', '11111111-0000-4000-8000-000000000002', 'B''s CV',
-   '{"schemaVersion":1,"basics":{"id":"basics","name":"B","links":[]},"sections":[]}');
+   '{"schemaVersion":1,"basics":{"id":"basics","name":"B","links":[]},"sections":[]}'),
+  -- A's second resume has no conversation yet, which is the state the squatting
+  -- test below needs: `unique (resume_id)` is still unclaimed.
+  ('22222222-0000-4000-8000-000000000003', '11111111-0000-4000-8000-000000000001', 'A''s other CV',
+   '{"schemaVersion":1,"basics":{"id":"basics","name":"A","links":[]},"sections":[]}');
 
 insert into resume_versions (id, resume_id, version_no, content, schema_version, content_hash, created_by) values
   ('33333333-0000-4000-8000-000000000001', '22222222-0000-4000-8000-000000000001', 1,
@@ -106,6 +110,15 @@ select throws_ok(
   $$ insert into conversations (user_id, resume_id)
      values ('11111111-0000-4000-8000-000000000001', '22222222-0000-4000-8000-000000000001') $$,
   '42501', null, 'B cannot start a conversation on A''s resume');
+-- The insert above names A as owner, so `user_id = auth.uid()` alone stops it.
+-- This one names B, which that check waves through: only the join back to
+-- `resumes` refuses it. Without the join B takes A's one `unique (resume_id)`
+-- slot, and A's editor then fails to load for good, since getOrCreate can
+-- neither see B's row nor insert past it.
+select throws_ok(
+  $$ insert into conversations (user_id, resume_id)
+     values ('11111111-0000-4000-8000-000000000002', '22222222-0000-4000-8000-000000000003') $$,
+  '42501', null, 'B cannot squat the conversation slot on A''s resume');
 
 -- messages
 select is((select count(*) from messages where id = '55555555-0000-4000-8000-000000000001'),

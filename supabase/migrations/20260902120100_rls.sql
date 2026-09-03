@@ -5,6 +5,13 @@
 -- `conversations` rather than a denormalised user_id, so there is exactly one
 -- place that says who owns what.
 --
+-- `conversations` is the exception that proves it: it carries a user_id so
+-- that `messages` and `memory_summaries` need only a one-level join. That
+-- column does not certify itself. A row naming its own inserter as owner still
+-- has to point at a resume that inserter owns, or anyone could take the single
+-- `unique (resume_id)` slot on somebody else's resume and lock the owner out
+-- of their own conversation for good.
+--
 -- Soft-deleted resumes (deleted_at is not null) are filtered in queries, not
 -- in policies: a deleted resume is still the user's, and hiding it in the
 -- policy would break the 30-day hard-delete job.
@@ -21,8 +28,10 @@ create policy versions_owner on resume_versions
 
 alter table conversations enable row level security;
 create policy conversations_owner on conversations
-  for all using (user_id = auth.uid())
-  with check (user_id = auth.uid());
+  for all using (user_id = auth.uid()
+                 and exists (select 1 from resumes r where r.id = resume_id and r.user_id = auth.uid()))
+  with check   (user_id = auth.uid()
+                 and exists (select 1 from resumes r where r.id = resume_id and r.user_id = auth.uid()));
 
 alter table messages enable row level security;
 create policy messages_owner on messages
