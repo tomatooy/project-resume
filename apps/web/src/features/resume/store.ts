@@ -124,7 +124,12 @@ export class ResumeSession {
     opts: { coalesceKey?: string } = {}
   ): { failed: number } {
     if (patches.length === 0) return { failed: 0 }
-    const result = applyPatches(this.state.doc, patches)
+    // `allowInvalid`: a keystroke lands in the document as it is typed, so a
+    // field is empty or half-formed for as long as it takes to retype it.
+    // Refusing those states rejects the patch, leaves `doc` untouched, and the
+    // controlled input re-renders with the character the user just deleted.
+    // Whether the document is whole is decided in `save`, not here.
+    const result = applyPatches(this.state.doc, patches, { allowInvalid: true })
     if (result.applied.length === 0) return { failed: result.failed.length }
 
     // Typing into one field should undo as one edit, not one per keystroke.
@@ -174,7 +179,7 @@ export class ResumeSession {
       return true
     }
 
-    const result = applyPatches(previous, entry.patches)
+    const result = applyPatches(previous, entry.patches, { allowInvalid: true })
     if (result.applied.length === 0) return false
     to.push({
       kind: "patches",
@@ -199,7 +204,10 @@ export class ResumeSession {
    * single patch can express, such as adding a top-level section.
    */
   replaceDocument(doc: Resume): void {
-    if (!ResumeSchema.safeParse(doc).success) return
+    // Deliberately unguarded by the document schema. Callers build the
+    // replacement from the live document, which is allowed to be mid-edit, so
+    // a whole-document check here would silently drop the gesture whenever a
+    // field happened to be empty. `save` is the gate that matters.
     this.lastCoalesceKey = null
     this.push({ kind: "doc", doc: this.state.doc })
     this.redoStack = []
@@ -283,11 +291,15 @@ export class ResumeSession {
     // document has moved on beneath it.
     if (this.inFlight) return
 
-    const { doc, resumeId, revision, hasFieldErrors } = this.state
+    const { doc, resumeId, revision } = this.state
 
     // A document failing its own schema would be rejected anyway; wait for the
     // user to fix the field rather than burning a request and showing an error.
-    if (hasFieldErrors || !ResumeSchema.safeParse(doc).success) return
+    // The flag is derived here rather than reported by the fields, so what the
+    // save bar says can never drift from what actually blocks a save.
+    const whole = ResumeSchema.safeParse(doc).success
+    this.setFieldErrors(!whole)
+    if (!whole) return
 
     this.store.setState((s) => ({ ...s, saveStatus: "saving" }))
     const request = updateResume({

@@ -47,6 +47,25 @@ export function FieldShell({
 const CONTROL =
   "w-full rounded-[7px] border bg-paper px-2.5 text-[12.5px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/20"
 
+/**
+ * Holds a field's error back while the user is part-way through typing it.
+ *
+ * Errors are re-derived from the document on every keystroke, so a value on
+ * its way to a good one is invalid for a moment: a required field cleared
+ * before being retyped, half of an email address, a month picked one component
+ * at a time. Reporting those is nagging, not help. The message comes back the
+ * moment the field is left, and a standing error stays on screen while the
+ * field is merely focused, so entering a bad field still shows what is wrong.
+ */
+function useEditGate(error: string | undefined) {
+  const [typing, setTyping] = useState(false)
+  return {
+    error: typing ? undefined : error,
+    onBlur: () => setTyping(false),
+    onEdit: () => setTyping(true),
+  }
+}
+
 export type TextInputProps = {
   label?: string
   value: string
@@ -74,19 +93,30 @@ export function TextInput({
   onFocus,
   ariaLabel,
 }: TextInputProps) {
+  const gate = useEditGate(error)
+
   return (
-    <FieldShell label={label} error={error} hint={hint} className={className}>
+    <FieldShell
+      label={label}
+      error={gate.error}
+      hint={hint}
+      className={className}
+    >
       <input
         value={value}
         aria-label={ariaLabel ?? label}
-        aria-invalid={Boolean(error)}
+        aria-invalid={Boolean(gate.error)}
         placeholder={placeholder}
         onFocus={onFocus}
-        onChange={(event) => onCommit(event.target.value)}
+        onBlur={gate.onBlur}
+        onChange={(event) => {
+          gate.onEdit()
+          onCommit(event.target.value)
+        }}
         className={cn(
           CONTROL,
           "h-[34px]",
-          error ? "border-destructive" : "border-border"
+          gate.error ? "border-destructive" : "border-border"
         )}
       />
     </FieldShell>
@@ -103,24 +133,41 @@ export function TextAreaInput({
   rows = 4,
   className,
   onFocus,
+  onBlur,
+  ariaLabel,
   ...rest
 }: Omit<TextInputProps, "className"> & {
   rows?: number
   className?: string
 } & Pick<TextareaHTMLAttributes<HTMLTextAreaElement>, "onKeyDown" | "onBlur">) {
+  const gate = useEditGate(error)
+
   return (
-    <FieldShell label={label} error={error} hint={hint} className={className}>
+    <FieldShell
+      label={label}
+      error={gate.error}
+      hint={hint}
+      className={className}
+    >
       <textarea
         value={value}
         rows={rows}
-        aria-invalid={Boolean(error)}
+        aria-label={ariaLabel ?? label}
+        aria-invalid={Boolean(gate.error)}
         placeholder={placeholder}
         onFocus={onFocus}
-        onChange={(event) => onCommit(event.target.value)}
+        onBlur={(event) => {
+          gate.onBlur()
+          onBlur?.(event)
+        }}
+        onChange={(event) => {
+          gate.onEdit()
+          onCommit(event.target.value)
+        }}
         className={cn(
           CONTROL,
           "resize-y py-2 leading-[1.55]",
-          error ? "border-destructive" : "border-border"
+          gate.error ? "border-destructive" : "border-border"
         )}
         {...rest}
       />
@@ -141,14 +188,20 @@ export function MonthInput({
   error?: string
   className?: string
 }) {
+  const gate = useEditGate(error)
+
   return (
-    <FieldShell label={label} error={error} className={className}>
+    <FieldShell label={label} error={gate.error} className={className}>
       <input
         type="month"
         value={value}
         aria-label={label}
-        aria-invalid={Boolean(error)}
-        onChange={(event) => onCommit(event.target.value)}
+        aria-invalid={Boolean(gate.error)}
+        onBlur={gate.onBlur}
+        onChange={(event) => {
+          gate.onEdit()
+          onCommit(event.target.value)
+        }}
         className={cn(
           CONTROL,
           // `w-full` alone does not contain a month input: the native picker
@@ -156,7 +209,7 @@ export function MonthInput({
           // shrinking inside a grid cell, which scrolls the whole pane
           // sideways.
           "h-[34px] min-w-0",
-          error ? "border-destructive" : "border-border"
+          gate.error ? "border-destructive" : "border-border"
         )}
       />
     </FieldShell>
@@ -185,28 +238,40 @@ export function EndDateInput({
     if (value && value !== "present") setLastMonth(value)
   }, [value])
 
+  const gate = useEditGate(error)
+
   return (
-    <FieldShell label={label} error={error}>
+    <FieldShell label={label} error={gate.error}>
+      {/* Both halves share one gate: unticking Present hands the month field
+          back an empty value, and that is the start of an edit, not a
+          mistake to report while the user is still working. */}
       <div className="flex items-center gap-2">
         <input
           type="month"
           value={present ? "" : (value ?? "")}
           disabled={present}
           aria-label={label}
-          onChange={(event) => onCommit(event.target.value)}
+          aria-invalid={Boolean(gate.error)}
+          onBlur={gate.onBlur}
+          onChange={(event) => {
+            gate.onEdit()
+            onCommit(event.target.value)
+          }}
           className={cn(
             CONTROL,
             "h-[34px] min-w-0 flex-1 disabled:bg-muted disabled:text-muted-foreground",
-            error ? "border-destructive" : "border-border"
+            gate.error ? "border-destructive" : "border-border"
           )}
         />
         <label className="flex h-[34px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-2.5 text-[12px] text-muted-foreground has-checked:border-primary has-checked:bg-primary/8 has-checked:text-primary-strong">
           <input
             type="checkbox"
             checked={present}
-            onChange={(event) =>
+            onBlur={gate.onBlur}
+            onChange={(event) => {
+              gate.onEdit()
               onCommit(event.target.checked ? "present" : lastMonth)
-            }
+            }}
             className="size-3 accent-[var(--primary)]"
           />
           Present

@@ -27,18 +27,26 @@ export function setText(
 ): void {
   const ref = findNode(session.state.doc, nodeId)
   if (!ref) return
-  const before = (ref.node as Record<string, unknown>)[field]
-  if (typeof before !== "string" || before === value) return
+  const current = (ref.node as Record<string, unknown>)[field]
+  // An optional field the user has never filled in is absent, not "". Treating
+  // absent as "not a text field" and returning here made every empty optional
+  // field silently impossible to type into: headline, phone, location, degree,
+  // field of study, subtitle and the summary all swallowed the first keystroke
+  // and every one after it.
+  if (current !== undefined && typeof current !== "string") return
+  const before = current ?? ""
+  if (before === value) return
 
-  // `replace_text` requires a non-empty result, so clearing an optional field
-  // goes through `update_fields` instead.
+  // `replace_text` needs a non-empty result and a field that already holds a
+  // string, so clearing a field and filling in an absent one both go through
+  // `update_fields` instead.
   const patch: ResumePatch =
-    value.trim() === ""
+    current === undefined || value.trim() === ""
       ? {
           ...MANUAL,
           op: "update_fields",
           targetNodeId: nodeId,
-          before: { [field]: before },
+          before: { [field]: current },
           after: { [field]: value },
         }
       : {
