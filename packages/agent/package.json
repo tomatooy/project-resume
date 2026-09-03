@@ -1,0 +1,27 @@
+{
+  "name": "@workspace/agent",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-sdk/deepseek": "^3.0.39",
+    "@workspace/resume-core": "workspace:*",
+    "@workspace/resume-schema": "workspace:*",
+    "ai": "^7.0.89",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@ai-sdk/provider": "4.0.10",
+    "typescript": "^6",
+    "vitest": "^3.2.4"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
