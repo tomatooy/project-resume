@@ -23,8 +23,9 @@ import type { ModelMessage, UIMessage } from "ai"
 
 import type { Services } from "../container"
 import { errorResponse, parseRequest } from "../errors"
-import { errorClassOf, type Logger } from "../log"
+import type { Logger } from "../log"
 import { type ChatRequest, ChatRequestSchema } from "./contract"
+import { settleRun } from "./run-lifecycle"
 
 export type ChatDeps = {
   services: Services
@@ -220,16 +221,15 @@ async function continueTurn(
 }
 
 /**
- * Hands the turn to `packages/agent` and says what to do with how it ended.
- * Everything left here is the app's: the run row, the transcript, the log and
- * the follow-on consolidation.
+ * Hands the turn to `packages/agent`; what happens once it ends is the run
+ * lifecycle's.
  */
 function stream(
   deps: ChatDeps,
   request: Request,
   turn: Turn & { ctx: SkillContext; originalMessages: UIMessage[] }
 ): Response {
-  const { services, models, background, log, now } = deps
+  const { services, models, now } = deps
   const { run, skill } = turn
   const startedAt = now().getTime()
 
@@ -255,70 +255,12 @@ function stream(
       request.signal,
       AbortSignal.timeout(RUN_TIMEOUT_MS),
     ]),
-    onSettled: async ({ status, usage, message, error }) => {
-      // A paused turn leaves the run open: the browser still owes the
-      // `check_fit` answer that resumes it.
-      if (status === "paused") {
-        log.info("chat_paused", { runId: run.id, steps: usage.steps })
-        return
-      }
-
-      const errorClass =
-        status === "failed"
-          ? errorClassOf(error)
-          : status === "cancelled"
-            ? "aborted"
-            : undefined
-      if (status === "failed") {
-        log.error("chat_stream_error", { runId: run.id, errorClass })
-      }
-
-      try {
-        await services.memory.record(
-          fromUIMessage(message, {
-            conversationId: run.conversationId,
-            agentRunId: run.id,
-            metadata:
-              status === "cancelled"
-                ? { ...metadata, stopped: true }
-                : metadata,
-          })
-        )
-        await services.runs.finish(run.id, {
-          status,
-          errorClass,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          latencyMs: now().getTime() - startedAt,
-        })
-      } catch (failure) {
-        log.error("chat_finish_failed", {
-          runId: run.id,
-          errorClass: errorClassOf(failure),
-        })
-      }
-      log.info("chat_finished", {
-        runId: run.id,
-        skillId: skill.id,
-        model: models.ids.smart,
-        outcome: status,
-        errorClass,
-        steps: usage.steps,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        latencyMs: now().getTime() - startedAt,
-      })
-
-      background.run(async () => {
-        const result = await services.memory.maybeConsolidate(
-          run.conversationId
-        )
-        log.info("memory_consolidation", {
-          conversationId: run.conversationId,
-          outcome: result,
-        })
-      })
-    },
+    onSettled: (outcome) =>
+      settleRun(
+        deps,
+        { run, model: models.ids.smart, metadata, startedAt },
+        outcome
+      ),
   })
 }
 

@@ -132,9 +132,11 @@ The current code implements that target end to end:
   consumer outside the package needs it. Dependency direction is `web -> agent
   -> resume-core -> resume-schema`.
 - The assistant is `POST /api/chat` (`server/chat/handle-chat.ts`) consumed by
-  `useChat` (`features/chat/use-assistant.ts`). Messages are stored in
-  Postgres and rehydrated on load; the client sends only the last two
-  messages. `check_fit` is a client tool: the browser renders the PDF, answers
+  `useChat` (`features/chat/use-assistant.ts`). The handler opens the run
+  and streams; what happens once the turn ends (transcript row, run row, log
+  line, consolidation) is `server/chat/run-lifecycle.ts`, tested on its own.
+  Messages are stored in Postgres and rehydrated on load; the client sends
+  only the last two messages. `check_fit` is a client tool: the browser renders the PDF, answers
   with the page count, and the same run resumes. Models come from DeepSeek
   through `packages/agent/src/models.ts`; the key is `DEEPSEEK_API_KEY` in
   `apps/web/.dev.vars` locally and a Wrangler secret in production.
@@ -275,9 +277,10 @@ Server state (TanStack Query):
   answers `check_fit` from `onToolCall` (never awaited inside it), keeps the
   suggestion status map beside the transcript, and maps route errors (401 to
   `/login`, others to a toast).
-- `AssistantPanel` renders each assistant message part by part: text as it
-  streams, `tool-check_fit` as a fit chip, `tool-propose_patches` output as
-  `SuggestionCard`s. A card shows a word
+- `AssistantPanel` is the header and the conversation loader; `Composer` is
+  the skill picker, its inputs and the send box; `Transcript` renders each
+  assistant message part by part: text as it streams, `tool-check_fit` as a
+  fit chip, `tool-propose_patches` output as `SuggestionCard`s. A card shows a word
   diff (`replace_text`), a field table (`update_fields`), a summary
   (insert/delete/move), and the patch's reason. Hovering a card sets
   `session.previewPatches` so the preview shows the effect.

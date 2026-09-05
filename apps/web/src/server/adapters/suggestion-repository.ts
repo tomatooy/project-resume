@@ -10,7 +10,7 @@ import type {
 import type { Db } from "../auth/supabase"
 import type { Database } from "@workspace/supabase"
 import { toJson } from "./json"
-import { decideResultSchema, DEFAULT_VERSION_LABEL } from "./rpc"
+import { decideResultSchema, toVersionSummary } from "./rpc"
 
 type Row = Database["public"]["Tables"]["suggestions"]["Row"]
 type SuggestionRow = Pick<
@@ -95,15 +95,7 @@ export class SupabaseSuggestionRepository implements SuggestionRepository {
 
     const result = decideResultSchema.parse(data)
     return {
-      version: result.version
-        ? {
-            id: result.version.id,
-            versionNo: result.version.version_no,
-            label: result.version.label ?? DEFAULT_VERSION_LABEL,
-            createdBy: result.version.created_by,
-            createdAt: result.version.created_at,
-          }
-        : null,
+      version: result.version ? toVersionSummary(result.version) : null,
       revision: result.revision,
       updatedAt: result.updated_at,
     }

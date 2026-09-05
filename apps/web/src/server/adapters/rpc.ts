@@ -1,3 +1,4 @@
+import type { VersionSummary } from "@workspace/resume-core"
 import { z } from "zod"
 
 /**
@@ -34,4 +35,24 @@ export const decideResultSchema = z.object({
  * `label` is nullable in the schema, but every writer in this application
  * supplies one. The fallback only covers a row written by hand.
  */
-export const DEFAULT_VERSION_LABEL = "Saved version"
+const DEFAULT_VERSION_LABEL = "Saved version"
+
+/** The columns a summary is built from, in the table's own names. */
+export type VersionSummaryRow = Pick<
+  z.infer<typeof versionRowSchema>,
+  "id" | "version_no" | "label" | "created_by" | "created_at"
+>
+
+/**
+ * A version summary arrives three ways, as a listed row, a fetched row, and
+ * the row an RPC hands back, and the same five columns are read each time.
+ */
+export function toVersionSummary(row: VersionSummaryRow): VersionSummary {
+  return {
+    id: row.id,
+    versionNo: row.version_no,
+    label: row.label ?? DEFAULT_VERSION_LABEL,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  }
+}

@@ -15,6 +15,7 @@ export function harness() {
     ...ports,
     background: new InMemoryBackground(),
     resumeService: services.resumes,
+    importService: services.imports,
     versionService: services.versions,
     suggestionService: services.suggestions,
     runService: services.runs,

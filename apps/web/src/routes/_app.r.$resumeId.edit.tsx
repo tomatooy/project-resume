@@ -3,20 +3,17 @@ import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
-  useResizableGroupRef,
 } from "@workspace/ui/components/resizable"
-import { useEffect, useState } from "react"
-import { z } from "zod"
+import { useEffect } from "react"
 
 import { AssistantPanel } from "@/features/chat/AssistantPanel"
 import { ConflictBanner } from "@/features/resume/ConflictBanner"
 import { EditorPane } from "@/features/resume/editor/EditorPane"
-import { SectionRail, type PaneKey } from "@/features/resume/editor/SectionRail"
+import { SectionRail } from "@/features/resume/editor/SectionRail"
+import { useEditorLayout } from "@/features/resume/editor/use-editor-layout"
 import { PreviewPane } from "@/features/resume/preview/PreviewPane"
-import { useResumeState, useSession } from "@/features/resume/session-context"
+import { useSession } from "@/features/resume/session-context"
 import { VersionsPanel } from "@/features/versions/VersionsPanel"
-import { useElementWidth } from "@/lib/use-element-width"
-import { useLocalStorage } from "@/lib/use-local-storage"
 
 export const Route = createFileRoute("/_app/r/$resumeId/edit")({
   // `?view=versions` swaps the form column for the version list. It is a search
@@ -27,48 +24,13 @@ export const Route = createFileRoute("/_app/r/$resumeId/edit")({
   component: EditorScreen,
 })
 
-/** Below this the section rail collapses to initials and the form yields. */
-/** Stored preferences. Module-level so the storage hook sees one schema value. */
-const Panels = z.object({ preview: z.boolean(), assistant: z.boolean() })
-const Split = z.record(z.string(), z.number()).optional()
-
-const VERY_TIGHT = 980
-
 function EditorScreen() {
   const session = useSession()
-  const doc = useResumeState((s) => s.doc)
-  const { ref, width } = useElementWidth()
   const { view } = Route.useSearch()
   const navigate = Route.useNavigate()
-
-  const [pane, setPane] = useState<PaneKey>("contact")
-  const [panels, setPanels] = useLocalStorage("resume-studio.panels", Panels, {
-    preview: true,
-    assistant: false,
-  })
-  const [layout, setLayout] = useLocalStorage(
-    "resume-studio.right-split",
-    Split,
-    undefined
-  )
-  const [columns, setColumns] = useLocalStorage(
-    "resume-studio.column-split",
-    Split,
-    undefined
-  )
-  const columnsRef = useResizableGroupRef()
-
-  // Storage is read after mount, so a saved split lands after the group has
-  // already taken its defaults. Push it in instead of remounting the panes.
-  useEffect(() => {
-    if (columns) columnsRef.current?.setLayout(columns)
-  }, [columns, columnsRef])
-
-  // A section deleted while it was open would leave the pane pointing nowhere.
-  useEffect(() => {
-    if (pane === "contact" || pane === "summary") return
-    if (!doc.sections.some((section) => section.id === pane)) setPane("contact")
-  }, [doc.sections, pane])
+  const versionsOpen = view === "versions"
+  const layout = useEditorLayout({ versionsOpen })
+  const { panels, togglePanel } = layout
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -86,17 +48,6 @@ function EditorScreen() {
     return () => window.removeEventListener("keydown", onKey)
   }, [session])
 
-  const veryTight = width < VERY_TIGHT
-  const rightOpen = panels.preview || panels.assistant
-  const splitBoth = panels.preview && panels.assistant
-  const versionsOpen = view === "versions"
-  // The form yields to the side panels when there is no room for both, but
-  // versions was asked for outright, so it always gets the column.
-  const centerOpen = versionsOpen || !(veryTight && rightOpen)
-
-  const togglePanel = (panel: "preview" | "assistant") =>
-    setPanels((current) => ({ ...current, [panel]: !current[panel] }))
-
   const toggleVersions = () =>
     navigate({ search: versionsOpen ? {} : { view: "versions" } })
 
@@ -105,18 +56,12 @@ function EditorScreen() {
   ) : (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-[22px] pb-[76px]">
       <ConflictBanner />
-      <EditorPane pane={pane} />
+      <EditorPane pane={layout.pane} />
     </div>
   )
 
-  const side = splitBoth ? (
-    <ResizablePanelGroup
-      orientation="vertical"
-      defaultLayout={layout}
-      onLayoutChanged={(next, meta) => {
-        if (meta.isUserInteraction) setLayout(next)
-      }}
-    >
+  const side = layout.splitBoth ? (
+    <ResizablePanelGroup orientation="vertical" {...layout.side}>
       {/* Sizes are strings so they are read as percentages; a bare
           number would be interpreted as pixels. */}
       <ResizablePanel id="preview" defaultSize="60" minSize="28">
@@ -134,29 +79,22 @@ function EditorScreen() {
   )
 
   return (
-    <div ref={ref} className="relative flex h-full min-h-0">
+    <div ref={layout.ref} className="relative flex h-full min-h-0">
       <SectionRail
-        active={pane}
+        active={layout.pane}
         onSelect={(key) => {
           if (versionsOpen) navigate({ search: {} })
-          setPane(key)
+          layout.setPane(key)
         }}
-        collapsed={veryTight}
+        collapsed={layout.collapsed}
         panels={panels}
         onTogglePanel={togglePanel}
         versionsOpen={versionsOpen}
         onToggleVersions={toggleVersions}
       />
 
-      {centerOpen && rightOpen ? (
-        <ResizablePanelGroup
-          orientation="horizontal"
-          groupRef={columnsRef}
-          defaultLayout={columns}
-          onLayoutChanged={(next, meta) => {
-            if (meta.isUserInteraction) setColumns(next)
-          }}
-        >
+      {layout.centerOpen && layout.rightOpen ? (
+        <ResizablePanelGroup orientation="horizontal" {...layout.columns}>
           {/* Bare numbers are pixels: the editor keeps its old floor and the
               side column opens at its old fixed width. */}
           <ResizablePanel
@@ -177,7 +115,7 @@ function EditorScreen() {
             {side}
           </ResizablePanel>
         </ResizablePanelGroup>
-      ) : centerOpen ? (
+      ) : layout.centerOpen ? (
         <div className="flex min-w-[300px] flex-1 flex-col overflow-hidden bg-paper">
           {editor}
         </div>
