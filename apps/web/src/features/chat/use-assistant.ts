@@ -8,7 +8,12 @@ import { toast } from "sonner"
 
 import { apiErrorFromBody } from "@/lib/api"
 import { useDecideSuggestions } from "@/lib/queries"
-import type { ChatUIMessage, SkillId, SuggestionStatus } from "@/lib/types"
+import type {
+  ChatTurnInputs,
+  ChatUIMessage,
+  SkillId,
+  SuggestionStatus,
+} from "@/lib/types"
 import { useResumeState, useSession } from "../resume/session-context"
 
 export type SendOptions = {
@@ -248,7 +253,7 @@ export function checkFitAnswered({
   )
 }
 
-function bodyOf(options: SendOptions | null): Record<string, unknown> {
+function bodyOf(options: SendOptions | null): ChatTurnInputs {
   if (!options) return {}
   return {
     skillId: options.skillId,

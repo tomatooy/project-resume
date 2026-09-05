@@ -6,7 +6,7 @@ import { createSupabaseForRequest } from "../auth/supabase"
 import { createBackground } from "../background"
 import { createServices } from "../container"
 import { createLogger } from "../log"
-import { errorResponse } from "./errors"
+import { errorResponse } from "../errors"
 import type { ChatDeps } from "./handle-chat"
 
 /**

@@ -6,13 +6,6 @@
  * importing from one place, and so this file stays the answer to "what does the
  * browser know about".
  */
-import type { AgentTools } from "@workspace/agent"
-import type {
-  MessageMetadata,
-  SuggestionStatus as SuggestionStatusType,
-} from "@workspace/resume-core"
-import type { InferUITools, UIDataTypes, UIMessage } from "ai"
-
 export type {
   AgentRun,
   DecideResult,
@@ -25,21 +18,14 @@ export type {
 } from "@workspace/resume-core"
 
 /**
- * A conversation message as `useChat` holds it: the assistant's tool parts
- * are typed from the same tool definitions the server streams from, so a
- * `tool-propose_patches` part's output is a `ProposeOutput` here too.
+ * The chat route's wire shapes come from the contract the route itself parses
+ * against, so the panel and the server cannot drift apart.
  */
-export type ChatUIMessage = UIMessage<
-  MessageMetadata,
-  UIDataTypes,
-  InferUITools<AgentTools>
->
-
-/** What the chat route's GET answers: the transcript plus card statuses. */
-export type ChatHistory = {
-  messages: ChatUIMessage[]
-  suggestions: Record<string, SuggestionStatusType>
-}
+export type {
+  ChatHistory,
+  ChatTurnInputs,
+  ChatUIMessage,
+} from "@/server/chat/contract"
 
 /**
  * The browser's error type.

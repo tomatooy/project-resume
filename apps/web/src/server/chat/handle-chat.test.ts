@@ -29,6 +29,7 @@ import { indexNodes, type ResumePatch } from "@workspace/resume-schema"
 import { simulateReadableStream, type UIMessage } from "ai"
 import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it } from "vitest"
+import { z } from "zod"
 
 import type { Services } from "../container"
 import type { Logger } from "../log"
@@ -254,6 +255,29 @@ describe("handleChat", () => {
     })
     expect(h.db.runs).toHaveLength(0)
     expect(h.db.messages).toHaveLength(0)
+  })
+
+  it("answers 400 for a body that is not a chat request", async () => {
+    const h = await harness(new MockLanguageModelV3({ doStream: [] }))
+    const response = await h.post({ messages: [], resumeId: "not-a-uuid" })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      error: { code: "VALIDATION" },
+    })
+  })
+
+  it("answers 500, not 400, when a stored resume no longer parses", async () => {
+    const h = await harness(new MockLanguageModelV3({ doStream: [] }))
+    // The Supabase adapter parses every row it reads; a row that fails is a
+    // Zod error thrown from below the request line, and not the caller's.
+    h.services.resumes.get = async () => {
+      throw new z.ZodError([])
+    }
+    const response = await h.post({ messages: [user("Tighten this")] })
+    expect(response.status).toBe(500)
+    expect(await response.json()).toMatchObject({
+      error: { code: "INTERNAL" },
+    })
   })
 
   it("answers 404 for a conversation that is not the resume's", async () => {

@@ -97,7 +97,7 @@ export function createSupabaseForRequest(request: Request, responseHeaders: Head
 }
 ```
 
-In server functions, `request` and response headers come from `getRequest()` and `setResponseHeader` in `@tanstack/react-start/server`. A helper `withSupabase()` wraps both.
+In server functions, `request` and response headers come from `getRequest()` and `setResponseHeader` in `@tanstack/react-start/server`. A helper `serve()` in `server/handler.ts` wraps both.
 
 ### 2.2 Requiring a user
 
@@ -302,7 +302,7 @@ Two operations must be atomic and are implemented as Postgres functions called v
 
 ## 4. Server functions
 
-All in `apps/web/src/server/fns/`. Each is `createServerFn({ method }).validator(zodSchema).handler(...)`. Each handler: `withSupabase` → `requireUser` → service call → plain JSON result. Errors are thrown as `AppError(code, status)` and serialized as `{ error: { code, message } }`.
+All in `apps/web/src/server/fns/`. Each is `createServerFn({ method }).validator(zodSchema).handler(...)`. Each handler is wrapped in `serve`: `requireUser` → services → service call → plain JSON result. Errors are thrown as `AppError(code, status)` and serialized as `{ error: { code, message } }`.
 
 Error codes: `UNAUTHENTICATED` 401, `NOT_FOUND` 404, `CONFLICT` 409, `VALIDATION` 400, `RATE_LIMITED` 429, `INTERNAL` 500.
 

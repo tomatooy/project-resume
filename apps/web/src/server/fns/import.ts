@@ -1,11 +1,9 @@
 import { createServerFn } from "@tanstack/react-start"
-import { MAX_IMPORT_CHARS, type ResumeSummary } from "@workspace/resume-core"
+import { MAX_IMPORT_CHARS } from "@workspace/resume-core"
 import { z } from "zod"
 
-import { withSupabase } from "../handler"
-import { createLogger, errorClassOf } from "../log"
-
-const importInput = z.object({ text: z.string().max(MAX_IMPORT_CHARS) })
+import { serve } from "../handler"
+import { errorClassOf } from "../log"
 
 /**
  * A server function rather than a route: the browser extracts the PDF's text
@@ -15,31 +13,28 @@ const importInput = z.object({ text: z.string().max(MAX_IMPORT_CHARS) })
  * The log records how big the input was and how it ended, never what it said.
  */
 export const importResume = createServerFn({ method: "POST" })
-  .validator(importInput)
+  .validator(z.object({ text: z.string().max(MAX_IMPORT_CHARS) }))
   .handler(
-    withSupabase<z.infer<typeof importInput>, ResumeSummary>(
-      async ({ services, user, data }) => {
-        const log = createLogger({ userId: user.userId })
-        const startedAt = Date.now()
-        try {
-          const { resume, model } = await services.imports.import({
-            text: data.text,
-          })
-          log.info("import_finished", {
-            resumeId: resume.id,
-            model,
-            charCount: data.text.length,
-            latencyMs: Date.now() - startedAt,
-          })
-          return resume
-        } catch (error) {
-          log.warn("import_failed", {
-            errorClass: errorClassOf(error),
-            charCount: data.text.length,
-            latencyMs: Date.now() - startedAt,
-          })
-          throw error
-        }
+    serve(async ({ services, log, data }) => {
+      const startedAt = Date.now()
+      try {
+        const { resume, model } = await services.imports.import({
+          text: data.text,
+        })
+        log.info("import_finished", {
+          resumeId: resume.id,
+          model,
+          charCount: data.text.length,
+          latencyMs: Date.now() - startedAt,
+        })
+        return resume
+      } catch (error) {
+        log.warn("import_failed", {
+          errorClass: errorClassOf(error),
+          charCount: data.text.length,
+          latencyMs: Date.now() - startedAt,
+        })
+        throw error
       }
-    )
+    })
   )

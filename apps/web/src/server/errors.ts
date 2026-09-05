@@ -1,6 +1,9 @@
 import { AppError } from "@workspace/resume-core"
 import type { PostgrestError } from "@supabase/supabase-js"
 import { setResponseStatus } from "@tanstack/react-start/server"
+import type { z } from "zod"
+
+import type { Logger } from "./log"
 
 /**
  * Postgres error codes that mean something specific to a caller. Everything
@@ -29,6 +32,24 @@ function isPostgrestError(error: unknown): error is PostgrestError {
     "message" in error &&
     "details" in error
   )
+}
+
+/**
+ * Checks a request body or query against its schema. A mismatch is the
+ * caller's fault and says so with a 400.
+ *
+ * This is the only place a schema failure means VALIDATION. A Zod error
+ * thrown anywhere else comes from a stored row that no longer parses, which
+ * is a server fault and falls through `toAppError` as INTERNAL. Mapping every
+ * Zod error to 400 used to blame the request for corrupt storage.
+ */
+export function parseRequest<S extends z.ZodType>(
+  schema: S,
+  input: unknown
+): z.output<S> {
+  const result = schema.safeParse(input)
+  if (!result.success) throw new AppError("VALIDATION", "Invalid request")
+  return result.data
 }
 
 /**
@@ -72,4 +93,40 @@ export function failWith(error: unknown): never {
   const appError = toAppError(error)
   setResponseStatus(appError.status)
   throw appError
+}
+
+/**
+ * The route counterpart of `failWith`: the JSON shape the browser's
+ * `toApiError` already understands, for a request refused before any stream
+ * started. Once a stream is open, errors travel inside it instead and the
+ * status is long gone.
+ */
+export function errorResponse(error: unknown, log: Logger): Response {
+  const appError = toAppError(error)
+
+  if (appError.status >= 500) {
+    log.error("request_failed", { errorClass: errorClassOf(error) })
+  } else {
+    log.info("request_rejected", {
+      status: appError.status,
+      errorClass: appError.code,
+    })
+  }
+
+  const headers = new Headers({ "content-type": "application/json" })
+  if (appError.retryAfterSeconds !== undefined) {
+    headers.set("retry-after", String(appError.retryAfterSeconds))
+  }
+  return new Response(
+    JSON.stringify({
+      error: { code: appError.code, message: appError.message },
+    }),
+    { status: appError.status, headers }
+  )
+}
+
+function errorClassOf(error: unknown): string {
+  if (error instanceof AppError) return error.code
+  if (error instanceof Error) return error.name
+  return typeof error
 }

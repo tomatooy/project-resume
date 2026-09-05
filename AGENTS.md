@@ -104,10 +104,20 @@ The current code implements that target end to end:
   `updateResume`, `listVersions`, `decideSuggestions`, and so on) or, for chat
   history, the `GET /api/chat` route. Nothing above `api.ts` knows about
   Supabase.
-- Server functions run `withSupabase(handler)`: a per-request Supabase client
-  built from the session cookie, `requireUser`, then the services from
-  `server/container.ts`. Every table has RLS and there is no service-role key;
-  the database is the authorization boundary.
+- Server functions are `createServerFn({ method }).validator(schema)
+  .handler(serve(({ services, log, data }) => ...))`. `serve`
+  (`server/handler.ts`) builds a per-request Supabase client from the session
+  cookie, runs `requireUser`, builds the services from `server/container.ts`,
+  and maps anything thrown through `server/errors.ts`. `data` is typed from
+  the validator; the handler never sees the database client. Every table has
+  RLS and there is no service-role key; the database is the authorization
+  boundary.
+- `server/errors.ts` is the one error mapper for server functions and the chat
+  route. A request that fails its schema goes through `parseRequest` and is
+  VALIDATION 400; a Zod error from anywhere else is a stored row that no
+  longer parses, and is INTERNAL 500. The chat route's request and response
+  shapes live in `server/chat/contract.ts` and are what `lib/types.ts`
+  re-exports to the panel.
 - Domain logic lives in `packages/resume-core` (types from Zod, ports, services,
   in-memory doubles for every port). `apps/web/src/server/adapters/` implements
   the ports on Supabase. `packages/agent` holds everything that touches the AI

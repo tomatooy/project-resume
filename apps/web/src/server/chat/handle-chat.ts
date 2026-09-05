@@ -22,11 +22,11 @@ import {
   type SkillId,
 } from "@workspace/resume-core"
 import type { ModelMessage, UIMessage } from "ai"
-import { z } from "zod"
 
 import type { Services } from "../container"
+import { errorResponse, parseRequest } from "../errors"
 import { errorClassOf, type Logger } from "../log"
-import { errorResponse } from "./errors"
+import { type ChatRequest, ChatRequestSchema } from "./contract"
 
 export type ChatDeps = {
   services: Services
@@ -35,24 +35,6 @@ export type ChatDeps = {
   log: Logger
   now: () => Date
 }
-
-/**
- * What `useChat` posts: its own envelope plus the fields the panel adds. The
- * skill inputs travel with every request, but only a new turn reads them; a
- * continuation takes them from the run it belongs to.
- */
-const ChatRequestSchema = z.object({
-  id: z.string().optional(),
-  trigger: z.enum(["submit-message", "regenerate-message"]).optional(),
-  messages: z.array(z.unknown()).min(1),
-  conversationId: z.uuid(),
-  resumeId: z.uuid(),
-  skillId: z.string().optional(),
-  selectedNodeId: z.string().nullable().optional(),
-  jobDescription: z.string().trim().max(20_000).optional(),
-  targetPages: z.number().int().min(1).max(4).optional(),
-})
-type ChatRequest = z.infer<typeof ChatRequestSchema>
 
 /** Longer than any run should take; shorter than the platform's own cutoff. */
 export const RUN_TIMEOUT_MS = 90_000
@@ -63,7 +45,7 @@ export async function handleChat(
 ): Promise<Response> {
   const { services, log } = deps
   try {
-    const body = ChatRequestSchema.parse(await request.json())
+    const body = parseRequest(ChatRequestSchema, await request.json())
     const messages = await parseUIMessages(body.messages)
     const last = messages[messages.length - 1]
     if (!last) throw new AppError("VALIDATION", "No message to answer")
