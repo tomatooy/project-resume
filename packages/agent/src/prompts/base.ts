@@ -1,5 +1,7 @@
 import type { NodeKind, PatchOp } from "@workspace/resume-schema"
 
+import type { SkillScope } from "../skills/types"
+
 /**
  * From the back-end design, 10.3. Rules 2 and 3 diverge from it: the model was
  * being told the grounding rule as a prohibition on itself, so it refused and
@@ -57,8 +59,16 @@ export function patchContract(
   return lines.join("\n\n")
 }
 
-export function resumeContextBlock(resumeContext: unknown): string {
-  return `Resume context, with node ids:\n\`\`\`json\n${JSON.stringify(resumeContext)}\n\`\`\``
+/** What the model is shown, as JSON it can quote node ids from. */
+export function resumeContextBlock(scope: SkillScope): string {
+  const shown =
+    scope.kind === "document"
+      ? scope.resume
+      : {
+          basics: { id: "basics", headline: scope.headline },
+          selected: scope.selected,
+        }
+  return `Resume context, with node ids:\n\`\`\`json\n${JSON.stringify(shown)}\n\`\`\``
 }
 
 export function summaryBlock(summaryText: string): string {

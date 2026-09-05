@@ -17,9 +17,4 @@ export const skills: Record<SkillId, ResumeSkill> = {
   summary_optimize: summaryOptimize,
 }
 
-export type {
-  ResumeSkill,
-  SkillContext,
-  SkillScope,
-  SkillToolName,
-} from "./types"
+export type { ResumeSkill, SkillContext, SkillScope } from "./types"

@@ -10,12 +10,12 @@ import {
   migrateResume,
   regenerateIds,
   ResumeSchema,
-  textFields,
   validatePatches,
   type Resume,
   type ResumePatch,
   type StrictApplyResult,
 } from "../src/index"
+import { textFields } from "../src/nodes"
 import {
   longBullets,
   minimal,

@@ -12,7 +12,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import { useEffect, useRef, useState } from "react"
 
 import { messagesQuery } from "@/lib/queries"
-import { DEFAULT_SKILL, SKILLS, skillById } from "@/lib/skills"
+import { DEFAULT_SKILL, SKILLS, available, needs, skillOf } from "@/lib/skills"
 import type {
   ChatHistory,
   ChatUIMessage,
@@ -37,7 +37,7 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
   const conversationId = useResumeState((s) => s.conversationId)
   const selectedNodeId = useResumeState((s) => s.selectedNodeId)
   const [skillId, setSkillId] = useState<SkillId>(DEFAULT_SKILL)
-  const skill = skillById.get(skillId)
+  const skill = skillOf(skillId)
 
   const history = useQuery(messagesQuery(conversationId))
 
@@ -130,7 +130,7 @@ function Conversation({
   const [draft, setDraft] = useState("")
   const [jobDescription, setJobDescription] = useState("")
   const [targetPages, setTargetPages] = useState(1)
-  const skill = skillById.get(skillId)
+  const skill = skillOf(skillId)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Scroll when anything new arrives, message or streamed part.
@@ -150,10 +150,10 @@ function Conversation({
     assistant.send(trimmed, {
       skillId,
       selectedNodeId,
-      jobDescription: skill?.needsJobDescription
+      jobDescription: needs(skill, "jobDescription")
         ? jobDescription.trim() || undefined
         : undefined,
-      targetPages: skill?.needsTargetPages ? targetPages : undefined,
+      targetPages: needs(skill, "targetPages") ? targetPages : undefined,
     })
   }
 
@@ -210,9 +210,9 @@ function Conversation({
             <button
               key={option.id}
               type="button"
-              disabled={!option.available}
+              disabled={!available(option)}
               title={
-                option.available
+                available(option)
                   ? option.description
                   : `${option.description} (not in this release)`
               }
@@ -222,7 +222,7 @@ function Conversation({
                 option.id === skillId
                   ? "border-transparent bg-primary font-medium text-primary-foreground"
                   : "border-border bg-paper text-foreground hover:bg-muted",
-                !option.available &&
+                !available(option) &&
                   "cursor-not-allowed opacity-40 hover:bg-paper"
               )}
             >
@@ -231,7 +231,7 @@ function Conversation({
           ))}
         </div>
 
-        {skill?.needsTargetPages ? (
+        {needs(skill, "targetPages") ? (
           <label className="mb-2.5 flex items-center gap-2 text-[11.5px] text-muted-foreground">
             Fit onto
             <input
@@ -248,7 +248,7 @@ function Conversation({
           </label>
         ) : null}
 
-        {skill?.needsJobDescription ? (
+        {needs(skill, "jobDescription") ? (
           <textarea
             value={jobDescription}
             onChange={(event) => setJobDescription(event.target.value)}

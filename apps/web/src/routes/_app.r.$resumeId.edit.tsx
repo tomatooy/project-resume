@@ -6,6 +6,7 @@ import {
   useResizableGroupRef,
 } from "@workspace/ui/components/resizable"
 import { useEffect, useState } from "react"
+import { z } from "zod"
 
 import { AssistantPanel } from "@/features/chat/AssistantPanel"
 import { ConflictBanner } from "@/features/resume/ConflictBanner"
@@ -27,6 +28,10 @@ export const Route = createFileRoute("/_app/r/$resumeId/edit")({
 })
 
 /** Below this the section rail collapses to initials and the form yields. */
+/** Stored preferences. Module-level so the storage hook sees one schema value. */
+const Panels = z.object({ preview: z.boolean(), assistant: z.boolean() })
+const Split = z.record(z.string(), z.number()).optional()
+
 const VERY_TIGHT = 980
 
 function EditorScreen() {
@@ -37,16 +42,20 @@ function EditorScreen() {
   const navigate = Route.useNavigate()
 
   const [pane, setPane] = useState<PaneKey>("contact")
-  const [panels, setPanels] = useLocalStorage("resume-studio.panels", {
+  const [panels, setPanels] = useLocalStorage("resume-studio.panels", Panels, {
     preview: true,
     assistant: false,
   })
-  const [layout, setLayout] = useLocalStorage<
-    Record<string, number> | undefined
-  >("resume-studio.right-split", undefined)
-  const [columns, setColumns] = useLocalStorage<
-    Record<string, number> | undefined
-  >("resume-studio.column-split", undefined)
+  const [layout, setLayout] = useLocalStorage(
+    "resume-studio.right-split",
+    Split,
+    undefined
+  )
+  const [columns, setColumns] = useLocalStorage(
+    "resume-studio.column-split",
+    Split,
+    undefined
+  )
   const columnsRef = useResizableGroupRef()
 
   // Storage is read after mount, so a saved split lands after the group has

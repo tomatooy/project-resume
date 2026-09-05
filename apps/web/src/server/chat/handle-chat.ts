@@ -17,9 +17,7 @@ import {
   type ChatMessage,
   isSkillId,
   type MessageMetadata,
-  SKILL_REQUIRES,
-  SKILL_STATUS,
-  type SkillId,
+  SKILL,
 } from "@workspace/resume-core"
 import type { ModelMessage, UIMessage } from "ai"
 
@@ -54,7 +52,7 @@ export async function handleChat(
     // caller's reads as missing, and a conversation id that does not belong
     // to this resume is refused the same way.
     const record = await services.resumes.get(body.resumeId)
-    const conversation = await services.conversations.getOrCreate(body.resumeId)
+    const conversation = await services.memory.openConversation(body.resumeId)
     if (conversation.id !== body.conversationId) {
       throw new AppError("NOT_FOUND", "Not found")
     }
@@ -122,7 +120,7 @@ async function startTurn(
       ? windowEndingAt(memory.messages, userMessage)
       : null
   if (replay === null) {
-    await services.messages.append(
+    await services.memory.record(
       fromUIMessage(last, {
         conversationId: body.conversationId,
         agentRunId: run.id,
@@ -276,7 +274,7 @@ function stream(
       }
 
       try {
-        await services.messages.append(
+        await services.memory.record(
           fromUIMessage(message, {
             conversationId: run.conversationId,
             agentRunId: run.id,
@@ -329,11 +327,11 @@ function resolveSkill(body: ChatRequest): ResumeSkill {
   if (!isSkillId(body.skillId)) {
     throw new AppError("VALIDATION", "Unknown skill")
   }
-  const id: SkillId = body.skillId
-  if (SKILL_STATUS[id] !== "mvp") {
+  const spec = SKILL[body.skillId]
+  if (spec.status !== "mvp") {
     throw new AppError("VALIDATION", "This skill is not available yet")
   }
-  for (const requirement of SKILL_REQUIRES[id]) {
+  for (const requirement of spec.requires) {
     if (requirement === "jobDescription" && !body.jobDescription) {
       throw new AppError("VALIDATION", "This skill needs a job description")
     }
@@ -341,7 +339,7 @@ function resolveSkill(body: ChatRequest): ResumeSkill {
       throw new AppError("VALIDATION", "This skill needs a page target")
     }
   }
-  return skills[id]
+  return skills[spec.id]
 }
 
 /**

@@ -17,7 +17,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { AppError } from "@workspace/resume-core"
 
-import { createServices } from "@/server/container"
+import { createServices, supabasePorts } from "@/server/container"
 
 const URL_ = process.env.SUPABASE_URL ?? "http://127.0.0.1:54321"
 const ANON =
@@ -116,8 +116,8 @@ await seedUsers()
 
 const dbA = await clientFor(USER_A)
 const dbB = await clientFor(USER_B)
-const a = createServices(dbA, USER_A)
-const b = createServices(dbB, USER_B)
+const a = createServices(supabasePorts(dbA, USER_A))
+const b = createServices(supabasePorts(dbB, USER_B))
 
 console.log("resumes")
 const created = await a.resumes.create({ title: "Adapter check" })
@@ -205,9 +205,9 @@ check(
 )
 
 console.log("suggestions")
-const conversation = await a.conversations.getOrCreate(created.id)
+const conversation = await a.memory.openConversation(created.id)
 check("conversation is created", conversation.id.length > 0)
-const same = await a.conversations.getOrCreate(created.id)
+const same = await a.memory.openConversation(created.id)
 check("conversation is reused", same.id === conversation.id)
 
 const current = await a.resumes.get(created.id)
@@ -287,7 +287,7 @@ check(
 )
 
 console.log("messages and memory")
-const userMessage = await a.messages.append({
+const userMessage = await a.memory.record({
   conversationId: conversation.id,
   role: "user",
   parts: [{ type: "text", text: "Tighten this" }],

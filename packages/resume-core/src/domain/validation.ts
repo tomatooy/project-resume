@@ -7,12 +7,7 @@ import {
 } from "@workspace/resume-schema"
 
 import { AppError } from "./errors"
-import {
-  SKILL_ALLOWED_FIELDS,
-  SKILL_ALLOWED_OPS,
-  SKILL_SCOPE,
-  isSkillId,
-} from "./skill"
+import { SKILL, isSkillId } from "./skill"
 
 /**
  * Which of the two moments a patch is being checked at.
@@ -62,10 +57,11 @@ function limitsFor(skillId: string) {
   if (!isSkillId(skillId)) {
     throw new AppError("VALIDATION", `Unknown skill ${skillId}`)
   }
+  const spec = SKILL[skillId]
   return {
-    allowedOps: SKILL_ALLOWED_OPS[skillId],
-    allowedFields: SKILL_ALLOWED_FIELDS[skillId],
-    scoped: SKILL_SCOPE[skillId] === "node",
+    allowedOps: spec.allowedOps,
+    allowedFields: spec.allowedFields,
+    scoped: spec.scope === "node",
   }
 }
 

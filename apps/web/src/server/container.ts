@@ -1,19 +1,11 @@
-import { createModelsFromEnv } from "./ai"
 import { createResumeParser, createSummarizer } from "@workspace/agent"
 import {
-  type ConversationRepository,
-  ImportService,
-  MemoryService,
-  type MessageRepository,
+  type Ports,
   type ResumeParser,
-  ResumeService,
-  RunService,
-  SuggestionService,
   type Summarizer,
-  VersionService,
+  createServices,
 } from "@workspace/resume-core"
 
-import type { Db } from "./auth/supabase"
 import { SupabaseAgentRunRepository } from "./adapters/agent-run-repository"
 import { SupabaseConversationRepository } from "./adapters/conversation-repository"
 import { SupabaseMessageRepository } from "./adapters/message-repository"
@@ -21,17 +13,11 @@ import { SupabaseResumeRepository } from "./adapters/resume-repository"
 import { SupabaseSuggestionRepository } from "./adapters/suggestion-repository"
 import { SupabaseSummaryRepository } from "./adapters/summary-repository"
 import { SupabaseVersionRepository } from "./adapters/version-repository"
+import { createModelsFromEnv } from "./ai"
+import type { Db } from "./auth/supabase"
 
-export type Services = {
-  resumes: ResumeService
-  imports: ImportService
-  versions: VersionService
-  suggestions: SuggestionService
-  conversations: ConversationRepository
-  runs: RunService
-  memory: MemoryService
-  messages: MessageRepository
-}
+export type { Services } from "@workspace/resume-core"
+export { createServices }
 
 /**
  * Builds the model client only if consolidation actually runs, so a server
@@ -48,44 +34,28 @@ const lazyResumeParser: ResumeParser = {
 }
 
 /**
- * The composition root. This is the only file that knows both halves: which
- * concrete adapter implements which port, and how the services are wired to
- * them. Everything above it sees ports, and the test doubles in
- * `@workspace/resume-core/testing` drop into exactly the same slots.
+ * The adapter half of the composition root: which Supabase class fills which
+ * port. How the services hang off the ports is `createServices`, written
+ * once in `resume-core` and shared with the in-memory set the tests use.
  *
  * Built per request, because the client it is built from is per request.
+ * `over` lets the chat route swap in the summarizer it already built.
  */
-export function createServices(
+export function supabasePorts(
   db: Db,
   userId: string,
-  deps: { summarizer?: Summarizer; resumeParser?: ResumeParser } = {}
-): Services {
-  const resumes = new SupabaseResumeRepository(db, userId)
-  const versions = new SupabaseVersionRepository(db)
-  const runs = new SupabaseAgentRunRepository(db)
-  const suggestions = new SupabaseSuggestionRepository(db)
-  const messages = new SupabaseMessageRepository(db)
-  const summaries = new SupabaseSummaryRepository(db)
-
-  const versionService = new VersionService(resumes, versions)
-  const resumeService = new ResumeService(resumes)
-
+  over: Partial<Ports> = {}
+): Ports {
   return {
-    resumes: resumeService,
-    imports: new ImportService(
-      deps.resumeParser ?? lazyResumeParser,
-      resumeService,
-      versionService
-    ),
-    versions: versionService,
-    suggestions: new SuggestionService(resumes, runs, suggestions),
+    resumes: new SupabaseResumeRepository(db, userId),
+    versions: new SupabaseVersionRepository(db),
+    runs: new SupabaseAgentRunRepository(db),
+    suggestions: new SupabaseSuggestionRepository(db),
     conversations: new SupabaseConversationRepository(db, userId),
-    runs: new RunService(versionService, runs),
-    memory: new MemoryService(
-      messages,
-      summaries,
-      deps.summarizer ?? lazySummarizer
-    ),
-    messages,
+    messages: new SupabaseMessageRepository(db),
+    summaries: new SupabaseSummaryRepository(db),
+    summarizer: lazySummarizer,
+    resumeParser: lazyResumeParser,
+    ...over,
   }
 }

@@ -5,15 +5,30 @@ import {
 import {
   convertToModelMessages,
   isToolUIPart,
+  type LanguageModelUsage,
   type ModelMessage,
+  type StopCondition,
+  stepCountIs,
+  streamText,
   type UIMessage,
   validateUIMessages,
 } from "ai"
 
 import type { Models } from "./models"
-import { type RunMemory, runSkill } from "./run"
+import { resumeContextBlock, summaryBlock } from "./prompts/base"
 import type { ResumeSkill, SkillContext } from "./skills/types"
-import { type PersistProposal, checkFitTool } from "./tools"
+import { type PersistProposal, checkFitTool, proposePatchesTool } from "./tools"
+
+export type AgentTools = {
+  check_fit: typeof checkFitTool
+  propose_patches: ReturnType<typeof proposePatchesTool>
+}
+
+export type TurnMemory = {
+  summaryText: string | null
+  /** The recent window, already converted, ending with the current user turn. */
+  messages: ModelMessage[]
+}
 
 export type TurnUsage = {
   inputTokens: number
@@ -48,7 +63,7 @@ export type StartTurnInput = {
   models: Models
   runId: string
   persist: PersistProposal
-  memory: RunMemory
+  memory: TurnMemory
   /** The transcript the browser sent, which the response extends. */
   originalMessages: UIMessage[]
   /** Stamped on the assistant message as it starts. */
@@ -60,6 +75,90 @@ export type StartTurnInput = {
    */
   onSettled: (outcome: TurnOutcome) => Promise<void>
   abortSignal?: AbortSignal
+}
+
+export type RunSkillInput = {
+  skill: ResumeSkill
+  ctx: SkillContext
+  models: Models
+  runId: string
+  persist: PersistProposal
+  memory: TurnMemory
+  abortSignal?: AbortSignal
+  /**
+   * Fired per completed model turn. Callers sum usage here rather than await
+   * the result's totals, which never settle when the stream is aborted.
+   */
+  onStepEnd?: (step: { usage: LanguageModelUsage }) => void
+}
+
+/** Model turns per run. A proposal normally lands in one or two. */
+const MAX_STEPS = 6
+
+/**
+ * Ends the loop once a proposal went through with nothing refused. A refused
+ * batch gets another turn so the model can correct it; the step budget bounds
+ * how many.
+ */
+const proposalAccepted: StopCondition<AgentTools> = ({ steps }) => {
+  const last = steps[steps.length - 1]
+  if (!last) return false
+  return last.staticToolResults.some(
+    (result) =>
+      result.toolName === "propose_patches" &&
+      result.output.rejected.length === 0
+  )
+}
+
+/**
+ * The model loop for one skill: the prompt from the skill and what it was
+ * shown, the tools bound to this run, and the stop rule.
+ *
+ * Exported for this package's own tests, which read the steps back; the app
+ * only ever sees `startTurn`.
+ */
+export function runSkill(input: RunSkillInput) {
+  const { skill, ctx, models } = input
+
+  const tools: AgentTools = {
+    check_fit: checkFitTool,
+    propose_patches: proposePatchesTool({
+      runId: input.runId,
+      resume: ctx.resume,
+      persist: input.persist,
+      // Op and field whitelists, the scope anchor and the grounding text are
+      // all derived from the skill id and the selection. What the model was
+      // shown (`skill.show`) is a separate decision from what it is allowed
+      // to change, and only the latter is enforced.
+      validation: {
+        mode: "propose",
+        skillId: skill.id,
+        selectedNodeId: ctx.selectedNodeId,
+        userMessage: ctx.userMessage,
+        jobDescription: ctx.jobDescription,
+      },
+    }),
+  }
+
+  const system = [
+    skill.systemPrompt(ctx),
+    input.memory.summaryText ? summaryBlock(input.memory.summaryText) : null,
+    resumeContextBlock(skill.show(ctx)),
+  ]
+    .filter((block): block is string => block !== null)
+    .join("\n\n")
+
+  return streamText({
+    model: models.smart,
+    system,
+    messages: input.memory.messages,
+    tools,
+    activeTools: skill.tools,
+    stopWhen: [stepCountIs(MAX_STEPS), proposalAccepted],
+    providerOptions: models.providerOptions,
+    abortSignal: input.abortSignal,
+    onStepEnd: (step) => input.onStepEnd?.({ usage: step.usage }),
+  })
 }
 
 /**

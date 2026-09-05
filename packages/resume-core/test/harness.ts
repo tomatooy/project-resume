@@ -4,66 +4,28 @@ import {
   type ResumePatch,
 } from "@workspace/resume-schema"
 
-import {
-  InMemoryAgentRunRepository,
-  InMemoryBackground,
-  InMemoryConversationRepository,
-  InMemoryDb,
-  InMemoryMessageRepository,
-  InMemoryResumeRepository,
-  InMemorySuggestionRepository,
-  InMemorySummaryRepository,
-  InMemoryVersionRepository,
-  StubSummarizer,
-} from "../src/testing/index"
-import {
-  MemoryService,
-  ResumeService,
-  RunService,
-  SuggestionService,
-  VersionService,
-} from "../src/services/index"
+import { createServices } from "../src/services/index"
+import { InMemoryBackground, inMemoryPorts } from "../src/testing/index"
 
+/** The ports by name, and the services wired the way the app wires them. */
 export function harness() {
-  const db = new InMemoryDb()
-  const resumes = new InMemoryResumeRepository(db)
-  const versions = new InMemoryVersionRepository(db)
-  const runs = new InMemoryAgentRunRepository(db)
-  const suggestions = new InMemorySuggestionRepository(db)
-  const conversations = new InMemoryConversationRepository(db)
-  const messages = new InMemoryMessageRepository(db)
-  const summaries = new InMemorySummaryRepository(db)
-  const summarizer = new StubSummarizer()
-  const background = new InMemoryBackground()
-
-  const versionService = new VersionService(resumes, versions)
-
+  const ports = inMemoryPorts()
+  const services = createServices(ports)
   return {
-    db,
-    resumes,
-    versions,
-    runs,
-    suggestions,
-    conversations,
-    messages,
-    summaries,
-    summarizer,
-    background,
-    resumeService: new ResumeService(resumes),
-    versionService,
-    suggestionService: new SuggestionService(resumes, runs, suggestions),
-    runService: new RunService(versionService, runs, () => db.now()),
-    memoryService: new MemoryService(messages, summaries, summarizer),
+    ...ports,
+    background: new InMemoryBackground(),
+    resumeService: services.resumes,
+    versionService: services.versions,
+    suggestionService: services.suggestions,
+    runService: services.runs,
+    memoryService: services.memory,
   }
 }
 
 /** The first bullet of the first experience item, which every fixture has. */
 export function firstBullet(resume: Resume): { id: string; text: string } {
   for (const ref of indexNodes(resume).values()) {
-    if (ref.kind === "bullet") {
-      const node = ref.node as { id: string; text: string }
-      return { id: node.id, text: node.text }
-    }
+    if (ref.kind === "bullet") return ref.node
   }
   throw new Error("fixture has no bullets")
 }

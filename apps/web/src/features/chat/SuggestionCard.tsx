@@ -14,7 +14,7 @@ import { cn } from "@workspace/ui/lib/utils"
 
 import { MessageMarkdown } from "./MessageMarkdown"
 
-import { skillById } from "@/lib/skills"
+import { skillOf } from "@/lib/skills"
 import type { Suggestion, SuggestionStatus } from "@/lib/types"
 import { WordDiff } from "@/lib/word-diff"
 
@@ -41,7 +41,7 @@ export function SuggestionCard({
 }) {
   const { patch, status } = suggestion
   const pending = status === "pending"
-  const skill = skillById.get(patch.skillId as never)
+  const skill = skillOf(patch.skillId)
   const target = "targetNodeId" in patch ? patch.targetNodeId : patch.parentId
 
   return (

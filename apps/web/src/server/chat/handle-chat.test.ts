@@ -4,26 +4,10 @@ import type {
   LanguageModelV3StreamResult,
 } from "@ai-sdk/provider"
 import type { Models } from "@workspace/agent"
+import { createServices } from "@workspace/resume-core"
 import {
-  ImportService,
-  MemoryService,
-  ResumeService,
-  RunService,
-  SuggestionService,
-  VersionService,
-} from "@workspace/resume-core"
-import {
-  InMemoryAgentRunRepository,
   InMemoryBackground,
-  InMemoryConversationRepository,
-  InMemoryDb,
-  InMemoryMessageRepository,
-  InMemoryResumeRepository,
-  InMemorySuggestionRepository,
-  InMemorySummaryRepository,
-  InMemoryVersionRepository,
-  StubResumeParser,
-  StubSummarizer,
+  inMemoryPorts,
 } from "@workspace/resume-core/testing"
 import { indexNodes, type ResumePatch } from "@workspace/resume-schema"
 import { simulateReadableStream, type UIMessage } from "ai"
@@ -31,7 +15,6 @@ import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it } from "vitest"
 import { z } from "zod"
 
-import type { Services } from "../container"
 import type { Logger } from "../log"
 import { type ChatDeps, handleChat } from "./handle-chat"
 
@@ -75,28 +58,10 @@ function text(content: string): LanguageModelV3StreamResult {
 const silent: Logger = { info() {}, warn() {}, error() {} }
 
 async function harness(model: MockLanguageModelV3) {
-  const db = new InMemoryDb()
-  const resumes = new InMemoryResumeRepository(db)
-  const versions = new InMemoryVersionRepository(db)
-  const runs = new InMemoryAgentRunRepository(db)
-  const suggestions = new InMemorySuggestionRepository(db)
-  const messages = new InMemoryMessageRepository(db)
-  const summaries = new InMemorySummaryRepository(db)
-  const summarizer = new StubSummarizer()
-  const parser = new StubResumeParser()
+  const ports = inMemoryPorts()
+  const { db, summarizer } = ports
   const background = new InMemoryBackground()
-  const versionService = new VersionService(resumes, versions)
-  const resumeService = new ResumeService(resumes)
-  const services: Services = {
-    resumes: resumeService,
-    versions: versionService,
-    suggestions: new SuggestionService(resumes, runs, suggestions),
-    conversations: new InMemoryConversationRepository(db),
-    runs: new RunService(versionService, runs, () => db.now()),
-    memory: new MemoryService(messages, summaries, summarizer),
-    imports: new ImportService(parser, resumeService, versionService),
-    messages,
-  }
+  const services = createServices(ports)
   const models: Models = {
     smart: model,
     fast: model,
@@ -113,11 +78,11 @@ async function harness(model: MockLanguageModelV3) {
 
   const summary = await services.resumes.create({ title: "Chat test" })
   const record = await services.resumes.get(summary.id)
-  const conversation = await services.conversations.getOrCreate(record.id)
+  const conversation = await services.memory.openConversation(record.id)
   let bullet: { id: string; text: string } | null = null
   for (const ref of indexNodes(record.data).values()) {
     if (ref.kind === "bullet") {
-      bullet = ref.node as { id: string; text: string }
+      bullet = ref.node
       break
     }
   }

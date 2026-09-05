@@ -1,7 +1,7 @@
 import type { SessionUser } from "./auth/require-user"
 import { requireUser } from "./auth/require-user"
 import { createSupabaseForRequest } from "./auth/supabase"
-import { createServices, type Services } from "./container"
+import { createServices, type Services, supabasePorts } from "./container"
 import { failWith } from "./errors"
 import { createLogger, type Logger } from "./log"
 
@@ -37,7 +37,7 @@ export function serve<TData, TResult>(
         requestId: crypto.randomUUID(),
         userId: user.userId,
       })
-      const services = createServices(db, user.userId)
+      const services = createServices(supabasePorts(db, user.userId))
       return await handler({ user, services, log, data })
     } catch (error) {
       return failWith(error)

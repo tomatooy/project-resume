@@ -1,5 +1,6 @@
-import type { ChatMessage } from "../domain/chat"
+import type { ChatMessage, NewChatMessage } from "../domain/chat"
 import { renderSummaryText } from "../domain/memory"
+import type { ConversationRepository } from "../ports/conversation-repository"
 import type { MessageRepository } from "../ports/message-repository"
 import type { Summarizer } from "../ports/summarizer"
 import type { SummaryRepository } from "../ports/summary-repository"
@@ -21,20 +22,35 @@ export type MemoryOptions = {
 const DEFAULTS: MemoryOptions = { window: 12, threshold: 12 }
 
 /**
- * The three memory layers from the over-all design, section 6.4: the recent
- * window, the consolidated summary, and the full history on demand. The
+ * The conversation and everything remembered in it: the three memory layers
+ * from the over-all design, section 6.4 (the recent window, the consolidated
+ * summary, the full history on demand), plus the writes that feed them. The
  * policy is here; the model call behind consolidation is a port.
+ *
+ * Callers write messages through `record` rather than the repository so that
+ * one module owns the sequence the window and the summary are cut on.
  */
 export class MemoryService {
   private readonly options: MemoryOptions
 
   constructor(
+    private readonly conversations: ConversationRepository,
     private readonly messages: MessageRepository,
     private readonly summaries: SummaryRepository,
     private readonly summarizer: Summarizer,
     options: Partial<MemoryOptions> = {}
   ) {
     this.options = { ...DEFAULTS, ...options }
+  }
+
+  /** One conversation per resume, created on first use. */
+  openConversation(resumeId: string): Promise<{ id: string }> {
+    return this.conversations.getOrCreate(resumeId)
+  }
+
+  /** Appends one turn to the transcript. */
+  record(message: NewChatMessage): Promise<ChatMessage> {
+    return this.messages.append(message)
   }
 
   async buildContext(conversationId: string): Promise<MemoryContext> {

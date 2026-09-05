@@ -1,56 +1,29 @@
-import {
-  SKILL_ALLOWED_FIELDS,
-  SKILL_ALLOWED_OPS,
-  SKILL_REQUIRES,
-  SKILL_STATUS,
-  type SkillId,
-} from "@workspace/resume-core"
+import { SKILL, type SkillId } from "@workspace/resume-core"
 
 import { buildSystemPrompt } from "../prompts/base"
-import type {
-  ResumeSkill,
-  SkillContext,
-  SkillScope,
-  SkillToolName,
-} from "./types"
-
-export type SkillDefinition = {
-  id: SkillId
-  name: string
-  description: string
-  tools?: SkillToolName[]
-  /** What the model is shown. Not what it may change: see `SKILL_SCOPE`. */
-  scope: (ctx: SkillContext) => SkillScope
-  /** The skill's own instructions, appended after the base prompt and contract. */
-  fragment: (ctx: SkillContext) => string
-}
+import { nodeScope, wholeDocument } from "../scope"
+import type { ResumeSkill, SkillContext } from "./types"
 
 /**
- * Status, op whitelist, field whitelist and required inputs all come from
- * `resume-core`, which is what the server enforces. A skill file only adds
- * what the model needs: its prompt fragment and what it is shown.
+ * A skill file adds the one thing the registry cannot hold: what the model
+ * is told. Its label, status, whitelists, required inputs, tools and scope
+ * all come from the registry row in `resume-core`, which is what the server
+ * enforces, so nothing here can disagree with it.
  */
-export function defineSkill(definition: SkillDefinition): ResumeSkill {
-  const allowedOps = SKILL_ALLOWED_OPS[definition.id]
-  const allowedFields = SKILL_ALLOWED_FIELDS[definition.id]
-  const tools: SkillToolName[] = definition.tools ?? ["propose_patches"]
+export function defineSkill(definition: {
+  id: SkillId
+  /** The skill's own instructions, appended after the base prompt and contract. */
+  fragment: (ctx: SkillContext) => string
+}): ResumeSkill {
+  const spec = SKILL[definition.id]
   return {
-    id: definition.id,
-    name: definition.name,
-    description: definition.description,
-    status: SKILL_STATUS[definition.id],
-    allowedOps,
-    allowedFields,
-    tools: tools.includes("propose_patches")
-      ? tools
-      : [...tools, "propose_patches"],
-    requires: SKILL_REQUIRES[definition.id],
-    scope: definition.scope,
+    ...spec,
+    show: spec.scope === "node" ? nodeScope : wholeDocument,
     systemPrompt: (ctx) =>
       buildSystemPrompt({
         fragment: definition.fragment(ctx),
-        allowedOps,
-        allowedFields,
+        allowedOps: spec.allowedOps,
+        allowedFields: spec.allowedFields,
       }),
   }
 }

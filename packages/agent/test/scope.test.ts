@@ -4,7 +4,7 @@ import { skills } from "../src/skills/index"
 import { fixture } from "./mock"
 
 /**
- * `scope` decides what the model is *shown*. What it is allowed to *change* is
+ * `show` decides what the model is *shown*. What it is allowed to *change* is
  * `validateForSkill`'s job, and is covered in `resume-core`; these two used to
  * be one field, which is how accept-time enforcement went missing.
  */
@@ -12,12 +12,12 @@ describe("skill scope", () => {
   const { resume, bullet, otherBullet } = fixture()
 
   it("narrows a node-scoped skill to the containing item plus the headline", () => {
-    const scope = skills.bullet_rewrite.scope({
+    const scope = skills.bullet_rewrite.show({
       resume,
       userMessage: "x",
       selectedNodeId: bullet.id,
     })
-    const json = JSON.stringify(scope.resumeContext)
+    const json = JSON.stringify(scope)
     expect(json).toContain(bullet.text)
     expect(json).toContain(resume.basics.headline)
     expect(json).not.toContain(otherBullet.text)
@@ -25,48 +25,48 @@ describe("skill scope", () => {
   })
 
   it("sends the whole document when nothing is selected", () => {
-    const scope = skills.bullet_rewrite.scope({ resume, userMessage: "x" })
-    expect(scope.resumeContext).toBe(resume)
+    const scope = skills.bullet_rewrite.show({ resume, userMessage: "x" })
+    expect(scope).toEqual({ kind: "document", resume })
   })
 
   it("scopes to the item itself when an item is selected", () => {
-    const scope = skills.grammar_clarity.scope({
+    const scope = skills.grammar_clarity.show({
       resume,
       userMessage: "x",
       selectedNodeId: bullet.itemId,
     })
-    const json = JSON.stringify(scope.resumeContext)
+    const json = JSON.stringify(scope)
     expect(json).toContain(bullet.text)
     expect(json).not.toContain(otherBullet.text)
   })
 
   it("scopes to basics when basics is selected", () => {
-    const scope = skills.grammar_clarity.scope({
+    const scope = skills.grammar_clarity.show({
       resume,
       userMessage: "x",
       selectedNodeId: "basics",
     })
-    expect(JSON.stringify(scope.resumeContext)).toContain(resume.basics.name)
-    expect(JSON.stringify(scope.resumeContext)).not.toContain(bullet.text)
+    expect(JSON.stringify(scope)).toContain(resume.basics.name)
+    expect(JSON.stringify(scope)).not.toContain(bullet.text)
   })
 
   it("shows a whole-document skill everything even with a selection", () => {
-    const scope = skills.jd_match.scope({
+    const scope = skills.jd_match.show({
       resume,
       userMessage: "x",
       selectedNodeId: bullet.id,
       jobDescription: "Staff engineer",
     })
-    expect(scope.resumeContext).toBe(resume)
+    expect(scope).toEqual({ kind: "document", resume })
   })
 
   it("falls back to the whole document for an unknown selection", () => {
-    const scope = skills.bullet_rewrite.scope({
+    const scope = skills.bullet_rewrite.show({
       resume,
       userMessage: "x",
       selectedNodeId: "blt_missing",
     })
-    expect(scope.resumeContext).toBe(resume)
+    expect(scope).toEqual({ kind: "document", resume })
   })
 })
 

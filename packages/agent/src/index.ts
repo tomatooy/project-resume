@@ -1,32 +1,24 @@
+/**
+ * Everything the app is allowed to know about the model side, and nothing
+ * else. Prompts, tools, the run loop and the scope rules stay inside; a
+ * caller gets a turn, a parser, a summarizer, the models, and the message
+ * conversions.
+ */
 export { fromUIMessage, toModelMessages, toUIMessage } from "./messages"
-export {
-  DEFAULT_MODEL_IDS,
-  createModels,
-  type ModelConfig,
-  type ModelProvider,
-  type ModelTier,
-  type Models,
-  type ProviderOptions,
-} from "./models"
+export { createModels, type Models } from "./models"
 export { createResumeParser } from "./parser"
-export { type AgentTools, MAX_STEPS, type RunMemory } from "./run"
 export {
-  type StartTurnInput,
+  type ResumeSkill,
+  type SkillContext,
+  skills,
+} from "./skills/index"
+export { createSummarizer } from "./summarizer"
+export {
+  type AgentTools,
   TURN_ERROR_TEXT,
   type TurnOutcome,
-  type TurnUsage,
   checkFitAnswer,
   checkFitState,
   parseUIMessages,
   startTurn,
 } from "./turn"
-export { nodeScope, wholeDocument } from "./scope"
-export {
-  type ResumeSkill,
-  type SkillContext,
-  type SkillScope,
-  type SkillToolName,
-  skills,
-} from "./skills/index"
-export { createSummarizer } from "./summarizer"
-export { type PersistProposal, checkFitTool, proposePatchesTool } from "./tools"

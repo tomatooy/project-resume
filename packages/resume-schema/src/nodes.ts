@@ -1,17 +1,39 @@
-import type { Item, Resume, Section } from "./schema"
+import type { Basics, Bullet, Item, Link, Resume, Section } from "./schema"
 
 export type NodeKind = "basics" | "section" | "item" | "bullet" | "link"
 
-export type NodeRef = {
+type RefBase = {
   id: string
-  kind: NodeKind
   /** `null` only for `basics` and top-level sections. */
   parentId: string | null
   /** Position within the parent's array. `0` for `basics`. */
   index: number
-  node: unknown
   /** Path from the resume root, usable with lodash-style access. */
   path: (string | number)[]
+}
+
+/**
+ * An addressable node with its kind and its typed value in one place, so a
+ * check on `kind` narrows `node` and nothing downstream has to cast.
+ */
+export type NodeRef =
+  | (RefBase & { kind: "basics"; node: Basics })
+  | (RefBase & { kind: "section"; node: Section })
+  | (RefBase & { kind: "item"; node: Item })
+  | (RefBase & { kind: "bullet"; node: Bullet })
+  | (RefBase & { kind: "link"; node: Link })
+
+/** Any node the document holds. */
+export type ResumeNode = NodeRef["node"]
+
+/**
+ * A node's own field, read by name. The editor addresses fields by string
+ * because its inputs are generic; this is the one place that string meets
+ * the node, and the caller still has to check what came back.
+ */
+export function readField(node: ResumeNode, field: string): unknown {
+  const record: Record<string, unknown> = node
+  return record[field]
 }
 
 /** Every addressable node in the document, keyed by id, in document order. */
@@ -113,34 +135,33 @@ export function textFields(kind: NodeKind, node: unknown): string[] {
 
 /** A short human label for a node, e.g. `Acme` or `bullet 2`. */
 function label(ref: NodeRef): string {
-  const node = ref.node as Record<string, unknown>
   switch (ref.kind) {
     case "basics":
       return "Basics"
     case "section":
-      return String((node as unknown as Section).title)
-    case "item": {
-      const item = node as unknown as Item
-      switch (item.kind) {
-        case "experience":
-          return item.company
-        case "education":
-          return item.school
-        case "project":
-          return item.name
-        case "skills":
-          return item.label
-        case "custom":
-          return item.title
-      }
-      break
-    }
+      return ref.node.title
+    case "item":
+      return itemLabel(ref.node)
     case "bullet":
       return `bullet ${ref.index + 1}`
     case "link":
       return `link ${ref.index + 1}`
   }
-  return ref.id
+}
+
+function itemLabel(item: Item): string {
+  switch (item.kind) {
+    case "experience":
+      return item.company
+    case "education":
+      return item.school
+    case "project":
+      return item.name
+    case "skills":
+      return item.label
+    case "custom":
+      return item.title
+  }
 }
 
 /** Fields that carry a node's own text, most identifying first. */

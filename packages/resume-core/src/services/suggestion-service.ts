@@ -137,7 +137,7 @@ export class SuggestionService {
     // one may depend on an earlier one having landed.
     const accepted = input.decisions
       .filter((d) => d.status === "accepted")
-      .map((d) => byId.get(d.suggestionId) as Suggestion)
+      .flatMap((d) => byId.get(d.suggestionId) ?? [])
       .sort((a, b) => a.ordinal - b.ordinal)
 
     let head = resume.data

@@ -4,13 +4,13 @@ import { createModelsFromEnv } from "../ai"
 import { requireUser } from "../auth/require-user"
 import { createSupabaseForRequest } from "../auth/supabase"
 import { createBackground } from "../background"
-import { createServices } from "../container"
+import { createServices, supabasePorts } from "../container"
 import { createLogger } from "../log"
 import { errorResponse } from "../errors"
 import type { ChatDeps } from "./handle-chat"
 
 /**
- * The server-route counterpart of `withSupabase`: authenticate, build the
+ * The server-route counterpart of `serve`: authenticate, build the
  * services and models for this request, hand them to the handler, and turn
  * anything thrown before a response exists into the JSON error shape.
  */
@@ -25,9 +25,9 @@ export async function withChat(
     log = createLogger({ requestId, userId: user.userId })
 
     const models = createModelsFromEnv()
-    const services = createServices(db, user.userId, {
-      summarizer: createSummarizer(models),
-    })
+    const services = createServices(
+      supabasePorts(db, user.userId, { summarizer: createSummarizer(models) })
+    )
     return await handler({
       services,
       models,

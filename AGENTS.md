@@ -119,11 +119,18 @@ The current code implements that target end to end:
   shapes live in `server/chat/contract.ts` and are what `lib/types.ts`
   re-exports to the panel.
 - Domain logic lives in `packages/resume-core` (types from Zod, ports, services,
-  in-memory doubles for every port). `apps/web/src/server/adapters/` implements
-  the ports on Supabase. `packages/agent` holds everything that touches the AI
-  SDK: skills, prompts, tools, the run loop, the summarizer, and message
-  conversion. Dependency direction is `web -> agent -> resume-core ->
-  resume-schema`.
+  in-memory doubles for every port). The composition root is split at the port
+  seam: `createServices(ports)` in `resume-core` says how the services hang
+  off the ports, and `supabasePorts(db, userId)` in
+  `apps/web/src/server/container.ts` says which Supabase adapter fills each
+  one. Tests hand `inMemoryPorts()` from `resume-core/testing` to the same
+  `createServices`. `Services` holds services only; the message and
+  conversation ports sit behind `MemoryService`.
+- `packages/agent` holds everything that touches the AI SDK: prompts, tools,
+  the run loop (`turn.ts`), the summarizer, and message conversion. Its entry
+  point and `resume-schema`'s are curated by hand; add an export only when a
+  consumer outside the package needs it. Dependency direction is `web -> agent
+  -> resume-core -> resume-schema`.
 - The assistant is `POST /api/chat` (`server/chat/handle-chat.ts`) consumed by
   `useChat` (`features/chat/use-assistant.ts`). Messages are stored in
   Postgres and rehydrated on load; the client sends only the last two
@@ -256,14 +263,14 @@ Server state (TanStack Query):
 
 ## Chat / assistant (`features/chat`)
 
-- Skill registry in `lib/skills.ts`: seven skills, four selectable in this
-  release (`bullet_rewrite`, `jd_match`, `grammar_clarity`,
-  `condense_to_pages`); the rest render disabled. Each skill declares
-  `allowedOps` (the whitelist `validatePatches` enforces) and optional
-  requirements (`needsJobDescription`, `needsTargetPages`).
-- Skill facts come from `resume-core` (`SKILL_STATUS`, `SKILL_REQUIRES`,
-  `SKILL_ALLOWED_OPS`); `lib/skills.ts` only adds labels. The route enforces
-  the same tables, so the picker cannot offer what the server refuses.
+- The skill registry is one table, `SKILLS` in
+  `resume-core/src/domain/skill.ts`: seven rows, four with status `mvp`
+  (`bullet_rewrite`, `jd_match`, `grammar_clarity`, `condense_to_pages`); the
+  rest render disabled. A row holds the label, status, scope, op and field
+  whitelists, required inputs and tools. `validatePatches`, the chat route,
+  the agent's `defineSkill`, and the picker (`lib/skills.ts`) all read the
+  same row, so none of them can disagree. A skill file in `packages/agent`
+  adds only its prompt fragment.
 - `use-assistant.ts` wraps `useChat`: sends skill inputs in the request body,
   answers `check_fit` from `onToolCall` (never awaited inside it), keeps the
   suggestion status map beside the transcript, and maps route errors (401 to

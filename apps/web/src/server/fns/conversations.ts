@@ -8,6 +8,6 @@ export const getOrCreateConversation = createServerFn({ method: "POST" })
   .validator(z.object({ resumeId: z.uuid() }))
   .handler(
     serve(({ services, data }) =>
-      services.conversations.getOrCreate(data.resumeId)
+      services.memory.openConversation(data.resumeId)
     )
   )

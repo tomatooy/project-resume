@@ -3,7 +3,7 @@ import { scopeAnchor } from "@workspace/resume-schema"
 import type { SkillContext, SkillScope } from "./skills/types"
 
 export function wholeDocument(ctx: SkillContext): SkillScope {
-  return { resumeContext: ctx.resume }
+  return { kind: "document", resume: ctx.resume }
 }
 
 /**
@@ -20,11 +20,9 @@ export function nodeScope(ctx: SkillContext): SkillScope {
   if (!ctx.selectedNodeId) return wholeDocument(ctx)
   const anchor = scopeAnchor(ctx.resume, ctx.selectedNodeId)
   if (!anchor) return wholeDocument(ctx)
-
   return {
-    resumeContext: {
-      basics: { id: "basics", headline: ctx.resume.basics.headline },
-      selected: anchor.node,
-    },
+    kind: "node",
+    headline: ctx.resume.basics.headline,
+    selected: anchor.node,
   }
 }

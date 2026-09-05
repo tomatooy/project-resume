@@ -3,7 +3,7 @@ import type { ResumePatch } from "@workspace/resume-schema"
 import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it, vi } from "vitest"
 
-import { runSkill } from "../src/run"
+import { runSkill } from "../src/turn"
 import { skills } from "../src/skills/index"
 import {
   fixture,

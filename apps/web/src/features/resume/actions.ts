@@ -1,6 +1,7 @@
 import {
   findNode,
   newId,
+  readField,
   type Item,
   type ResumePatch,
   type Resume,
@@ -27,7 +28,7 @@ export function setText(
 ): void {
   const ref = findNode(session.state.doc, nodeId)
   if (!ref) return
-  const current = (ref.node as Record<string, unknown>)[field]
+  const current = readField(ref.node, field)
   // An optional field the user has never filled in is absent, not "". Treating
   // absent as "not a text field" and returning here made every empty optional
   // field silently impossible to type into: headline, phone, location, degree,
@@ -69,13 +70,12 @@ export function setFields(
 ): void {
   const ref = findNode(session.state.doc, nodeId)
   if (!ref) return
-  const current = ref.node as Record<string, unknown>
   const before: Record<string, unknown> = {}
   let changed = false
   for (const key of Object.keys(after)) {
-    before[key] = current[key]
-    if (JSON.stringify(current[key]) !== JSON.stringify(after[key]))
-      changed = true
+    const current = readField(ref.node, key)
+    before[key] = current
+    if (JSON.stringify(current) !== JSON.stringify(after[key])) changed = true
   }
   if (!changed) return
   session.apply([

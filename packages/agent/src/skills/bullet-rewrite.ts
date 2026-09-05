@@ -1,11 +1,7 @@
-import { nodeScope } from "../scope"
 import { defineSkill } from "./define"
 
 export const bulletRewrite = defineSkill({
   id: "bullet_rewrite",
-  name: "Rewrite bullets",
-  description: "Tighten wording without changing the facts.",
-  scope: nodeScope,
   fragment: () =>
     [
       "Rewrite the bullets in scope. Each one leads with an action verb, says what the person did, and lands on a result, with scale where the resume already gives it.",
