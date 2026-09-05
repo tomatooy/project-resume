@@ -1,4 +1,4 @@
-import type { PatchOp } from "@workspace/resume-schema"
+import type { NodeKind, PatchOp } from "@workspace/resume-schema"
 
 /**
  * The registered AI capabilities. What lives here is everything both halves
@@ -35,6 +35,40 @@ export const SKILL_ALLOWED_OPS: Record<SkillId, PatchOp[]> = {
   ats_keyword: ["replace_text", "update_fields", "insert_after"],
   impact_quantification: ["replace_text"],
   summary_optimize: ["replace_text", "update_fields"],
+}
+
+/**
+ * Narrows `textFields` further, per skill. Lives here rather than beside the
+ * prompts for the same reason `SKILL_ALLOWED_OPS` does: it is re-applied when
+ * a suggestion is accepted, so it cannot be a fact only the prompt side knows.
+ * A skill absent from this table may write any text field its target has.
+ */
+export const SKILL_ALLOWED_FIELDS: Partial<
+  Record<SkillId, Partial<Record<NodeKind, string[]>>>
+> = {
+  bullet_rewrite: { bullet: ["text"] },
+}
+
+/**
+ * Whether a selection confines the skill.
+ *
+ * `node`: with a selection, patches must land inside the item that holds it.
+ * `document`: the skill rewrites across the whole resume, so a selection
+ * narrows what it is *shown* but never what it may change. Confining
+ * `jd_match` to the selected bullet would stop it reordering sections, which
+ * is most of what it does.
+ *
+ * Here rather than beside the prompts because it is enforced twice: when the
+ * patch is proposed, and again when it is accepted.
+ */
+export const SKILL_SCOPE: Record<SkillId, "node" | "document"> = {
+  bullet_rewrite: "node",
+  jd_match: "document",
+  grammar_clarity: "node",
+  condense_to_pages: "document",
+  ats_keyword: "document",
+  impact_quantification: "document",
+  summary_optimize: "document",
 }
 
 export type SkillStatus = "mvp" | "phase2"

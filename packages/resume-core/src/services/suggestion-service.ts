@@ -1,15 +1,12 @@
 import {
-  applyPatches,
+  applyStrict,
   canonicalJson,
-  collectText,
   contentHash,
-  validatePatches,
-  type PatchOp,
   type ResumePatch,
 } from "@workspace/resume-schema"
 
 import { AppError } from "../domain/errors"
-import { SKILL_ALLOWED_OPS, isSkillId } from "../domain/skill"
+import { validateForSkill } from "../domain/validation"
 import type {
   DecideResult,
   DecisionStatus,
@@ -83,14 +80,6 @@ export class SuggestionService {
   }
 
   /**
-   * Applies the accepted suggestions to the head as it stands now.
-   *
-   * The re-validation here is what makes `stale` real: a suggestion was checked
-   * against the document as it looked when it was proposed, and the user may
-   * have edited that bullet since. Anything whose `before` no longer matches is
-   * marked stale rather than silently overwriting the newer text.
-   */
-  /**
    * Current status of every suggestion these runs produced, keyed by id. The
    * chat history stores a suggestion's patch inside the message, but its
    * status lives on the row, so a reload asks here for what has been decided.
@@ -105,6 +94,14 @@ export class SuggestionService {
     return statuses
   }
 
+  /**
+   * Applies the accepted suggestions to the head as it stands now.
+   *
+   * The re-validation here is what makes `stale` real: a suggestion was checked
+   * against the document as it looked when it was proposed, and the user may
+   * have edited that bullet since. Anything whose `before` no longer matches is
+   * marked stale rather than silently overwriting the newer text.
+   */
   async decide(input: DecideSuggestionsInput): Promise<DecideResult> {
     const run = await this.runs.findById(input.runId)
     if (!run) throw new AppError("NOT_FOUND", "Run not found")
@@ -150,18 +147,13 @@ export class SuggestionService {
 
     if (accepted.length > 0) {
       const patches = accepted.map((s) => s.patch)
-      const validation = validatePatches(head, patches, {
-        allowedOps: this.allowedOpsFor(run.skillId),
-        // Grounding was decided when the suggestion was proposed, against the
-        // user's message and the job description. Neither is retained past the
-        // run, so re-deriving grounding text from the resume alone would reject
-        // numbers that were legitimately sourced. Feeding the stored patches
-        // back in makes rule 10 a no-op here while every other rule, including
-        // the `before` match that produces `stale`, still applies.
-        groundingText: [
-          ...collectText(head),
-          ...patches.map((patch) => JSON.stringify(patch)),
-        ].join("\n"),
+      const validation = validateForSkill(head, patches, {
+        mode: "reapply",
+        skillId: run.skillId,
+        // The run's `input` is cleared when it finishes, but the selection is
+        // a column on the run, so the scope the patches were proposed under is
+        // still enforceable here.
+        selectedNodeId: run.selectedNodeId ?? undefined,
       })
 
       const rejectedIndices = new Set(validation.rejected.map((r) => r.index))
@@ -175,19 +167,30 @@ export class SuggestionService {
       })
 
       if (survivors.length > 0) {
-        const applied = applyPatches(
+        const applied = applyStrict(
           head,
           survivors.map((s) => s.patch)
         )
-        // `applyPatches` reports failures by patch identity, so a patch that
-        // passed validation but could not land still ends up stale rather than
-        // being reported as accepted.
-        const failed = new Set(applied.failed.map((f) => f.patch))
-        for (const suggestion of survivors) {
-          if (failed.has(suggestion.patch)) status.set(suggestion.id, "stale")
-        }
 
-        if (applied.applied.length > 0) head = applied.resume
+        if (!applied.ok) {
+          // The batch left the document invalid, so nothing landed and the head
+          // does not move. Every survivor is stale: the failure names only the
+          // patch that broke the document, and marking that one alone would
+          // report the rest as accepted against a head that never changed.
+          for (const suggestion of survivors) {
+            status.set(suggestion.id, "stale")
+          }
+        } else {
+          // `applyStrict` reports failures by patch identity, so a patch that
+          // passed validation but could not land still ends up stale rather
+          // than being reported as accepted.
+          const failed = new Set(applied.failed.map((f) => f.patch))
+          for (const suggestion of survivors) {
+            if (failed.has(suggestion.patch)) status.set(suggestion.id, "stale")
+          }
+
+          if (applied.applied.length > 0) head = applied.resume
+        }
       }
     }
 
@@ -212,17 +215,5 @@ export class SuggestionService {
     }))
 
     return { head, revision, updatedAt, version, results }
-  }
-
-  /**
-   * The op whitelist is re-applied on the server at accept time, from the skill
-   * recorded on the run. Trusting a client-supplied list would let a caller
-   * accept a delete that the skill was never allowed to propose.
-   */
-  private allowedOpsFor(skillId: string): PatchOp[] {
-    if (!isSkillId(skillId)) {
-      throw new AppError("VALIDATION", `Unknown skill ${skillId}`)
-    }
-    return SKILL_ALLOWED_OPS[skillId]
   }
 }

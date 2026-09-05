@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { useState } from "react"
 import { describe, expect, it } from "vitest"
 
-import { MonthInput, TextInput } from "./fields"
+import { EndDateInput, MonthInput, TextInput } from "./fields"
 
 /**
  * Mirrors how the editor drives these fields: every keystroke writes straight
@@ -31,6 +31,18 @@ function LiveMonthField() {
       value={value}
       onCommit={setValue}
       error={/^\d{4}-\d{2}$/.test(value) ? undefined : "Use the YYYY-MM format"}
+    />
+  )
+}
+
+function LiveEndDateField() {
+  const [value, setValue] = useState("present")
+  return (
+    <EndDateInput
+      label="End"
+      value={value}
+      onCommit={setValue}
+      error={value ? undefined : "End date is required"}
     />
   )
 }
@@ -89,24 +101,49 @@ describe("TextInput", () => {
 })
 
 describe("MonthInput", () => {
-  it("stays quiet while the month is being cleared and re-picked", async () => {
+  it("renders the current month and opens the calendar", async () => {
     const user = userEvent.setup()
     render(<LiveMonthField />)
-    const input = screen.getByLabelText("Start")
 
-    await user.clear(input)
+    const trigger = screen.getByLabelText("Start")
+    expect(trigger).toHaveTextContent("Jan 2020")
 
-    expect(screen.queryByText("Use the YYYY-MM format")).not.toBeInTheDocument()
+    await user.click(trigger)
+    expect(await screen.findByRole("grid")).toBeInTheDocument()
   })
 
-  it("reports a half-picked month once the user leaves it", async () => {
+  it("commits the month of the picked day", async () => {
     const user = userEvent.setup()
-    render(<LiveMonthField />)
-    const input = screen.getByLabelText("Start")
+    const commits: string[] = []
+    render(
+      <MonthInput label="Start" value="" onCommit={(v) => commits.push(v)} />
+    )
 
-    await user.clear(input)
+    await user.click(screen.getByLabelText("Start"))
+    const grid = await screen.findByRole("grid")
+    const day = grid.querySelector("button")
+    if (!day) throw new Error("calendar has no day buttons")
+    await user.click(day)
+
+    expect(commits).toHaveLength(1)
+    expect(commits[0]).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/)
+  })
+})
+
+describe("EndDateInput", () => {
+  it("holds the required error until the Present toggle is left", async () => {
+    const user = userEvent.setup()
+    render(<LiveEndDateField />)
+
+    const checkbox = screen.getByRole("checkbox", { name: "Present" })
+    expect(checkbox).toBeChecked()
+
+    // Unticking Present hands the month picker an empty value, the start of
+    // an edit rather than a mistake to report mid-change.
+    await user.click(checkbox)
+    expect(screen.queryByText("End date is required")).not.toBeInTheDocument()
+
     await user.tab()
-
-    expect(screen.getByText("Use the YYYY-MM format")).toBeInTheDocument()
+    expect(screen.getByText("End date is required")).toBeInTheDocument()
   })
 })

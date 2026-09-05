@@ -9,7 +9,9 @@
     "format": "turbo format",
     "check": "biome check .",
     "typecheck": "turbo typecheck",
-    "test": "turbo test"
+    "test": "turbo test",
+    "db:test": "bun run --filter @workspace/supabase test:db",
+    "db:check": "bun run --filter web db:check"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",

@@ -1,9 +1,11 @@
 import { createModelsFromEnv } from "./ai"
-import { createSummarizer } from "@workspace/agent"
+import { createResumeParser, createSummarizer } from "@workspace/agent"
 import {
   type ConversationRepository,
+  ImportService,
   MemoryService,
   type MessageRepository,
+  type ResumeParser,
   ResumeService,
   RunService,
   SuggestionService,
@@ -22,6 +24,7 @@ import { SupabaseVersionRepository } from "./adapters/version-repository"
 
 export type Services = {
   resumes: ResumeService
+  imports: ImportService
   versions: VersionService
   suggestions: SuggestionService
   conversations: ConversationRepository
@@ -39,6 +42,11 @@ const lazySummarizer: Summarizer = {
     createSummarizer(createModelsFromEnv()).summarize(input),
 }
 
+/** Same reason as the summarizer: only import needs the key, so only import pays. */
+const lazyResumeParser: ResumeParser = {
+  parse: (input) => createResumeParser(createModelsFromEnv()).parse(input),
+}
+
 /**
  * The composition root. This is the only file that knows both halves: which
  * concrete adapter implements which port, and how the services are wired to
@@ -50,7 +58,7 @@ const lazySummarizer: Summarizer = {
 export function createServices(
   db: Db,
   userId: string,
-  deps: { summarizer?: Summarizer } = {}
+  deps: { summarizer?: Summarizer; resumeParser?: ResumeParser } = {}
 ): Services {
   const resumes = new SupabaseResumeRepository(db, userId)
   const versions = new SupabaseVersionRepository(db)
@@ -60,9 +68,15 @@ export function createServices(
   const summaries = new SupabaseSummaryRepository(db)
 
   const versionService = new VersionService(resumes, versions)
+  const resumeService = new ResumeService(resumes)
 
   return {
-    resumes: new ResumeService(resumes),
+    resumes: resumeService,
+    imports: new ImportService(
+      deps.resumeParser ?? lazyResumeParser,
+      resumeService,
+      versionService
+    ),
     versions: versionService,
     suggestions: new SuggestionService(resumes, runs, suggestions),
     conversations: new SupabaseConversationRepository(db, userId),

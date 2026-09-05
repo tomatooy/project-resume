@@ -302,11 +302,12 @@ Server state (TanStack Query):
 
 ## Verifying changes
 
-- **Do not use browser automation to verify UI changes.** No Puppeteer,
-  Playwright, headless Chrome, or Chrome DevTools MCP to visually confirm a
-  change. The user verifies UI manually; after a UI change, stop and say what
-  to look at (route, section, and what should have changed). Do not start a dev
-  server or click through flows to prove it works.
+- **Do not use browser automation to verify UI changes.** No Claude in Chrome
+  (`mcp__claude-in-chrome__*`), Puppeteer, Playwright, headless Chrome, or
+  Chrome DevTools MCP to visually confirm a change. The user verifies UI
+  manually; after a UI change, stop and say what to look at (route, section,
+  and what should have changed). Do not start a dev server or click through
+  flows to prove it works.
 - Verify with static checks instead: `bun run typecheck`, `bun run lint`
   (`bun run check`), and reading the code. Cheap and catches the errors that
   matter here.

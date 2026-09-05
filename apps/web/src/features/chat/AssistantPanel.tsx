@@ -23,6 +23,7 @@ import type {
 } from "@/lib/types"
 import { breadcrumbOf } from "../resume/breadcrumb"
 import { useResumeState, useSession } from "../resume/session-context"
+import { MessageMarkdown } from "./MessageMarkdown"
 import { SuggestionCard } from "./SuggestionCard"
 import { useAssistant } from "./use-assistant"
 
@@ -50,7 +51,7 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
 
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col bg-paper">
-      <header className="flex h-11 flex-none items-center gap-[9px] border-b border-border px-3.5">
+      <header className="flex h-11 flex-none items-center gap-2.25 border-b border-border px-3.5">
         <span className="size-1.5 rounded-full bg-chart-2" />
         <span className="font-heading text-[12.5px] font-semibold">
           Assistant
@@ -227,7 +228,7 @@ function Conversation({
               className={cn(
                 "h-[26px] rounded-full border px-2.5 text-[11.5px] transition-colors",
                 option.id === skillId
-                  ? "border-transparent bg-ink font-medium text-background"
+                  ? "border-transparent bg-primary font-medium text-primary-foreground"
                   : "border-border bg-paper text-foreground hover:bg-muted",
                 !option.available &&
                   "cursor-not-allowed opacity-40 hover:bg-paper"
@@ -345,8 +346,8 @@ function AssistantTurn({
           if (part.text.length === 0) return null
           return (
             <div key={key} className="flex justify-start">
-              <div className="max-w-[88%] whitespace-pre-wrap rounded-[10px] bg-muted px-3 py-2.5 text-[12.5px] leading-[1.55] text-foreground">
-                {part.text}
+              <div className="max-w-[88%] rounded-[10px] bg-muted px-3 py-2.5 text-[12.5px] leading-[1.55] text-foreground">
+                <MessageMarkdown mode="streaming">{part.text}</MessageMarkdown>
               </div>
             </div>
           )
@@ -410,7 +411,7 @@ function FitChip({
   return (
     <span
       className={cn(
-        "w-fit rounded-full px-2 py-[3px] text-[10.5px]",
+        "w-fit rounded-full px-2 py-0.75 text-[10.5px]",
         missedTarget
           ? "bg-flag/15 text-flag-foreground"
           : "bg-muted text-muted-foreground"
@@ -468,12 +469,19 @@ function Proposal({
       {output.gaps.length > 0 ? (
         <div className="rounded-[9px] border border-border bg-canvas p-2.5">
           <p className="mb-1 text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
-            The posting asks for
+            Missing details
           </p>
           <ul className="flex flex-col gap-0.5">
-            {output.gaps.map((gap) => (
-              <li key={gap} className="text-[11.5px] text-foreground">
-                {gap}
+            {output.gaps.map((gap, index) => (
+              <li
+                // Gaps are plain strings off one finished tool result: never
+                // reordered, no state, and two can read alike, so the text
+                // alone is not a key.
+                // biome-ignore lint/suspicious/noArrayIndexKey: stable within one result
+                key={`${index}-${gap}`}
+                className="text-[11.5px] text-foreground"
+              >
+                <MessageMarkdown>{gap}</MessageMarkdown>
               </li>
             ))}
           </ul>
@@ -489,7 +497,7 @@ function Proposal({
       {output.followUpQuestion ? (
         <div className="flex justify-start">
           <div className="max-w-[88%] rounded-[10px] bg-muted px-3 py-2.5 text-[12.5px] leading-[1.55] text-foreground">
-            {output.followUpQuestion}
+            <MessageMarkdown>{output.followUpQuestion}</MessageMarkdown>
           </div>
         </div>
       ) : null}

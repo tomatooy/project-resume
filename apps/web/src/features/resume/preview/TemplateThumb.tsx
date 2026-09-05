@@ -9,17 +9,40 @@ const Bar = ({ w, color }: { w: string; color?: string }) => (
 )
 
 /**
- * The miniature page drawn on a template card. It is a schematic, not a render:
- * `twoColumn` and `ruledHeader` come from the template definition so the sketch
- * cannot drift from what the PDF actually produces.
+ * The miniature page drawn on a template card.
+ *
+ * `src` is page one of the resume actually rendered through this template,
+ * which the picker fills in per card as each render lands. Until then, and if
+ * a render fails, the card falls back to a schematic drawn from `twoColumn`
+ * and `ruledHeader` so the sketch cannot disagree with the PDF about the shape
+ * of the page.
  */
 export function TemplateThumb({
   template,
+  src,
   className,
 }: {
   template: TemplateDefinition
+  /** Data url for the rendered first page. */
+  src?: string
   className?: string
 }) {
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt=""
+        // Cropped rather than letterboxed: A4 is taller than the card, and a
+        // page whose foot is cut off still reads as a page, where a document
+        // floating in slack space does not.
+        className={cn(
+          "aspect-[1/1.3] w-full rounded-[2px] border border-border bg-paper object-cover object-top",
+          className
+        )}
+      />
+    )
+  }
+
   return (
     <div
       className={cn(

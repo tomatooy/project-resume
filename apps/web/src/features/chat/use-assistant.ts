@@ -2,10 +2,7 @@ import { useChat } from "@ai-sdk/react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { ResumePatchSchema, type ResumePatch } from "@workspace/resume-schema"
-import {
-  DefaultChatTransport,
-  lastAssistantMessageIsCompleteWithToolCalls,
-} from "ai"
+import { DefaultChatTransport } from "ai"
 import { useCallback, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
@@ -13,6 +10,7 @@ import { apiErrorFromBody, decideSuggestions } from "@/lib/api"
 import { qk } from "@/lib/query-keys"
 import type { ChatUIMessage, SkillId, SuggestionStatus } from "@/lib/types"
 import { useResumeState, useSession } from "../resume/session-context"
+import { stampSkillId } from "../../../../../packages/resume-core/src/domain/validation"
 
 export type SendOptions = {
   skillId: SkillId
@@ -80,7 +78,7 @@ export function useAssistant({
     id: conversationId,
     messages: initialMessages,
     transport,
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    sendAutomaticallyWhen: checkFitAnswered,
     onToolCall: ({ toolCall }) => {
       if (toolCall.dynamic || toolCall.toolName !== "check_fit") return
       // Not awaited: the SDK documents that awaiting here deadlocks the
@@ -113,14 +111,12 @@ export function useAssistant({
     const { checkFit } = await import("../resume/preview/check-fit")
     const skillId = lastSend.current?.skillId ?? "condense_to_pages"
     const patches: ResumePatch[] = []
-    for (const draft of drafts) {
-      // Drafts carry no skill tag yet; the server stamps it on the final
-      // proposal. Malformed drafts are skipped rather than failing the count.
-      const stamped =
-        typeof draft === "object" && draft !== null
-          ? { skillId, ...draft }
-          : draft
-      const parsed = ResumePatchSchema.safeParse(stamped)
+    // Drafts carry no skill tag yet; the server stamps it on the final
+    // proposal. `stampSkillId` is the same helper the server gate uses, so the
+    // tag the browser measures under cannot disagree with the one that is
+    // enforced. Malformed drafts are skipped rather than failing the count.
+    for (const draft of stampSkillId(drafts, skillId)) {
+      const parsed = ResumePatchSchema.safeParse(draft)
       if (parsed.success) patches.push(parsed.data)
     }
     const { doc, templateId, templateOptions } = latest.current
@@ -208,6 +204,42 @@ export function useAssistant({
     retry,
     decide,
   }
+}
+
+/**
+ * Whether the model is waiting on a `check_fit` answer the browser has now
+ * produced, which is the one reason to send the conversation back mid-run.
+ *
+ * The SDK's `lastAssistantMessageIsCompleteWithToolCalls` cannot be used here:
+ * it fires on any tool result, so it also fired on the `propose_patches`
+ * result that ends every run. That resubmission had no open turn behind it, so
+ * the route refused it and the panel finished each run on an error.
+ *
+ * Scoped to the model's latest step, because a `check_fit` answered earlier in
+ * the same message stays in the transcript, and matching it again would send
+ * the turn back for as long as the model kept answering.
+ */
+export function checkFitAnswered({
+  messages,
+}: {
+  messages: ChatUIMessage[]
+}): boolean {
+  const last = messages[messages.length - 1]
+  if (last?.role !== "assistant") return false
+  const stepStart = last.parts.reduce(
+    (index, part, i) => (part.type === "step-start" ? i : index),
+    -1
+  )
+  const calls = last.parts
+    .slice(stepStart + 1)
+    .filter((part) => part.type === "tool-check_fit")
+  return (
+    calls.length > 0 &&
+    calls.every(
+      (part) =>
+        part.state === "output-available" || part.state === "output-error"
+    )
+  )
 }
 
 function bodyOf(options: SendOptions | null): Record<string, unknown> {

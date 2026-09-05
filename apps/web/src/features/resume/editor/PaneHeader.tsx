@@ -12,7 +12,7 @@ export function PaneHeader({
   actions?: ReactNode
 }) {
   return (
-    <header className="mb-[18px]">
+    <header className="mb-4.5">
       <div className="flex items-center gap-3">
         <h2 className="font-heading text-[17px] font-semibold tracking-[-0.015em]">
           {title}

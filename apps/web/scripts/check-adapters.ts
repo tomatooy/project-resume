@@ -79,7 +79,8 @@ async function seedUsers(): Promise<void> {
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!service) {
     throw new Error(
-      'SUPABASE_SERVICE_ROLE_KEY is required to create the two fixture users. Run: SUPABASE_SERVICE_ROLE_KEY=$(supabase status -o env | grep SERVICE_ROLE_KEY | cut -d" -f2) bun run db:check'
+      "SUPABASE_SERVICE_ROLE_KEY is required to create the two fixture users. Run:\n" +
+        "  SUPABASE_SERVICE_ROLE_KEY=$(supabase status -o env | grep '^SERVICE_ROLE_KEY' | cut -d'\"' -f2) bun run db:check"
     )
   }
   const admin = createClient(URL_, service, {

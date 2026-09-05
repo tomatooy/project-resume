@@ -5,6 +5,7 @@
 
 import {
   breadcrumb,
+  nodeSummary,
   type Resume,
   type ResumePatch,
 } from "@workspace/resume-schema"
@@ -12,6 +13,8 @@ import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
 import { diffWords } from "diff"
 import { useMemo } from "react"
+
+import { MessageMarkdown } from "./MessageMarkdown"
 
 import { skillById } from "@/lib/skills"
 import type { Suggestion, SuggestionStatus } from "@/lib/types"
@@ -81,9 +84,9 @@ export function SuggestionCard({
 
       <PatchBody patch={patch} resume={resume} />
 
-      <p className="mt-2 text-[11.5px] leading-[1.5] text-muted-foreground">
-        {patch.reason}
-      </p>
+      <div className="mt-2 text-[11.5px] leading-[1.5] text-muted-foreground">
+        <MessageMarkdown>{patch.reason}</MessageMarkdown>
+      </div>
 
       {pending ? (
         <div className="mt-3 flex gap-[7px]">
@@ -138,7 +141,7 @@ function PatchBody({ patch, resume }: { patch: ResumePatch; resume: Resume }) {
   if (patch.op === "delete") {
     return (
       <p className="text-[12px] leading-[1.5] text-muted-foreground line-through decoration-border">
-        {summarise(patch.before)}
+        {nodeSummary(patch.before)}
       </p>
     )
   }
@@ -146,7 +149,7 @@ function PatchBody({ patch, resume }: { patch: ResumePatch; resume: Resume }) {
   if (patch.op === "insert_after") {
     return (
       <p className="text-[12.5px] leading-[1.55] font-medium">
-        {summarise(patch.node)}
+        {nodeSummary(patch.node)}
       </p>
     )
   }
@@ -194,15 +197,4 @@ function WordDiff({ before, after }: { before: string; after: string }) {
       })}
     </p>
   )
-}
-
-function summarise(node: unknown): string {
-  if (typeof node === "string") return node
-  if (node && typeof node === "object") {
-    const record = node as Record<string, unknown>
-    for (const key of ["text", "role", "title", "name", "school", "label"]) {
-      if (typeof record[key] === "string") return record[key]
-    }
-  }
-  return "this entry"
 }

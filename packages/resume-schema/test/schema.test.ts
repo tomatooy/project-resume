@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  applyPatches,
+  applyStrict,
   breadcrumb,
   contentHash,
   diffDocuments,
@@ -12,7 +12,9 @@ import {
   ResumeSchema,
   textFields,
   validatePatches,
+  type Resume,
   type ResumePatch,
+  type StrictApplyResult,
 } from "../src/index"
 import {
   longBullets,
@@ -33,6 +35,22 @@ const ALL_FIXTURES = {
 }
 
 const meta = { reason: "test", skillId: "bullet_rewrite" } as const
+
+/**
+ * `applyStrict` carries no document on its failure branch, so a test that
+ * wants the result narrows here and fails loudly rather than reading through
+ * an optional.
+ */
+function applyOk(
+  resume: Resume,
+  patches: ResumePatch[]
+): Extract<StrictApplyResult, { ok: true }> {
+  const result = applyStrict(resume, patches)
+  if (!result.ok) {
+    throw new Error(`expected the patches to apply: ${result.failed[0]?.code}`)
+  }
+  return result
+}
 
 function firstBulletId(): string {
   const bullet = onePage.sections[0]?.items[0]
@@ -123,7 +141,7 @@ describe("formatRange", () => {
   })
 })
 
-describe("applyPatches", () => {
+describe("applyStrict", () => {
   it("replaces text and reports an inverse that restores it", () => {
     const patch: ResumePatch = {
       ...meta,
@@ -133,7 +151,7 @@ describe("applyPatches", () => {
       before: firstBulletText(),
       after: "Rewrote the settlement ledger.",
     }
-    const result = applyPatches(onePage, [patch])
+    const result = applyOk(onePage, [patch])
     expect(result.failed).toEqual([])
     expect(findNode(result.resume, firstBulletId())).toMatchObject({
       node: { text: "Rewrote the settlement ledger." },
@@ -141,7 +159,7 @@ describe("applyPatches", () => {
 
     const inverse = result.applied[0]?.inverse
     expect(inverse).toBeDefined()
-    const back = applyPatches(result.resume, [inverse as ResumePatch])
+    const back = applyOk(result.resume, [inverse as ResumePatch])
     expect(back.failed).toEqual([])
     expect(findNode(back.resume, firstBulletId())).toMatchObject({
       node: { text: firstBulletText() },
@@ -149,7 +167,7 @@ describe("applyPatches", () => {
   })
 
   it("rejects a stale before value", () => {
-    const result = applyPatches(onePage, [
+    const result = applyStrict(onePage, [
       {
         ...meta,
         op: "replace_text",
@@ -164,7 +182,7 @@ describe("applyPatches", () => {
 
   it("does not leave the source document mutated", () => {
     const snapshot = JSON.stringify(onePage)
-    applyPatches(onePage, [
+    applyStrict(onePage, [
       {
         ...meta,
         op: "delete",
@@ -177,7 +195,7 @@ describe("applyPatches", () => {
 
   it("assigns fresh ids on insert and undoes with a delete", () => {
     const parentId = onePage.sections[0]?.items[0]?.id ?? ""
-    const result = applyPatches(onePage, [
+    const result = applyOk(onePage, [
       {
         ...meta,
         op: "insert_after",
@@ -196,19 +214,19 @@ describe("applyPatches", () => {
   it("moves within a parent and inverts the move", () => {
     const section = onePage.sections[0]
     const target = section?.items[1]?.id ?? ""
-    const result = applyPatches(onePage, [
+    const result = applyOk(onePage, [
       { ...meta, op: "move", targetNodeId: target, toIndex: 0 },
     ])
     expect(result.failed).toEqual([])
     expect(result.resume.sections[0]?.items[0]?.id).toBe(target)
-    const back = applyPatches(result.resume, [
+    const back = applyOk(result.resume, [
       result.applied[0]?.inverse as ResumePatch,
     ])
     expect(back.resume.sections[0]?.items[0]?.id).toBe(section?.items[0]?.id)
   })
 
   it("refuses a move past the end of the parent", () => {
-    const result = applyPatches(onePage, [
+    const result = applyStrict(onePage, [
       {
         ...meta,
         op: "move",
@@ -340,7 +358,7 @@ describe("validatePatches", () => {
 
 describe("diff and hash", () => {
   it("reports a changed bullet and nothing else", () => {
-    const next = applyPatches(onePage, [
+    const next = applyOk(onePage, [
       {
         ...meta,
         op: "replace_text",
@@ -353,6 +371,87 @@ describe("diff and hash", () => {
     const diff = diffDocuments(onePage, next)
     expect(diff).toHaveLength(1)
     expect(diff[0]).toMatchObject({ id: firstBulletId(), change: "changed" })
+  })
+
+  it("says which field changed and what it went from and to", () => {
+    const next = applyOk(onePage, [
+      {
+        ...meta,
+        op: "replace_text",
+        targetNodeId: firstBulletId(),
+        field: "text",
+        before: firstBulletText(),
+        after: "A different bullet.",
+      },
+    ]).resume
+
+    expect(diffDocuments(onePage, next)[0]?.fields).toEqual([
+      {
+        field: "text",
+        before: firstBulletText(),
+        after: "A different bullet.",
+      },
+    ])
+  })
+
+  it("reports one entry per changed field and leaves the rest out", () => {
+    const item = onePage.sections[0]?.items[0]
+    if (item?.kind !== "experience") throw new Error("bad fixture")
+    const next = applyOk(onePage, [
+      {
+        ...meta,
+        skillId: "grammar_clarity",
+        op: "update_fields",
+        targetNodeId: item.id,
+        before: { role: item.role },
+        after: { role: "Staff Engineer" },
+      },
+    ]).resume
+
+    expect(diffDocuments(onePage, next)[0]?.fields).toEqual([
+      { field: "role", before: item.role, after: "Staff Engineer" },
+    ])
+  })
+
+  it("carries an absent value through as undefined rather than a string", () => {
+    const item = onePage.sections[0]?.items[0]
+    if (item?.kind !== "experience") throw new Error("bad fixture")
+    const next = applyOk(onePage, [
+      {
+        ...meta,
+        skillId: "grammar_clarity",
+        op: "update_fields",
+        targetNodeId: item.id,
+        before: { location: item.location },
+        after: { location: "Berlin" },
+      },
+    ]).resume
+
+    const [change] = diffDocuments(onePage, next)[0]?.fields ?? []
+    expect(change).toEqual({
+      field: "location",
+      before: item.location,
+      after: "Berlin",
+    })
+  })
+
+  it("leaves fields off a move, which changes position and nothing else", () => {
+    const section = onePage.sections[0]
+    const item = section?.items[1]
+    if (!section || !item) throw new Error("bad fixture")
+    const next = applyOk(onePage, [
+      {
+        ...meta,
+        skillId: "grammar_clarity",
+        op: "move",
+        targetNodeId: item.id,
+        toIndex: 0,
+      },
+    ]).resume
+
+    const moved = diffDocuments(onePage, next).find((d) => d.id === item.id)
+    expect(moved).toMatchObject({ change: "moved", before: 1, after: 0 })
+    expect(moved?.fields).toBeUndefined()
   })
 
   it("hashes structurally equal documents the same", async () => {

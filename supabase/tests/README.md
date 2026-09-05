@@ -8,8 +8,8 @@ SUPABASE_SERVICE_ROLE_KEY=$(supabase status -o env | grep '^SERVICE_ROLE_KEY' | 
   bun run db:check # the TypeScript adapters, through PostgREST
 ```
 
-Neither runs under `bun run test`: both need Docker, and the unit suites have to
-stay runnable without it.
+Both are root scripts. Neither runs under `bun run test`: both need Docker, and
+the unit suites have to stay runnable without it.
 
 `db:check` lives at `apps/web/scripts/check-adapters.ts`. It drives the real
 services against the real database as two signed-in users, which is what proves

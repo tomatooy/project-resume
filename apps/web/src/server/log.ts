@@ -22,6 +22,8 @@ export type LogFields = {
   steps?: number
   outcome?: string
   count?: number
+  /** Length of the text an import read. A size, never the text itself. */
+  charCount?: number
 }
 
 export type Logger = {

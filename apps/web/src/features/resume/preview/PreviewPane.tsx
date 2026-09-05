@@ -3,12 +3,14 @@ import {
   CaretUpIcon,
   MinusIcon,
   PlusIcon,
+  XIcon,
 } from "@phosphor-icons/react"
 import {
   templateList,
   type FontScale,
   type PageSize,
   type TemplateId,
+  type TemplateOptions,
 } from "@workspace/resume-render"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
@@ -19,6 +21,7 @@ import { useResumeState, useSession } from "../session-context"
 import { usePreview, usePreviewStore } from "./preview-context"
 import { ZOOM_STEPS } from "./preview-store"
 import { TemplateThumb } from "./TemplateThumb"
+import { useTemplateThumbs } from "./use-template-thumbs"
 
 const PdfViewer = lazy(() =>
   import("./PdfViewer").then((m) => ({ default: m.PdfViewer }))
@@ -36,7 +39,13 @@ const FONT_SCALES: { value: FontScale; label: string }[] = [
   { value: 1.1, label: "Large" },
 ]
 
-export function PreviewPane({ compact = false }: { compact?: boolean }) {
+export function PreviewPane({
+  compact = false,
+  onClose,
+}: {
+  compact?: boolean
+  onClose?: () => void
+}) {
   const session = useSession()
   const templateId = useResumeState((s) => s.templateId)
   const options = useResumeState((s) => s.templateOptions)
@@ -140,12 +149,23 @@ export function PreviewPane({ compact = false }: { compact?: boolean }) {
               <CaretDownIcon className="size-2.5 opacity-60" />
             )}
           </button>
+
+          {onClose ? (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Close preview"
+              onClick={onClose}
+            >
+              <XIcon />
+            </Button>
+          ) : null}
         </div>
 
         {menuOpen ? (
           <TemplateMenu
             selected={templateId}
-            fontScale={options.fontScale}
+            options={options}
             onSelect={(id) => {
               void session.setTemplate(id)
               setMenuOpen(false)
@@ -178,15 +198,25 @@ export function PreviewPane({ compact = false }: { compact?: boolean }) {
 
 function TemplateMenu({
   selected,
-  fontScale,
+  options,
   onSelect,
   onFontScale,
 }: {
   selected: TemplateId
-  fontScale: FontScale
+  options: TemplateOptions
   onSelect: (id: TemplateId) => void
   onFontScale: (scale: FontScale) => void
 }) {
+  const session = useSession()
+  const thumbs = useTemplateThumbs({
+    // Read rather than subscribed. The picker freezes its inputs at open, so a
+    // subscription would re-render this menu on every keystroke to hand the
+    // hook a document it has already decided to ignore.
+    resume: session.store.state.doc,
+    options,
+    selected,
+  })
+
   return (
     <div className="border-t border-border bg-canvas px-3.5 pt-3 pb-3.5">
       <span className="text-[10px] font-semibold tracking-[0.07em] text-muted-foreground uppercase">
@@ -208,7 +238,7 @@ function TemplateMenu({
                   : "border-border bg-paper hover:border-primary/40"
               )}
             >
-              <TemplateThumb template={template} />
+              <TemplateThumb template={template} src={thumbs[template.id]} />
               <span
                 className={cn(
                   "truncate text-[10.5px]",
@@ -229,7 +259,7 @@ function TemplateMenu({
       </span>
       <div className="mt-2 flex gap-[7px]">
         {FONT_SCALES.map((scale) => {
-          const active = scale.value === fontScale
+          const active = scale.value === options.fontScale
           return (
             <button
               key={scale.value}

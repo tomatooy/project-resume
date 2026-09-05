@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest"
 import { skills } from "../src/skills/index"
 import { fixture } from "./mock"
 
+/**
+ * `scope` decides what the model is *shown*. What it is allowed to *change* is
+ * `validateForSkill`'s job, and is covered in `resume-core`; these two used to
+ * be one field, which is how accept-time enforcement went missing.
+ */
 describe("skill scope", () => {
   const { resume, bullet, otherBullet } = fixture()
 
@@ -12,7 +17,6 @@ describe("skill scope", () => {
       userMessage: "x",
       selectedNodeId: bullet.id,
     })
-    expect(scope.scopeNodeId).toBe(bullet.itemId)
     const json = JSON.stringify(scope.resumeContext)
     expect(json).toContain(bullet.text)
     expect(json).toContain(resume.basics.headline)
@@ -22,7 +26,6 @@ describe("skill scope", () => {
 
   it("sends the whole document when nothing is selected", () => {
     const scope = skills.bullet_rewrite.scope({ resume, userMessage: "x" })
-    expect(scope.scopeNodeId).toBeUndefined()
     expect(scope.resumeContext).toBe(resume)
   })
 
@@ -32,7 +35,9 @@ describe("skill scope", () => {
       userMessage: "x",
       selectedNodeId: bullet.itemId,
     })
-    expect(scope.scopeNodeId).toBe(bullet.itemId)
+    const json = JSON.stringify(scope.resumeContext)
+    expect(json).toContain(bullet.text)
+    expect(json).not.toContain(otherBullet.text)
   })
 
   it("scopes to basics when basics is selected", () => {
@@ -41,19 +46,17 @@ describe("skill scope", () => {
       userMessage: "x",
       selectedNodeId: "basics",
     })
-    expect(scope.scopeNodeId).toBe("basics")
     expect(JSON.stringify(scope.resumeContext)).toContain(resume.basics.name)
     expect(JSON.stringify(scope.resumeContext)).not.toContain(bullet.text)
   })
 
-  it("ignores the selection for whole-document skills", () => {
+  it("shows a whole-document skill everything even with a selection", () => {
     const scope = skills.jd_match.scope({
       resume,
       userMessage: "x",
       selectedNodeId: bullet.id,
       jobDescription: "Staff engineer",
     })
-    expect(scope.scopeNodeId).toBeUndefined()
     expect(scope.resumeContext).toBe(resume)
   })
 
@@ -63,7 +66,6 @@ describe("skill scope", () => {
       userMessage: "x",
       selectedNodeId: "blt_missing",
     })
-    expect(scope.scopeNodeId).toBeUndefined()
     expect(scope.resumeContext).toBe(resume)
   })
 })

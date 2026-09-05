@@ -16,11 +16,17 @@ import type { ResumeRepository } from "../ports/resume-repository"
 
 const UNTITLED = "Untitled resume"
 const NEW_SUBTITLE = "Draft · not tailored"
+const IMPORTED_SUBTITLE = "Imported · not tailored"
 
 export type CreateResumeInput = {
   title?: string
   /** When set, the new resume is a deep copy with every node id regenerated. */
   fromResumeId?: string
+  /**
+   * Seed content, currently only from import. Takes precedence over the
+   * starter fixture; ids are regenerated like any other seed.
+   */
+  document?: Resume
 }
 
 export type UpdateResumeInput = {
@@ -52,11 +58,15 @@ export class ResumeService {
       throw new AppError("NOT_FOUND", "Resume not found")
     }
 
-    const data = source ? regenerateIds(source.data) : regenerateIds(starter)
+    const data = regenerateIds(input.document ?? source?.data ?? starter)
 
     return this.resumes.create({
       title: input.title ?? (source ? `${source.title} copy` : UNTITLED),
-      subtitle: source ? source.subtitle : NEW_SUBTITLE,
+      subtitle: source
+        ? source.subtitle
+        : input.document
+          ? IMPORTED_SUBTITLE
+          : NEW_SUBTITLE,
       data,
       schemaVersion: data.schemaVersion,
       templateId: source?.templateId ?? DEFAULT_TEMPLATE_ID,

@@ -14,12 +14,8 @@ import { cn } from "@workspace/ui/lib/utils"
 import { useState } from "react"
 import { toast } from "sonner"
 
-import {
-  createResume,
-  deleteResume,
-  duplicateResume,
-  listResumes,
-} from "@/lib/api"
+import { ImportDialog } from "@/features/import/ImportDialog"
+import { deleteResume, duplicateResume, listResumes } from "@/lib/api"
 import { SKELETON_KEYS, relativeTime } from "@/lib/format"
 import { qk } from "@/lib/query-keys"
 import { ResumeThumb } from "../resume/preview/TemplateThumb"
@@ -45,17 +41,7 @@ export function ResumeRail() {
     id: string
     title: string
   } | null>(null)
-
-  const create = useMutation({
-    mutationFn: () => createResume({}),
-    onSuccess: async (resume) => {
-      await queryClient.invalidateQueries({ queryKey: qk.resumes() })
-      void navigate({
-        to: "/r/$resumeId/edit",
-        params: { resumeId: resume.id },
-      })
-    },
-  })
+  const [importing, setImporting] = useState(false)
 
   const duplicate = useMutation({
     mutationFn: (id: string) => duplicateResume({ id }),
@@ -162,8 +148,7 @@ export function ResumeRail() {
 
         <button
           type="button"
-          onClick={() => create.mutate()}
-          disabled={create.isPending}
+          onClick={() => setImporting(true)}
           className="flex items-center gap-[9px] rounded-[9px] border border-dashed border-border p-3 text-[12px] font-semibold text-muted-foreground transition-colors hover:border-primary hover:bg-paper hover:text-primary disabled:opacity-60"
         >
           <span className="flex size-[22px] flex-none items-center justify-center rounded-full border border-current">
@@ -173,6 +158,7 @@ export function ResumeRail() {
         </button>
       </div>
 
+      <ImportDialog open={importing} onOpenChange={setImporting} />
       <RenameDialog target={renaming} onClose={() => setRenaming(null)} />
       <DeleteResumeDialog
         target={deleting}

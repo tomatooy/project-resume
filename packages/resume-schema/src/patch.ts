@@ -120,6 +120,17 @@ export type ApplyResult = {
   failed: FailedPatch[]
 }
 
+/**
+ * `ok: false` means the whole-document check failed and nothing was applied,
+ * so there is no document to read. Keeping the resume off that branch is the
+ * point: the previous single entry point returned the *input* document there,
+ * and a caller reading `.resume` without looking at `.failed` silently carried
+ * on with an unpatched document.
+ */
+export type StrictApplyResult =
+  | ({ ok: true } & ApplyResult)
+  | { ok: false; failed: FailedPatch[] }
+
 type Located = {
   kind: NodeKind
   parentId: string | null
@@ -222,23 +233,14 @@ function normalize(text: string): string {
   return text.trim().replace(/\s+/g, " ")
 }
 
-/**
- * Applies patches in order on a structural copy. A failing patch is skipped
- * (or halts the run with `stopOnError`), and each success reports the inverse
- * patch that undoes it, which is what the editor's undo stack is built from.
- *
- * `allowInvalid` waives the final whole-document check, and only that check:
- * every per-patch rule still applies. Typing writes through on each keystroke,
- * so a field is invalid for as long as it takes to retype it, and refusing
- * those states puts the deleted character straight back in the box. The
- * editor's document is therefore allowed to be work in progress; `save` in the
- * session store is where a document has to be whole before it goes anywhere.
- */
-export function applyPatches(
+type ApplyOpts = { stopOnError?: boolean }
+
+/** Runs the patches on a copy. Shared by both entry points. */
+function run(
   resume: Resume,
   patches: ResumePatch[],
-  opts: { stopOnError?: boolean; allowInvalid?: boolean } = {}
-): ApplyResult {
+  opts: ApplyOpts
+): { draft: Resume; applied: AppliedPatch[]; failed: FailedPatch[] } {
   const draft = structuredClone(resume)
   const applied: AppliedPatch[] = []
   const failed: FailedPatch[] = []
@@ -253,16 +255,31 @@ export function applyPatches(
     applied.push(outcome)
   }
 
+  return { draft, applied, failed }
+}
+
+/**
+ * Applies patches in order on a structural copy, requiring the result to be a
+ * whole valid document. A failing patch is skipped (or halts the run with
+ * `stopOnError`), and each success reports the inverse patch that undoes it.
+ *
+ * Use this everywhere a document is about to be persisted, measured, or shown
+ * as the effect of a proposal. The `ok: false` branch carries no resume, so
+ * the "silently kept the unpatched document" reading is not expressible.
+ */
+export function applyStrict(
+  resume: Resume,
+  patches: ResumePatch[],
+  opts: ApplyOpts = {}
+): StrictApplyResult {
+  const { draft, applied, failed } = run(resume, patches, opts)
+
   const parsed = ResumeSchema.safeParse(draft)
   if (!parsed.success) {
-    if (opts.allowInvalid) return { resume: draft, applied, failed }
-
-    // The document as a whole is invalid, so nothing is applied. Attribute the
-    // failure to the last patch, which is the one that broke it.
+    // Attribute the failure to the last patch, which is the one that broke it.
     const culprit = applied.at(-1)?.patch ?? patches.at(-1)
     return {
-      resume,
-      applied: [],
+      ok: false,
       failed: [
         ...failed,
         ...(culprit
@@ -278,7 +295,27 @@ export function applyPatches(
     }
   }
 
-  return { resume: parsed.data, applied, failed }
+  return { ok: true, resume: parsed.data, applied, failed }
+}
+
+/**
+ * Applies patches without the final whole-document check, and only that check:
+ * every per-patch rule still applies. Typing writes through on each keystroke,
+ * so a field is invalid for as long as it takes to retype it, and refusing
+ * those states puts the deleted character straight back in the box. The
+ * editor's document is therefore allowed to be work in progress; `save` in the
+ * session store is where a document has to be whole before it goes anywhere.
+ *
+ * This is the editor's entry point and nothing else's.
+ */
+export function applyDraft(
+  resume: Resume,
+  patches: ResumePatch[],
+  opts: ApplyOpts = {}
+): ApplyResult {
+  const { draft, applied, failed } = run(resume, patches, opts)
+  const parsed = ResumeSchema.safeParse(draft)
+  return { resume: parsed.success ? parsed.data : draft, applied, failed }
 }
 
 type ApplyOne = AppliedPatch | { code: PatchErrorCode; message: string }
@@ -464,8 +501,17 @@ export type ValidationContext = {
   allowedFields?: Partial<Record<NodeKind, string[]>>
   /** When set, every target must be this node or a descendant of it. */
   scopeNodeId?: string
-  /** User message + job description + all resume text. */
-  groundingText: string
+  /**
+   * Rule 10's source text: user message + job description + all resume text.
+   *
+   * `null` skips rule 10 and only rule 10, for re-validating patches whose
+   * grounding was already decided when they were proposed. The message and
+   * the posting are not retained past the run, so re-deriving grounding from
+   * the resume alone would reject numbers that were legitimately sourced.
+   * Callers used to express this by feeding the patches back in as their own
+   * grounding, which read like a check but was the absence of one.
+   */
+  groundingText: string | null
 }
 
 export type RejectedPatch = {
@@ -607,7 +653,7 @@ export function validatePatches(
           : patch.op === "insert_after"
             ? patch.node
             : null
-    if (proposed !== null) {
+    if (proposed !== null && grounding !== null) {
       const source =
         patch.op === "replace_text"
           ? `${patch.before}\n${grounding}`
@@ -620,9 +666,10 @@ export function validatePatches(
       }
     }
 
-    // 6 and 11. Dry-run against the accumulated set, which also checks
-    // `before` equality and re-validates the whole document.
-    const dry = applyPatches(resume, [...valid, patch], { stopOnError: true })
+    // 6, 7 and 11. Dry-run against the accumulated set: `before` equality
+    // (rule 6), `insert_after.node` parsing as the parent's child kind
+    // (rule 7, reported as KIND_MISMATCH), and the whole-document re-check.
+    const dry = applyStrict(resume, [...valid, patch], { stopOnError: true })
     const problem = dry.failed[0]
     if (problem) {
       reject(problem.code, problem.message)

@@ -1,4 +1,11 @@
-import { XIcon } from "@phosphor-icons/react"
+import { CalendarBlankIcon, XIcon } from "@phosphor-icons/react"
+import { formatYearMonth } from "@workspace/resume-schema"
+import { Calendar } from "@workspace/ui/components/calendar"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@workspace/ui/components/popover"
 import { cn } from "@workspace/ui/lib/utils"
 import {
   useEffect,
@@ -175,6 +182,111 @@ export function TextAreaInput({
   )
 }
 
+const MONTH_RE = /^(\d{4})-(\d{2})$/
+
+/** `2024-01` -> first of that month in local time, or `undefined`. */
+function monthToDate(value: string): Date | undefined {
+  const match = MONTH_RE.exec(value)
+  if (!match) return undefined
+  return new Date(Number(match[1]), Number(match[2]) - 1, 1)
+}
+
+/** Any day in a month -> `YYYY-MM` in local time. */
+function dateToMonth(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  return `${year}-${month}`
+}
+
+// The year dropdown only needs to be generous, not infinite; resume dates
+// rarely predate 1950.
+const START_MONTH = new Date(1950, 0)
+const END_MONTH = new Date(new Date().getFullYear() + 6, 11)
+
+/**
+ * The document stores `YYYY-MM`, so picking is month-granular: the dropdown
+ * caption navigates to the month and year, and clicking any day commits that
+ * day's month.
+ */
+function MonthPicker({
+  value,
+  onCommit,
+  placeholder = "Month",
+  error,
+  ariaLabel,
+  disabled = false,
+  className,
+  onEditingChange,
+}: {
+  value: string
+  onCommit: (value: string) => void
+  placeholder?: string
+  error?: string
+  ariaLabel?: string
+  disabled?: boolean
+  className?: string
+  onEditingChange?: (editing: boolean) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [viewMonth, setViewMonth] = useState<Date>(
+    () => monthToDate(value) ?? new Date()
+  )
+
+  // Reopen on the month the field holds, not wherever it was navigated last.
+  useEffect(() => {
+    if (open) setViewMonth(monthToDate(value) ?? new Date())
+  }, [open, value])
+
+  const setOpenTracked = (next: boolean) => {
+    setOpen(next)
+    onEditingChange?.(next)
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpenTracked}>
+      <PopoverTrigger
+        type="button"
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-invalid={Boolean(error)}
+        className={cn(
+          CONTROL,
+          "flex h-[34px] min-w-0 items-center justify-between gap-1.5 text-left disabled:bg-muted disabled:text-muted-foreground",
+          error ? "border-destructive" : "border-border",
+          className
+        )}
+      >
+        <span
+          className={cn(
+            "truncate",
+            value ? "text-foreground" : "text-muted-foreground/70"
+          )}
+        >
+          {value ? formatYearMonth(value) : placeholder}
+        </span>
+        <CalendarBlankIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-0">
+        <Calendar
+          mode="single"
+          selected={monthToDate(value)}
+          month={viewMonth}
+          onMonthChange={setViewMonth}
+          onSelect={(date) => {
+            if (!date) return
+            onCommit(dateToMonth(date))
+            setOpenTracked(false)
+          }}
+          captionLayout="dropdown"
+          startMonth={START_MONTH}
+          endMonth={END_MONTH}
+          showOutsideDays={false}
+        />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function MonthInput({
   label,
   value,
@@ -192,25 +304,12 @@ export function MonthInput({
 
   return (
     <FieldShell label={label} error={gate.error} className={className}>
-      <input
-        type="month"
+      <MonthPicker
         value={value}
-        aria-label={label}
-        aria-invalid={Boolean(gate.error)}
-        onBlur={gate.onBlur}
-        onChange={(event) => {
-          gate.onEdit()
-          onCommit(event.target.value)
-        }}
-        className={cn(
-          CONTROL,
-          // `w-full` alone does not contain a month input: the native picker
-          // gives it a wide intrinsic minimum, and min-width:auto stops it
-          // shrinking inside a grid cell, which scrolls the whole pane
-          // sideways.
-          "h-[34px] min-w-0",
-          gate.error ? "border-destructive" : "border-border"
-        )}
+        onCommit={onCommit}
+        error={gate.error}
+        ariaLabel={label}
+        onEditingChange={(editing) => (editing ? gate.onEdit() : gate.onBlur())}
       />
     </FieldShell>
   )
@@ -218,7 +317,7 @@ export function MonthInput({
 
 /**
  * An end date is either a month or the literal `present`, so the checkbox and
- * the month field are one control rather than two that can disagree.
+ * the month picker are one control rather than two that can disagree.
  */
 export function EndDateInput({
   label = "End",
@@ -242,26 +341,20 @@ export function EndDateInput({
 
   return (
     <FieldShell label={label} error={gate.error}>
-      {/* Both halves share one gate: unticking Present hands the month field
+      {/* Both halves share one gate: unticking Present hands the month picker
           back an empty value, and that is the start of an edit, not a
           mistake to report while the user is still working. */}
       <div className="flex items-center gap-2">
-        <input
-          type="month"
+        <MonthPicker
           value={present ? "" : (value ?? "")}
+          onCommit={onCommit}
+          error={gate.error}
+          ariaLabel={label}
           disabled={present}
-          aria-label={label}
-          aria-invalid={Boolean(gate.error)}
-          onBlur={gate.onBlur}
-          onChange={(event) => {
-            gate.onEdit()
-            onCommit(event.target.value)
-          }}
-          className={cn(
-            CONTROL,
-            "h-[34px] min-w-0 flex-1 disabled:bg-muted disabled:text-muted-foreground",
-            gate.error ? "border-destructive" : "border-border"
-          )}
+          className="flex-1"
+          onEditingChange={(editing) =>
+            editing ? gate.onEdit() : gate.onBlur()
+          }
         />
         <label className="flex h-[34px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-2.5 text-[12px] text-muted-foreground has-checked:border-primary has-checked:bg-primary/8 has-checked:text-primary-strong">
           <input

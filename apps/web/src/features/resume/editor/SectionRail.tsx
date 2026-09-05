@@ -1,4 +1,9 @@
-import { PlusIcon } from "@phosphor-icons/react"
+import {
+  ClockCounterClockwiseIcon,
+  FileTextIcon,
+  PlusIcon,
+  SparkleIcon,
+} from "@phosphor-icons/react"
 import type { SectionTypeName } from "@workspace/resume-schema"
 import {
   DropdownMenu,
@@ -6,12 +11,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
+import { Switch } from "@workspace/ui/components/switch"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
+import { useId, type ReactNode } from "react"
 
 import { useResumeState, useSession } from "../session-context"
 import { sectionFlagCount } from "../flags"
@@ -40,12 +47,16 @@ export function SectionRail({
   collapsed,
   panels,
   onTogglePanel,
+  versionsOpen,
+  onToggleVersions,
 }: {
   active: PaneKey
   onSelect: (key: PaneKey) => void
   collapsed: boolean
   panels: { preview: boolean; assistant: boolean }
   onTogglePanel: (panel: "preview" | "assistant") => void
+  versionsOpen: boolean
+  onToggleVersions: () => void
 }) {
   const session = useSession()
   const doc = useResumeState((s) => s.doc)
@@ -81,7 +92,7 @@ export function SectionRail({
           <RailButton
             key={entry.key}
             entry={entry}
-            active={entry.key === active}
+            active={!versionsOpen && entry.key === active}
             collapsed={collapsed}
             onClick={() => onSelect(entry.key)}
           />
@@ -142,20 +153,69 @@ export function SectionRail({
           </span>
         ) : null}
 
-        <PanelToggle
+        <PanelSwitch
           label="Preview"
+          icon={<FileTextIcon className="size-3.75 flex-none" />}
           on={panels.preview}
           collapsed={collapsed}
-          onClick={() => onTogglePanel("preview")}
+          onToggle={() => onTogglePanel("preview")}
         />
-        <PanelToggle
+        <PanelSwitch
           label="Assistant"
+          icon={<SparkleIcon className="size-[15px] flex-none" />}
           on={panels.assistant}
           collapsed={collapsed}
-          onClick={() => onTogglePanel("assistant")}
+          onToggle={() => onTogglePanel("assistant")}
+        />
+
+        {/* Not a switch: it is not a panel, it takes the form's place in the
+            middle column until it is switched back off. */}
+        <VersionsButton
+          on={versionsOpen}
+          collapsed={collapsed}
+          onClick={onToggleVersions}
         />
       </div>
     </div>
+  )
+}
+
+function VersionsButton({
+  on,
+  collapsed,
+  onClick,
+}: {
+  on: boolean
+  collapsed: boolean
+  onClick: () => void
+}) {
+  const button = (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      className={cn(
+        "flex h-8 w-full items-center gap-[9px] rounded-[7px] text-[12.5px] transition-colors hover:bg-muted",
+        collapsed ? "justify-center px-0" : "px-2",
+        on
+          ? "bg-primary/9 font-semibold text-foreground"
+          : "font-medium text-foreground/70"
+      )}
+    >
+      <ClockCounterClockwiseIcon className="size-[15px] flex-none" />
+      {!collapsed ? (
+        <span className="flex-1 truncate text-left">Versions</span>
+      ) : null}
+    </button>
+  )
+
+  if (!collapsed) return button
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={button} />
+      <TooltipContent side="right">Versions</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -225,53 +285,66 @@ function FlagDot() {
   )
 }
 
-function PanelToggle({
+/**
+ * A side panel is on or off, so the rail states it as a switch rather than a
+ * pressed button. The switch renders as a native button so the row's label can
+ * point at it with `htmlFor`, making everything but the switch a hit target.
+ */
+function PanelSwitch({
   label,
+  icon,
   on,
   collapsed,
-  onClick,
+  onToggle,
 }: {
   label: string
+  icon?: ReactNode
   on: boolean
   collapsed: boolean
-  onClick: () => void
+  onToggle: () => void
 }) {
-  const button = (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={on}
-      title={collapsed ? label : undefined}
-      className={cn(
-        "flex h-8 w-full items-center gap-[9px] rounded-[7px] text-[12.5px] transition-colors",
-        collapsed ? "justify-center px-0" : "px-2",
-        on
-          ? "bg-primary/9 font-semibold text-primary-deep"
-          : "font-medium text-foreground/70 hover:bg-muted"
-      )}
-    >
-      <span
-        className={cn(
-          "flex size-[15px] flex-none items-center justify-center rounded-[4px] border text-[10px] leading-none font-bold",
-          on
-            ? "border-primary bg-primary text-primary-foreground"
-            : "border-border bg-paper text-transparent"
-        )}
-      >
-        ✓
-      </span>
-      {!collapsed ? (
-        <span className="flex-1 truncate text-left">{label}</span>
-      ) : null}
-    </button>
-  )
+  const id = useId()
 
-  if (!collapsed) return button
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Switch
+              size="sm"
+              checked={on}
+              onCheckedChange={onToggle}
+              aria-label={label}
+              className="mx-auto my-[9px]"
+            />
+          }
+        />
+        <TooltipContent side="right">{label}</TooltipContent>
+      </Tooltip>
+    )
+  }
 
   return (
-    <Tooltip>
-      <TooltipTrigger render={button} />
-      <TooltipContent side="right">{label}</TooltipContent>
-    </Tooltip>
+    <div
+      className={cn(
+        "flex h-8 w-full items-center gap-[9px] rounded-[7px] px-2 text-[12.5px] transition-colors hover:bg-muted",
+        on ? "text-foreground" : "text-foreground/70"
+      )}
+    >
+      <label
+        htmlFor={id}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-[9px]"
+      >
+        {icon}
+        <span className="truncate">{label}</span>
+      </label>
+      <Switch
+        id={id}
+        nativeButton
+        size="sm"
+        checked={on}
+        onCheckedChange={onToggle}
+      />
+    </div>
   )
 }

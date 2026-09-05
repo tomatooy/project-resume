@@ -8,14 +8,18 @@ export {
   type Models,
   type ProviderOptions,
 } from "./models"
+export { createResumeParser } from "./parser"
+export { type AgentTools, MAX_STEPS, type RunMemory } from "./run"
 export {
-  type AgentTools,
-  MAX_STEPS,
-  type RunMemory,
-  type RunSkillInput,
-  groundingText,
-  runSkill,
-} from "./run"
+  type StartTurnInput,
+  TURN_ERROR_TEXT,
+  type TurnOutcome,
+  type TurnUsage,
+  checkFitAnswer,
+  checkFitState,
+  parseUIMessages,
+  startTurn,
+} from "./turn"
 export { nodeScope, wholeDocument } from "./scope"
 export {
   type ResumeSkill,

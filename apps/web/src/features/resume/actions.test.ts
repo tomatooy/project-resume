@@ -150,3 +150,30 @@ describe("undo after an edit that passed through an invalid state", () => {
     expect(experience(s).company).toBe("Acme")
   })
 })
+
+/**
+ * `validity` moves with `doc`, not with the autosave debounce, so the save bar
+ * can say "Fix errors to save" the moment a field breaks. It used to be
+ * derived inside `save`, which meant the document was unsavable for the length
+ * of the debounce before anything said so.
+ */
+describe("document validity", () => {
+  it("goes unsavable on the keystroke that breaks a field", () => {
+    const s = session()
+    expect(s.state.validity.savable).toBe(true)
+
+    setText(s, EXP_ID, "company", "")
+
+    expect(s.state.validity.savable).toBe(false)
+    expect(s.state.validity.byNode[EXP_ID]?.company).toBeTruthy()
+  })
+
+  it("clears the error on the keystroke that fixes it", () => {
+    const s = session()
+    setText(s, EXP_ID, "company", "")
+    setText(s, EXP_ID, "company", "G")
+
+    expect(s.state.validity.savable).toBe(true)
+    expect(s.state.validity.byNode).toEqual({})
+  })
+})

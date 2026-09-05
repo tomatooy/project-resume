@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyPatches, type ResumePatch } from "../src/index"
+import { applyDraft, applyStrict, type ResumePatch } from "../src/index"
 import { onePage } from "../src/fixtures/index"
 
 /**
@@ -22,7 +22,7 @@ describe("editing a field through to a new value", () => {
   it("lets a required field go empty on the way to being retyped", () => {
     const id = firstExperienceId()
     const item = onePage.sections[0]?.items[0]
-    if (!item || item.kind !== "experience") throw new Error("bad fixture")
+    if (item?.kind !== "experience") throw new Error("bad fixture")
 
     const clear: ResumePatch = {
       ...meta,
@@ -32,11 +32,11 @@ describe("editing a field through to a new value", () => {
       after: { company: "" },
     }
 
-    const result = applyPatches(onePage, [clear], { allowInvalid: true })
+    const result = applyDraft(onePage, [clear])
 
     expect(result.applied).toHaveLength(1)
     const next = result.resume.sections[0]?.items[0]
-    if (!next || next.kind !== "experience") throw new Error("lost the item")
+    if (next?.kind !== "experience") throw new Error("lost the item")
     expect(next.company).toBe("")
   })
 
@@ -49,7 +49,7 @@ describe("editing a field through to a new value", () => {
       after: { email: "jo@" },
     }
 
-    const result = applyPatches(onePage, [patch], { allowInvalid: true })
+    const result = applyDraft(onePage, [patch])
 
     expect(result.applied).toHaveLength(1)
     expect(result.resume.basics.email).toBe("jo@")
@@ -58,7 +58,7 @@ describe("editing a field through to a new value", () => {
   it("accepts a month that has not been fully picked yet", () => {
     const id = firstExperienceId()
     const item = onePage.sections[0]?.items[0]
-    if (!item || item.kind !== "experience") throw new Error("bad fixture")
+    if (item?.kind !== "experience") throw new Error("bad fixture")
 
     const patch: ResumePatch = {
       ...meta,
@@ -68,15 +68,15 @@ describe("editing a field through to a new value", () => {
       after: { start: "" },
     }
 
-    const result = applyPatches(onePage, [patch], { allowInvalid: true })
+    const result = applyDraft(onePage, [patch])
 
     expect(result.applied).toHaveLength(1)
   })
 
-  it("still refuses an invalid document on the default, AI-facing path", () => {
+  it("still refuses an invalid document on the strict, AI-facing path", () => {
     const id = firstExperienceId()
     const item = onePage.sections[0]?.items[0]
-    if (!item || item.kind !== "experience") throw new Error("bad fixture")
+    if (item?.kind !== "experience") throw new Error("bad fixture")
 
     const patch: ResumePatch = {
       ...meta,
@@ -86,14 +86,40 @@ describe("editing a field through to a new value", () => {
       after: { company: "" },
     }
 
-    const result = applyPatches(onePage, [patch])
+    const result = applyStrict(onePage, [patch])
 
-    expect(result.applied).toHaveLength(0)
+    expect(result.ok).toBe(false)
     expect(result.failed[0]?.code).toBe("SCHEMA_INVALID")
   })
 
+  it("gives the strict path no document to mistake for the patched one", () => {
+    // The whole point of the split. One entry point used to answer both
+    // questions, and its failure branch returned the *input* document, so a
+    // caller reading `.resume` measured and previewed an unpatched resume
+    // while believing the patches had landed.
+    const id = firstExperienceId()
+    const item = onePage.sections[0]?.items[0]
+    if (item?.kind !== "experience") throw new Error("bad fixture")
+
+    const patch: ResumePatch = {
+      ...meta,
+      op: "update_fields",
+      targetNodeId: id,
+      before: { company: item.company },
+      after: { company: "" },
+    }
+
+    const strict = applyStrict(onePage, [patch])
+    const draft = applyDraft(onePage, [patch])
+
+    expect(strict.ok).toBe(false)
+    expect(strict).not.toHaveProperty("resume")
+    expect(draft.applied).toHaveLength(1)
+    expect(draft.resume).not.toBe(onePage)
+  })
+
   it("keeps structural guarantees even when the schema is relaxed", () => {
-    // `allowInvalid` waives the document schema, not the patch engine's own
+    // `applyDraft` waives the document schema, not the patch engine's own
     // rules: writing a protected field must still fail.
     const patch: ResumePatch = {
       ...meta,
@@ -103,7 +129,7 @@ describe("editing a field through to a new value", () => {
       after: { id: "exp_0000000000" },
     }
 
-    const result = applyPatches(onePage, [patch], { allowInvalid: true })
+    const result = applyDraft(onePage, [patch])
 
     expect(result.applied).toHaveLength(0)
     expect(result.failed[0]?.code).toBe("FIELD_NOT_ALLOWED")

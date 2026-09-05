@@ -1,6 +1,5 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router"
 
-import { ModePill } from "@/features/shell/ModePill"
 import { PreviewProvider } from "@/features/resume/preview/preview-context"
 import { ResumeSessionProvider } from "@/features/resume/session-context"
 import { getOrCreateConversation, getResume } from "@/lib/api"
@@ -22,11 +21,10 @@ export const Route = createFileRoute("/_app/r/$resumeId")({
 
 /**
  * Everything scoped to one open resume. The session and the PDF engine live
- * here so both survive switching between Editor, Export, Interview and History.
+ * here so both survive switching between Editor, Export and Interview.
  */
 function ResumeShell() {
   const { record, conversationId } = Route.useLoaderData()
-  const { resumeId } = Route.useParams()
 
   return (
     // Keyed so opening a different resume mounts a fresh session rather than
@@ -40,7 +38,6 @@ function ResumeShell() {
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <Outlet />
         </div>
-        <ModePill resumeId={resumeId} />
       </PreviewProvider>
     </ResumeSessionProvider>
   )

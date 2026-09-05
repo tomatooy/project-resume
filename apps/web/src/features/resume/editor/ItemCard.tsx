@@ -1,5 +1,5 @@
 import { CaretDownIcon, CaretUpIcon, TrashIcon } from "@phosphor-icons/react"
-import { formatRange, type Item } from "@workspace/resume-schema"
+import { formatRange, NO_ERRORS, type Item } from "@workspace/resume-schema"
 import { cn } from "@workspace/ui/lib/utils"
 import type { ReactNode } from "react"
 
@@ -8,15 +8,6 @@ import { itemFlagCount } from "../flags"
 import { useResumeState, useSession } from "../session-context"
 import { ChipInput, EndDateInput, MonthInput, TextInput } from "./fields"
 import { BulletList } from "./BulletList"
-import { validateNode, type NodeSchemaKey } from "./validate"
-
-const SCHEMA_KEY: Record<Item["kind"], NodeSchemaKey> = {
-  experience: "experience",
-  education: "education",
-  project: "project",
-  skills: "skills",
-  custom: "custom",
-}
 
 function headline(item: Item): { title: string; subtitle: string } {
   switch (item.kind) {
@@ -71,7 +62,7 @@ export function ItemCard({
 }) {
   const session = useSession()
   const selectedNodeId = useResumeState((s) => s.selectedNodeId)
-  const errors = validateNode(SCHEMA_KEY[item.kind], item)
+  const errors = useResumeState((s) => s.validity.byNode[item.id] ?? NO_ERRORS)
   const flags = itemFlagCount(item)
   const { title, subtitle } = headline(item)
   const selected = selectedNodeId === item.id

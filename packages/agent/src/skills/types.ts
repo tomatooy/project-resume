@@ -15,8 +15,6 @@ export type SkillContext = {
 }
 
 export type SkillScope = {
-  /** When set, every patch target must be this node or inside it. */
-  scopeNodeId?: string
   /** What the model is shown; the whole resume or a cut-down view of it. */
   resumeContext: unknown
 }
@@ -28,7 +26,11 @@ export type ResumeSkill = {
   name: string
   description: string
   status: SkillStatus
-  /** Mirrors `SKILL_ALLOWED_OPS`; the validator enforces it, the prompt states it. */
+  /**
+   * Both mirror the tables in `resume-core`, which is what the validator
+   * enforces. These copies exist so the prompt can state the limits; they are
+   * read by `buildSystemPrompt` and by nothing that gates a patch.
+   */
   allowedOps: PatchOp[]
   allowedFields?: Partial<Record<NodeKind, string[]>>
   /** `propose_patches` is always present. */

@@ -18,8 +18,23 @@ function ResizablePanelGroup({
   )
 }
 
-function ResizablePanel({ ...props }: ResizablePrimitive.PanelProps) {
-  return <ResizablePrimitive.Panel data-slot="resizable-panel" {...props} />
+/**
+ * `className` lands on the panel's inner wrapper, which the library leaves as a
+ * block with `overflow: auto`. A pane built to hold a fixed header or composer
+ * over a scrolling middle would instead grow past the panel and scroll whole.
+ * Making the wrapper a column flex parent lets those panes shrink as intended.
+ */
+function ResizablePanel({
+  className,
+  ...props
+}: ResizablePrimitive.PanelProps) {
+  return (
+    <ResizablePrimitive.Panel
+      data-slot="resizable-panel"
+      className={cn("flex min-h-0 flex-col", className)}
+      {...props}
+    />
+  )
 }
 
 function ResizableHandle({
@@ -45,4 +60,11 @@ function ResizableHandle({
   )
 }
 
-export { ResizableHandle, ResizablePanel, ResizablePanelGroup }
+const useResizableGroupRef = ResizablePrimitive.useGroupRef
+
+export {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+  useResizableGroupRef,
+}

@@ -1,12 +1,14 @@
 import { FilePlusIcon } from "@phosphor-icons/react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import { useQuery } from "@tanstack/react-query"
+import { createFileRoute, Link } from "@tanstack/react-router"
 import { templates } from "@workspace/resume-render"
 import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
+import { useState } from "react"
 
+import { ImportDialog } from "@/features/import/ImportDialog"
 import { ResumeThumb } from "@/features/resume/preview/TemplateThumb"
-import { createResume, listResumes } from "@/lib/api"
+import { listResumes } from "@/lib/api"
 import { SKELETON_KEYS, relativeTime } from "@/lib/format"
 import { qk } from "@/lib/query-keys"
 
@@ -19,19 +21,7 @@ function Dashboard() {
     queryKey: qk.resumes(),
     queryFn: listResumes,
   })
-  const queryClient = useQueryClient()
-  const navigate = useNavigate()
-
-  const create = useMutation({
-    mutationFn: () => createResume({}),
-    onSuccess: async (resume) => {
-      await queryClient.invalidateQueries({ queryKey: qk.resumes() })
-      void navigate({
-        to: "/r/$resumeId/edit",
-        params: { resumeId: resume.id },
-      })
-    },
-  })
+  const [importing, setImporting] = useState(false)
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
@@ -76,8 +66,7 @@ function Dashboard() {
 
           <button
             type="button"
-            onClick={() => create.mutate()}
-            disabled={create.isPending}
+            onClick={() => setImporting(true)}
             className="flex min-h-[104px] flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-border text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary hover:bg-paper hover:text-primary disabled:opacity-60"
           >
             <FilePlusIcon className="size-5" />
@@ -101,11 +90,17 @@ function Dashboard() {
             </li>
             <li>Export a PDF once Preflight is clean.</li>
           </ol>
-          <Button className="mt-3.5" size="sm" onClick={() => create.mutate()}>
+          <Button
+            className="mt-3.5"
+            size="sm"
+            onClick={() => setImporting(true)}
+          >
             Start a resume
           </Button>
         </div>
       </div>
+
+      <ImportDialog open={importing} onOpenChange={setImporting} />
     </div>
   )
 }

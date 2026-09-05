@@ -143,6 +143,33 @@ function label(ref: NodeRef): string {
   return ref.id
 }
 
+/** Fields that carry a node's own text, most identifying first. */
+const SUMMARY_FIELDS = [
+  "text",
+  "role",
+  "title",
+  "name",
+  "school",
+  "label",
+] as const
+
+/**
+ * A node's content in one line, for showing what an addition or a removal
+ * actually was. `label` names a node within its parent ("bullet 2"); this says
+ * what the node reads as.
+ */
+export function nodeSummary(node: unknown): string {
+  if (typeof node === "string") return node
+  if (typeof node === "object" && node !== null) {
+    const record = node as Record<string, unknown>
+    for (const field of SUMMARY_FIELDS) {
+      const value = record[field]
+      if (typeof value === "string" && value.length > 0) return value
+    }
+  }
+  return "this entry"
+}
+
 /** `Experience > Acme > bullet 2`, for suggestion cards and prompts. */
 export function breadcrumb(resume: Resume, id: string): string {
   const index = indexNodes(resume)
@@ -169,6 +196,40 @@ export function isWithin(
     current = index.get(current.parentId)
   }
   return false
+}
+
+/**
+ * The node a selection confines patches to: the item, or `basics`, that holds
+ * it. Selecting a bullet scopes to its item, so a skill may touch that
+ * bullet's siblings but nothing outside the item the user pointed at.
+ *
+ * Returns undefined when the selection no longer exists, which means "no
+ * scope" rather than "reject": the user may have deleted the node after
+ * selecting it, and failing the run over that is worse than widening it.
+ *
+ * This lives here, next to `isWithin` which enforces it, because both halves
+ * of the patch contract need the same answer: the prompt builder deciding what
+ * to show the model, and the server re-checking a stored patch at accept time.
+ */
+export function scopeAnchor(
+  resume: Resume,
+  selectedNodeId: string
+): NodeRef | undefined {
+  const index = indexNodes(resume)
+  const selected = index.get(selectedNodeId)
+  if (!selected) return undefined
+
+  let current = selected
+  while (
+    current.kind !== "item" &&
+    current.kind !== "basics" &&
+    current.parentId
+  ) {
+    const parent = index.get(current.parentId)
+    if (!parent) break
+    current = parent
+  }
+  return current
 }
 
 /** Every string in the document, for grounding checks and prompts. */

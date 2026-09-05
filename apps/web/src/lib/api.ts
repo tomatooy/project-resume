@@ -1,3 +1,4 @@
+import type { ResumeSummary } from "@workspace/resume-core"
 import type { Resume } from "@workspace/resume-schema"
 
 import {
@@ -11,6 +12,7 @@ import {
   updateResume as updateResumeFn,
 } from "@/server/fns/resumes"
 import { getOrCreateConversation as getOrCreateConversationFn } from "@/server/fns/conversations"
+import { importResume as importResumeFn } from "@/server/fns/import"
 import { decideSuggestions as decideSuggestionsFn } from "@/server/fns/suggestions"
 import {
   createSnapshot as createSnapshotFn,
@@ -106,6 +108,24 @@ export const duplicateResume = guard(duplicateResumeFn)
 export const deleteResume = guard(deleteResumeFn)
 export const renameResume = guard(renameResumeFn)
 export const setTemplate = guard(setTemplateFn)
+
+/**
+ * Reads plain text into a new resume. The file never leaves the browser: the
+ * PDF is turned into text there, so this call carries a string.
+ *
+ * Written out rather than wrapped in `guard` because it is the one call the
+ * user can cancel, and `guard` has nowhere to put the signal.
+ */
+export async function importResume(
+  input: { text: string },
+  signal?: AbortSignal
+): Promise<ResumeSummary> {
+  try {
+    return await importResumeFn({ data: input, signal })
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
 
 /**
  * `expectedRevision` is the optimistic-concurrency token, and it is a

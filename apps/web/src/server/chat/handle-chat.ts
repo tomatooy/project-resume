@@ -1,31 +1,26 @@
 import {
-  checkFitTool,
+  checkFitAnswer,
+  checkFitState,
   fromUIMessage,
   type Models,
+  parseUIMessages,
   type ResumeSkill,
-  runSkill,
   type SkillContext,
   skills,
+  startTurn as startModelTurn,
   toModelMessages,
 } from "@workspace/agent"
 import {
   type AgentRun,
   AppError,
   type Background,
-  CheckFitOutputSchema,
   isSkillId,
   type MessageMetadata,
   SKILL_REQUIRES,
   SKILL_STATUS,
   type SkillId,
 } from "@workspace/resume-core"
-import {
-  convertToModelMessages,
-  isToolUIPart,
-  type ModelMessage,
-  type UIMessage,
-  validateUIMessages,
-} from "ai"
+import type { ModelMessage, UIMessage } from "ai"
 import { z } from "zod"
 
 import type { Services } from "../container"
@@ -68,7 +63,7 @@ export async function handleChat(
   const { services, log } = deps
   try {
     const body = ChatRequestSchema.parse(await request.json())
-    const messages = await validateUIMessages({ messages: body.messages })
+    const messages = await parseUIMessages(body.messages)
     const last = messages[messages.length - 1]
     if (!last) throw new AppError("VALIDATION", "No message to answer")
 
@@ -171,15 +166,7 @@ async function continueTurn(
   last: UIMessage
 ): Promise<Turn> {
   const { services } = deps
-  const answered = last.parts.some(
-    (part) =>
-      isToolUIPart(part) &&
-      part.type === "tool-check_fit" &&
-      (part.state === "output-error" ||
-        (part.state === "output-available" &&
-          CheckFitOutputSchema.safeParse(part.output).success))
-  )
-  if (!answered) {
+  if (checkFitState(last) !== "answered") {
     throw new AppError("VALIDATION", "Nothing to continue from")
   }
 
@@ -198,10 +185,7 @@ async function continueTurn(
   }
 
   const memory = await services.memory.buildContext(body.conversationId)
-  const tail = await convertToModelMessages([last], {
-    tools: { check_fit: checkFitTool },
-    ignoreIncompleteToolCalls: true,
-  })
+  const tail = await checkFitAnswer(last)
   return {
     run,
     skill: skills[run.skillId],
@@ -216,6 +200,11 @@ async function continueTurn(
   }
 }
 
+/**
+ * Hands the turn to `packages/agent` and says what to do with how it ended.
+ * Everything left here is the app's: the run row, the transcript, the log and
+ * the follow-on consolidation.
+ */
 function stream(
   deps: ChatDeps,
   request: Request,
@@ -224,9 +213,14 @@ function stream(
   const { services, models, background, log, now } = deps
   const { run, skill } = turn
   const startedAt = now().getTime()
-  const usage = { inputTokens: 0, outputTokens: 0, steps: 0 }
 
-  const result = runSkill({
+  const metadata: MessageMetadata = { skillId: skill.id }
+  if (turn.ctx.selectedNodeId) metadata.selectedNodeId = turn.ctx.selectedNodeId
+  if (turn.ctx.targetPages !== undefined) {
+    metadata.targetPages = turn.ctx.targetPages
+  }
+
+  return startModelTurn({
     skill,
     ctx: turn.ctx,
     models,
@@ -236,68 +230,39 @@ function stream(
       const saved = await services.suggestions.persistProposal(run.id, valid)
       return saved.map(({ id, ordinal, patch }) => ({ id, ordinal, patch }))
     },
+    originalMessages: turn.originalMessages,
+    metadata,
     abortSignal: AbortSignal.any([
       request.signal,
       AbortSignal.timeout(RUN_TIMEOUT_MS),
     ]),
-    onStepEnd: (step) => {
-      usage.steps += 1
-      usage.inputTokens += step.usage.inputTokens ?? 0
-      usage.outputTokens += step.usage.outputTokens ?? 0
-    },
-  })
-
-  const metadata: MessageMetadata = { skillId: skill.id }
-  if (turn.ctx.selectedNodeId) metadata.selectedNodeId = turn.ctx.selectedNodeId
-  if (turn.ctx.targetPages !== undefined) {
-    metadata.targetPages = turn.ctx.targetPages
-  }
-
-  return result.toUIMessageStreamResponse({
-    originalMessages: turn.originalMessages,
-    messageMetadata: ({ part }) =>
-      part.type === "start" ? metadata : undefined,
-    onError: (error) => {
-      log.error("chat_stream_error", {
-        runId: run.id,
-        errorClass: errorClassOf(error),
-      })
-      return "The assistant hit a problem. Please try again."
-    },
-    onFinish: async ({ responseMessage, isAborted, outcome }) => {
-      // A `check_fit` call has no server side: the browser answers it and
-      // sends the conversation back, so the run stays open until then.
-      const paused =
-        !isAborted &&
-        outcome.status === "completed" &&
-        responseMessage.parts.some(
-          (part) =>
-            isToolUIPart(part) &&
-            part.type === "tool-check_fit" &&
-            part.state === "input-available"
-        )
-      if (paused) {
+    onSettled: async ({ status, usage, message, error }) => {
+      // A paused turn leaves the run open: the browser still owes the
+      // `check_fit` answer that resumes it.
+      if (status === "paused") {
         log.info("chat_paused", { runId: run.id, steps: usage.steps })
         return
       }
 
-      const status = isAborted
-        ? "cancelled"
-        : outcome.status === "failed"
-          ? "failed"
-          : "completed"
       const errorClass =
-        outcome.status === "failed"
-          ? errorClassOf(outcome.error)
-          : isAborted
+        status === "failed"
+          ? errorClassOf(error)
+          : status === "cancelled"
             ? "aborted"
             : undefined
+      if (status === "failed") {
+        log.error("chat_stream_error", { runId: run.id, errorClass })
+      }
+
       try {
         await services.messages.append(
-          fromUIMessage(responseMessage, {
+          fromUIMessage(message, {
             conversationId: run.conversationId,
             agentRunId: run.id,
-            metadata: isAborted ? { ...metadata, stopped: true } : metadata,
+            metadata:
+              status === "cancelled"
+                ? { ...metadata, stopped: true }
+                : metadata,
           })
         )
         await services.runs.finish(run.id, {
@@ -307,10 +272,10 @@ function stream(
           outputTokens: usage.outputTokens,
           latencyMs: now().getTime() - startedAt,
         })
-      } catch (error) {
+      } catch (failure) {
         log.error("chat_finish_failed", {
           runId: run.id,
-          errorClass: errorClassOf(error),
+          errorClass: errorClassOf(failure),
         })
       }
       log.info("chat_finished", {
@@ -372,14 +337,7 @@ async function supersedeStalledRun(
 ): Promise<void> {
   const previous = messages[messages.length - 2]
   if (previous?.role !== "assistant") return
-  const stalled = previous.parts.some(
-    (part) =>
-      isToolUIPart(part) &&
-      part.type === "tool-check_fit" &&
-      part.state !== "output-available" &&
-      part.state !== "output-error"
-  )
-  if (!stalled) return
+  if (checkFitState(previous) !== "awaiting") return
 
   const running = await deps.services.runs.findRunning(conversationId)
   if (!running) return

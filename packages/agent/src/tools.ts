@@ -3,13 +3,10 @@ import {
   type ProposeOutput,
   ProposeOutputSchema,
   type ProposedSuggestion,
+  type ValidationMode,
+  validateForSkill,
 } from "@workspace/resume-core"
-import {
-  type Resume,
-  type ResumePatch,
-  type ValidationContext,
-  validatePatches,
-} from "@workspace/resume-schema"
+import type { Resume, ResumePatch } from "@workspace/resume-schema"
 import { tool } from "ai"
 import { z } from "zod"
 
@@ -30,10 +27,9 @@ export const checkFitTool = tool({
 })
 
 export type ProposeToolDeps = {
-  skillId: string
   runId: string
   resume: Resume
-  validation: ValidationContext
+  validation: ValidationMode
   persist: PersistProposal
 }
 
@@ -53,15 +49,9 @@ export function proposePatchesTool(deps: ProposeToolDeps) {
     }),
     outputSchema: ProposeOutputSchema,
     execute: async ({ patches, gaps, followUpQuestion }) => {
-      // The skill is a server fact, not something the model states.
-      const stamped = patches.map((patch) =>
-        patch !== null && typeof patch === "object"
-          ? { ...patch, skillId: deps.skillId }
-          : patch
-      )
-      const { valid, rejected } = validatePatches(
+      const { valid, rejected } = validateForSkill(
         deps.resume,
-        stamped,
+        patches,
         deps.validation
       )
       const suggestions = await deps.persist(valid)

@@ -31,7 +31,7 @@ const LABEL: Record<SaveStatus, string> = {
 export function SaveBar() {
   const session = useSession()
   const status = useResumeState((s) => s.saveStatus)
-  const hasErrors = useResumeState((s) => s.hasFieldErrors)
+  const savable = useResumeState((s) => s.validity.savable)
   const resumeId = useResumeState((s) => s.resumeId)
   const queryClient = useQueryClient()
 
@@ -51,7 +51,7 @@ export function SaveBar() {
         {status === "error" || status === "conflict" ? (
           <WarningIcon className="size-3 text-flag" />
         ) : null}
-        {hasErrors ? "Fix errors to save" : LABEL[status]}
+        {savable ? LABEL[status] : "Fix errors to save"}
       </span>
 
       <Tooltip>
@@ -88,15 +88,23 @@ export function SaveBar() {
         <TooltipContent>Redo</TooltipContent>
       </Tooltip>
 
-      <Button
-        variant="outline"
-        size="xs"
-        onClick={() => snapshot.mutate()}
-        disabled={snapshot.isPending}
-      >
-        <BookmarkSimpleIcon />
-        Save version
-      </Button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="outline"
+              size="icon-xs"
+              className="border-none"
+              aria-label="Save version"
+              onClick={() => snapshot.mutate()}
+              disabled={snapshot.isPending}
+            >
+              {snapshot.isPending ? <Spinner /> : <BookmarkSimpleIcon />}
+            </Button>
+          }
+        />
+        <TooltipContent>Save version</TooltipContent>
+      </Tooltip>
     </div>
   )
 }

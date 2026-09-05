@@ -1,4 +1,4 @@
-import { applyPatches } from "@workspace/resume-schema"
+import { applyStrict } from "@workspace/resume-schema"
 import { ResumeDocument, usePDF } from "@workspace/resume-render"
 import { useEffect, useMemo } from "react"
 
@@ -21,10 +21,15 @@ export default function PdfEngine({ store }: { store: PreviewStore }) {
   const patches = useResumeState((s) => s.previewPatches)
 
   // Hovering a suggestion previews its effect without touching the document.
-  const shown = useMemo(
-    () => (patches.length > 0 ? applyPatches(doc, patches).resume : doc),
-    [doc, patches]
-  )
+  // A hovered patch that cannot land keeps the document on screen rather than
+  // the preview going blank, but the fallback is now the explicit branch: the
+  // old call read `.resume` off a failure and showed the unpatched document as
+  // though it were the preview.
+  const shown = useMemo(() => {
+    if (patches.length === 0) return doc
+    const applied = applyStrict(doc, patches)
+    return applied.ok ? applied.resume : doc
+  }, [doc, patches])
 
   // Memoised because `useDebouncedValue` compares by identity: a fresh object
   // literal here restarts the timer on every render, and every settle commits a

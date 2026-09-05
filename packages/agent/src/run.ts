@@ -1,4 +1,3 @@
-import { collectText } from "@workspace/resume-schema"
 import {
   type LanguageModelUsage,
   type ModelMessage,
@@ -56,31 +55,26 @@ const proposalAccepted: StopCondition<AgentTools> = ({ steps }) => {
   )
 }
 
-/** Where a number is allowed to come from: the user, the posting, the resume. */
-export function groundingText(ctx: SkillContext): string {
-  return [
-    ctx.userMessage,
-    ctx.jobDescription ?? "",
-    ...collectText(ctx.resume),
-  ].join("\n")
-}
-
 export function runSkill(input: RunSkillInput) {
   const { skill, ctx, models } = input
-  const { scopeNodeId, resumeContext } = skill.scope(ctx)
+  const { resumeContext } = skill.scope(ctx)
 
   const tools: AgentTools = {
     check_fit: checkFitTool,
     propose_patches: proposePatchesTool({
-      skillId: skill.id,
       runId: input.runId,
       resume: ctx.resume,
       persist: input.persist,
+      // Op and field whitelists, the scope anchor and the grounding text are
+      // all derived from the skill id and the selection. What the model was
+      // shown (`resumeContext`) is a separate decision from what it is allowed
+      // to change, and only the latter is enforced.
       validation: {
-        allowedOps: skill.allowedOps,
-        allowedFields: skill.allowedFields,
-        scopeNodeId,
-        groundingText: groundingText(ctx),
+        mode: "propose",
+        skillId: skill.id,
+        selectedNodeId: ctx.selectedNodeId,
+        userMessage: ctx.userMessage,
+        jobDescription: ctx.jobDescription,
       },
     }),
   }

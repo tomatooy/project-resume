@@ -1,13 +1,14 @@
 import { PlusIcon, TrashIcon } from "@phosphor-icons/react"
 import { Button } from "@workspace/ui/components/button"
 
+import { NO_ERRORS } from "@workspace/resume-schema"
+
 import { addLink, removeNode, setFields, setText } from "../actions"
 import { useResumeState, useSession } from "../session-context"
 import { PaneHeader } from "./PaneHeader"
 import { SaveBar } from "./SaveBar"
 import { SectionPane } from "./SectionPane"
 import { TextAreaInput, TextInput } from "./fields"
-import { validateNode } from "./validate"
 import type { PaneKey } from "./SectionRail"
 
 export function EditorPane({ pane }: { pane: PaneKey }) {
@@ -24,7 +25,8 @@ export function EditorPane({ pane }: { pane: PaneKey }) {
 function ContactPane() {
   const session = useSession()
   const basics = useResumeState((s) => s.doc.basics)
-  const errors = validateNode("basics", basics)
+  const byNode = useResumeState((s) => s.validity.byNode)
+  const errors = byNode.basics ?? NO_ERRORS
 
   return (
     <>
@@ -87,7 +89,7 @@ function ContactPane() {
 
         <div className="flex flex-col gap-2">
           {basics.links.map((link) => {
-            const linkErrors = validateNode("link", link)
+            const linkErrors = byNode[link.id] ?? NO_ERRORS
             return (
               <div
                 key={link.id}

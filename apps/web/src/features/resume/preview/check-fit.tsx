@@ -1,4 +1,4 @@
-import { applyPatches } from "@workspace/resume-schema"
+import { applyStrict } from "@workspace/resume-schema"
 import type { Resume, ResumePatch } from "@workspace/resume-schema"
 import { pdf, ResumeDocument } from "@workspace/resume-render"
 import type { TemplateId, TemplateOptions } from "@workspace/resume-render"
@@ -37,8 +37,21 @@ export async function checkFit({
   patches = [],
 }: CheckFitInput): Promise<CheckFitResult> {
   try {
-    const measured =
-      patches.length > 0 ? applyPatches(resume, patches).resume : resume
+    let measured = resume
+    if (patches.length > 0) {
+      const applied = applyStrict(resume, patches)
+      // Refusing to answer beats answering about the wrong document. The model
+      // asked how many pages *these patches* produce; measuring the unpatched
+      // resume and reporting success would feed it a number for a document
+      // nobody proposed.
+      if (!applied.ok) {
+        return {
+          ok: false,
+          message: applied.failed[0]?.message ?? "Patches could not be applied",
+        }
+      }
+      measured = applied.resume
+    }
 
     const blob = await pdf(
       <ResumeDocument

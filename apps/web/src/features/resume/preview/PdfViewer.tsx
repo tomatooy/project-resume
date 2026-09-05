@@ -7,11 +7,14 @@ import "react-pdf/dist/Page/TextLayer.css"
 import { Spinner } from "@workspace/ui/components/spinner"
 import { cn } from "@workspace/ui/lib/utils"
 
-// Imported for the side effect of pointing pdf.js at its worker. The worker
+import { setPdfWorker } from "./pdfjs"
+
+// Must run after the react-pdf import above, whose module body overwrites
+// `workerSrc` with a bare specifier the browser cannot resolve. The worker
 // ships with pdfjs-dist, which is pinned to the exact version react-pdf
 // depends on; a mismatch fails at runtime with an API/Worker version error,
 // so keep the pin in package.json.
-import "./pdfjs"
+setPdfWorker()
 
 export type PdfViewerProps = {
   blob: Blob | null

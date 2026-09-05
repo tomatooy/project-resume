@@ -1,7 +1,8 @@
 import { Store } from "@tanstack/store"
 import {
-  applyPatches,
-  ResumeSchema,
+  applyDraft,
+  documentErrors,
+  type DocumentValidity,
   type Resume,
   type ResumePatch,
 } from "@workspace/resume-schema"
@@ -9,6 +10,7 @@ import type { TemplateId, TemplateOptions } from "@workspace/resume-render"
 
 import { setTemplate, updateResume } from "@/lib/api"
 import { ApiError, type ResumeRecord } from "@/lib/types"
+import { AutoSaver, type Clock, type SaveResult } from "./auto-saver"
 
 export type SaveStatus = "saved" | "dirty" | "saving" | "error" | "conflict"
 
@@ -34,8 +36,12 @@ export type ResumeState = {
   selectedNodeId: string | null
   /** Applied on top of `doc` in the preview only, while hovering a suggestion. */
   previewPatches: ResumePatch[]
-  /** True while a field is failing validation, which pauses autosave. */
-  hasFieldErrors: boolean
+  /**
+   * Field errors and savability for `doc`, recomputed with it. Panes read the
+   * errors; autosave reads `savable`. One parse, so the save bar cannot say
+   * the document is fine while a field is red, or the reverse.
+   */
+  validity: DocumentValidity
 }
 
 /**
@@ -67,31 +73,29 @@ function collapseTextRun(patches: ResumePatch[]): void {
   }
 }
 
-const AUTOSAVE_MS = 800
 const MAX_HISTORY = 50
-const BACKOFF_MS = [1000, 2000, 4000, 8000, 16_000, 30_000]
 
 /**
  * Owns one open resume: the live document, the undo stack, and autosave.
  *
  * Every mutation, whether a keystroke or an accepted AI suggestion, goes
  * through `apply` as a patch. One mutation path means undo is just the inverse
- * patches `applyPatches` already hands back.
+ * patches `applyDraft` already hands back.
  */
 export class ResumeSession {
   readonly store: Store<ResumeState>
 
   private undoStack: UndoEntry[] = []
   private redoStack: UndoEntry[] = []
-  private timer: ReturnType<typeof setTimeout> | null = null
   /** Groups consecutive keystrokes on one field into a single undo entry. */
   private lastCoalesceKey: string | null = null
-  private retries = 0
-  private disposed = false
-  /** The save currently in flight, so a second one cannot overlap it. */
-  private inFlight: Promise<void> | null = null
+  private readonly saver: AutoSaver
 
-  constructor(record: ResumeRecord, conversationId: string) {
+  constructor(
+    record: ResumeRecord,
+    conversationId: string,
+    opts: { clock?: Clock } = {}
+  ) {
     this.store = new Store<ResumeState>({
       resumeId: record.id,
       doc: record.data,
@@ -104,7 +108,17 @@ export class ResumeSession {
       saveStatus: "saved",
       selectedNodeId: null,
       previewPatches: [],
-      hasFieldErrors: false,
+      validity: documentErrors(record.data),
+    })
+
+    this.saver = new AutoSaver({
+      write: () => this.write(),
+      // A document failing its own schema would be rejected anyway; wait for
+      // the user to fix the field rather than burning a request. `validity`
+      // moved with `doc`, so the fields went red the moment it broke.
+      shouldWrite: () =>
+        this.state.saveStatus !== "saved" && this.state.validity.savable,
+      clock: opts.clock,
     })
   }
 
@@ -124,12 +138,12 @@ export class ResumeSession {
     opts: { coalesceKey?: string } = {}
   ): { failed: number } {
     if (patches.length === 0) return { failed: 0 }
-    // `allowInvalid`: a keystroke lands in the document as it is typed, so a
+    // `applyDraft`: a keystroke lands in the document as it is typed, so a
     // field is empty or half-formed for as long as it takes to retype it.
     // Refusing those states rejects the patch, leaves `doc` untouched, and the
     // controlled input re-renders with the character the user just deleted.
     // Whether the document is whole is decided in `save`, not here.
-    const result = applyPatches(this.state.doc, patches, { allowInvalid: true })
+    const result = applyDraft(this.state.doc, patches)
     if (result.applied.length === 0) return { failed: result.failed.length }
 
     // Typing into one field should undo as one edit, not one per keystroke.
@@ -179,7 +193,7 @@ export class ResumeSession {
       return true
     }
 
-    const result = applyPatches(previous, entry.patches, { allowInvalid: true })
+    const result = applyDraft(previous, entry.patches)
     if (result.applied.length === 0) return false
     to.push({
       kind: "patches",
@@ -195,8 +209,13 @@ export class ResumeSession {
   }
 
   private commit(doc: Resume): void {
-    this.store.setState((s) => ({ ...s, doc, saveStatus: "dirty" }))
-    this.scheduleSave()
+    this.store.setState((s) => ({
+      ...s,
+      doc,
+      validity: documentErrors(doc),
+      saveStatus: "dirty",
+    }))
+    this.saver.schedule()
   }
 
   /**
@@ -230,6 +249,7 @@ export class ResumeSession {
     this.store.setState((s) => ({
       ...s,
       doc,
+      validity: documentErrors(doc),
       savedDoc: doc,
       revision,
       updatedAt,
@@ -243,11 +263,6 @@ export class ResumeSession {
 
   previewPatches(patches: ResumePatch[]): void {
     this.store.setState((s) => ({ ...s, previewPatches: patches }))
-  }
-
-  setFieldErrors(hasErrors: boolean): void {
-    if (this.state.hasFieldErrors === hasErrors) return
-    this.store.setState((s) => ({ ...s, hasFieldErrors: hasErrors }))
   }
 
   async setTemplate(
@@ -265,76 +280,41 @@ export class ResumeSession {
 
   /* ----------------------------------------------------------- autosave */
 
-  private scheduleSave(delay = AUTOSAVE_MS): void {
-    if (this.disposed) return
-    if (this.timer) clearTimeout(this.timer)
-    this.timer = setTimeout(() => void this.save(), delay)
-  }
-
   /** Forces a save now, e.g. before navigating away. */
   async flush(): Promise<void> {
-    if (this.timer) clearTimeout(this.timer)
-    this.timer = null
-    await this.inFlight
-    if (this.state.saveStatus === "saved") return
-    await this.save()
+    await this.saver.flush()
   }
 
-  private async save(): Promise<void> {
-    if (this.disposed) return
-
-    // Two saves must never overlap. Both would carry the same
-    // `expectedRevision`; the first would move the server past it and the
-    // second would come back as a conflict the user never caused. Typing for
-    // longer than the debounce window is enough to trigger it. Returning here
-    // is safe because the save in flight re-schedules itself whenever the
-    // document has moved on beneath it.
-    if (this.inFlight) return
-
+  /**
+   * One write. `AutoSaver` decides when this runs and what a failure costs;
+   * everything here is about the document and the server.
+   */
+  private async write(): Promise<SaveResult> {
     const { doc, resumeId, revision } = this.state
-
-    // A document failing its own schema would be rejected anyway; wait for the
-    // user to fix the field rather than burning a request and showing an error.
-    // The flag is derived here rather than reported by the fields, so what the
-    // save bar says can never drift from what actually blocks a save.
-    const whole = ResumeSchema.safeParse(doc).success
-    this.setFieldErrors(!whole)
-    if (!whole) return
-
     this.store.setState((s) => ({ ...s, saveStatus: "saving" }))
-    const request = updateResume({
-      id: resumeId,
-      data: doc,
-      expectedRevision: revision,
-    })
-    this.inFlight = request.then(
-      () => undefined,
-      () => undefined
-    )
+
     try {
-      const result = await request
-      this.retries = 0
+      const result = await updateResume({
+        id: resumeId,
+        data: doc,
+        expectedRevision: revision,
+      })
       this.store.setState((s) => ({
         ...s,
-        // `doc` may have moved on while the request was in flight.
         savedDoc: doc,
         revision: result.revision,
         updatedAt: result.updatedAt,
+        // `doc` may have moved on while the request was in flight.
         saveStatus: s.doc === doc ? "saved" : "dirty",
       }))
-      if (this.state.saveStatus === "dirty") this.scheduleSave()
+      return "ok"
     } catch (error) {
       if (error instanceof ApiError && error.code === "CONFLICT") {
         this.store.setState((s) => ({ ...s, saveStatus: "conflict" }))
-        return
+        return "conflict"
       }
       this.store.setState((s) => ({ ...s, saveStatus: "error" }))
-      const delay =
-        BACKOFF_MS[Math.min(this.retries, BACKOFF_MS.length - 1)] ?? 30_000
-      this.retries += 1
-      this.scheduleSave(delay)
-    } finally {
-      this.inFlight = null
+      return "retry"
     }
   }
 
@@ -363,17 +343,15 @@ export class ResumeSession {
    *
    * React can disconnect and reconnect passive effects around a component
    * whose memoised values survive, so the same session object can be disposed
-   * and then reused. Without this, `disposed` latched on during the first
-   * mount and every later autosave returned silently: edits stayed on screen,
-   * the status bar sat on "Unsaved changes", and nothing was ever written.
+   * and then reused. Without this, autosave stayed off after the first mount:
+   * edits stayed on screen, the status bar sat on "Unsaved changes", and
+   * nothing was ever written.
    */
   activate(): void {
-    this.disposed = false
+    this.saver.activate()
   }
 
   dispose(): void {
-    this.disposed = true
-    if (this.timer) clearTimeout(this.timer)
-    this.timer = null
+    this.saver.dispose()
   }
 }

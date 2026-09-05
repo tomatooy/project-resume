@@ -1,7 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 
-import { HistoryScreen } from "@/features/history/HistoryScreen"
-
+/** History became the editor's Versions view; old links land there. */
 export const Route = createFileRoute("/_app/r/$resumeId/history")({
-  component: HistoryScreen,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/r/$resumeId/edit",
+      params,
+      search: { view: "versions" },
+    })
+  },
 })

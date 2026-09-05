@@ -5,6 +5,7 @@ import type {
 } from "@ai-sdk/provider"
 import type { Models } from "@workspace/agent"
 import {
+  ImportService,
   MemoryService,
   ResumeService,
   RunService,
@@ -21,6 +22,7 @@ import {
   InMemorySuggestionRepository,
   InMemorySummaryRepository,
   InMemoryVersionRepository,
+  StubResumeParser,
   StubSummarizer,
 } from "@workspace/resume-core/testing"
 import { indexNodes, type ResumePatch } from "@workspace/resume-schema"
@@ -80,15 +82,18 @@ async function harness(model: MockLanguageModelV3) {
   const messages = new InMemoryMessageRepository(db)
   const summaries = new InMemorySummaryRepository(db)
   const summarizer = new StubSummarizer()
+  const parser = new StubResumeParser()
   const background = new InMemoryBackground()
   const versionService = new VersionService(resumes, versions)
+  const resumeService = new ResumeService(resumes)
   const services: Services = {
-    resumes: new ResumeService(resumes),
+    resumes: resumeService,
     versions: versionService,
     suggestions: new SuggestionService(resumes, runs, suggestions),
     conversations: new InMemoryConversationRepository(db),
     runs: new RunService(versionService, runs, () => db.now()),
     memory: new MemoryService(messages, summaries, summarizer),
+    imports: new ImportService(parser, resumeService, versionService),
     messages,
   }
   const models: Models = {
