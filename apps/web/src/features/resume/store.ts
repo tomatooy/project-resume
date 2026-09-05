@@ -8,9 +8,21 @@ import {
 } from "@workspace/resume-schema"
 import type { TemplateId, TemplateOptions } from "@workspace/resume-render"
 
-import { setTemplate, updateResume } from "@/lib/api"
+import * as api from "@/lib/api"
 import { ApiError, type ResumeRecord } from "@/lib/types"
 import { AutoSaver, type Clock, type SaveResult } from "./auto-saver"
+
+/**
+ * The two calls a session makes on its own initiative. Taken as a dependency
+ * rather than imported so a test can hand in a fake and drive the whole
+ * session, conflict and all, without mocking the module.
+ */
+export type SessionApi = Pick<typeof api, "updateResume" | "setTemplate">
+
+export type SessionOptions = {
+  api?: SessionApi
+  clock?: Clock
+}
 
 export type SaveStatus = "saved" | "dirty" | "saving" | "error" | "conflict"
 
@@ -90,12 +102,14 @@ export class ResumeSession {
   /** Groups consecutive keystrokes on one field into a single undo entry. */
   private lastCoalesceKey: string | null = null
   private readonly saver: AutoSaver
+  private readonly api: SessionApi
 
   constructor(
     record: ResumeRecord,
     conversationId: string,
-    opts: { clock?: Clock } = {}
+    opts: SessionOptions = {}
   ) {
+    this.api = opts.api ?? api
     this.store = new Store<ResumeState>({
       resumeId: record.id,
       doc: record.data,
@@ -271,7 +285,7 @@ export class ResumeSession {
   ): Promise<void> {
     const options = templateOptions ?? this.state.templateOptions
     this.store.setState((s) => ({ ...s, templateId, templateOptions: options }))
-    await setTemplate({
+    await this.api.setTemplate({
       id: this.state.resumeId,
       templateId,
       templateOptions: options,
@@ -294,7 +308,7 @@ export class ResumeSession {
     this.store.setState((s) => ({ ...s, saveStatus: "saving" }))
 
     try {
-      const result = await updateResume({
+      const result = await this.api.updateResume({
         id: resumeId,
         data: doc,
         expectedRevision: revision,
@@ -320,7 +334,7 @@ export class ResumeSession {
 
   /** Conflict recovery: keep the local document and overwrite the server copy. */
   async overwrite(): Promise<void> {
-    const result = await updateResume({
+    const result = await this.api.updateResume({
       id: this.state.resumeId,
       data: this.state.doc,
     })

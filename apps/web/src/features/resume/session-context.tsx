@@ -1,5 +1,5 @@
 import { useStore } from "@tanstack/react-store"
-import { createContext, use, useEffect, useMemo, type ReactNode } from "react"
+import { createContext, use, useEffect, useState, type ReactNode } from "react"
 
 import type { ResumeRecord } from "@/lib/types"
 import type { ResumeSession, ResumeState } from "./store"
@@ -16,12 +16,11 @@ export function ResumeSessionProvider({
   conversationId: string
   children: ReactNode
 }) {
-  // Keyed on the resume id by the route, so switching resumes mounts a fresh
-  // session rather than mutating the open one.
-  const session = useMemo(
-    () => new Session(record, conversationId),
-    [record, conversationId]
-  )
+  // One session per mount. The route keys this provider on the resume id, so
+  // switching resumes mounts a fresh session rather than mutating the open
+  // one; a refetched record for the same id must not replace a live session,
+  // or the undo stack and any unsaved edits would go with it.
+  const [session] = useState(() => new Session(record, conversationId))
 
   useEffect(() => {
     // Paired with `dispose` below: the effect can be torn down and mounted

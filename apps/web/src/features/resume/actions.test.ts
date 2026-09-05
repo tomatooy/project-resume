@@ -1,18 +1,18 @@
 import { defaultTemplateOptions, type Resume } from "@workspace/resume-schema"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 
 import type { ResumeRecord } from "@/lib/types"
+import { setFields, setText } from "./actions"
+import { ResumeSession, type SessionApi } from "./store"
 
-vi.mock("@/lib/api", () => ({
-  updateResume: vi.fn(async () => ({
+/** Nothing here reaches the server; the session only needs something to call. */
+const api: SessionApi = {
+  updateResume: async () => ({
     revision: 2,
     updatedAt: new Date().toISOString(),
-  })),
-  setTemplate: vi.fn(async () => undefined),
-}))
-
-import { setFields, setText } from "./actions"
-import { ResumeSession } from "./store"
+  }),
+  setTemplate: async () => ({ ok: true }),
+}
 
 /**
  * The editor writes each keystroke straight into the document, so these are the
@@ -66,7 +66,7 @@ function session(): ResumeSession {
     currentVersionId: null,
     revision: 1,
   }
-  return new ResumeSession(record, "con_1")
+  return new ResumeSession(record, "con_1", { api })
 }
 
 function experience(s: ResumeSession) {
