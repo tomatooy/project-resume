@@ -1,5 +1,5 @@
 import { ArrowUUpLeftIcon } from "@phosphor-icons/react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import {
   diffDocuments,
   formatYearMonth,
@@ -19,9 +19,8 @@ import { cn } from "@workspace/ui/lib/utils"
 import { useState } from "react"
 import { toast } from "sonner"
 
-import { getVersion, listVersions, restoreVersion } from "@/lib/api"
 import { SKELETON_KEYS, pluralize, relativeTime } from "@/lib/format"
-import { qk } from "@/lib/query-keys"
+import { useRestoreVersion, versionQuery, versionsQuery } from "@/lib/queries"
 import type { VersionSummary } from "@/lib/types"
 import { WordDiff } from "@/lib/word-diff"
 import { useResumeState, useSession } from "../resume/session-context"
@@ -41,29 +40,14 @@ export function VersionsPanel() {
   const session = useSession()
   const resumeId = useResumeState((s) => s.resumeId)
   const head = useResumeState((s) => s.doc)
-  const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  const versions = useQuery({
-    queryKey: qk.versions(resumeId),
-    queryFn: () => listVersions({ resumeId }),
-  })
-
+  const versions = useQuery(versionsQuery(resumeId))
   const selected = useQuery({
-    queryKey: qk.version(selectedId ?? ""),
-    queryFn: () => getVersion({ id: selectedId ?? "" }),
+    ...versionQuery(selectedId ?? ""),
     enabled: Boolean(selectedId),
   })
-
-  const restore = useMutation({
-    mutationFn: (versionId: string) => restoreVersion({ resumeId, versionId }),
-    onSuccess: async (result) => {
-      session.replaceHead(result.head, result.revision, result.updatedAt)
-      await queryClient.invalidateQueries({ queryKey: qk.versions(resumeId) })
-      setSelectedId(null)
-      toast.success(result.version.label)
-    },
-  })
+  const restore = useRestoreVersion(resumeId)
 
   const diff: NodeDiff[] = selected.data
     ? diffDocuments(selected.data.content, head)
@@ -142,7 +126,19 @@ export function VersionsPanel() {
                             size="sm"
                             variant="outline"
                             disabled={restore.isPending}
-                            onClick={() => restore.mutate(version.id)}
+                            onClick={() =>
+                              restore.mutate(version.id, {
+                                onSuccess: (result) => {
+                                  session.replaceHead(
+                                    result.head,
+                                    result.revision,
+                                    result.updatedAt
+                                  )
+                                  setSelectedId(null)
+                                  toast.success(result.version.label)
+                                },
+                              })
+                            }
                           >
                             <ArrowUUpLeftIcon />
                             Restore

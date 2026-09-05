@@ -8,19 +8,15 @@ import { useState } from "react"
 
 import { ImportDialog } from "@/features/import/ImportDialog"
 import { ResumeThumb } from "@/features/resume/preview/TemplateThumb"
-import { listResumes } from "@/lib/api"
 import { SKELETON_KEYS, relativeTime } from "@/lib/format"
-import { qk } from "@/lib/query-keys"
+import { resumesQuery } from "@/lib/queries"
 
 export const Route = createFileRoute("/_app/dashboard")({
   component: Dashboard,
 })
 
 function Dashboard() {
-  const { data, isPending } = useQuery({
-    queryKey: qk.resumes(),
-    queryFn: listResumes,
-  })
+  const { data, isPending } = useQuery(resumesQuery())
   const [importing, setImporting] = useState(false)
 
   return (

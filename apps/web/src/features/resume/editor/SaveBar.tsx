@@ -5,7 +5,6 @@ import {
   CheckIcon,
   WarningIcon,
 } from "@phosphor-icons/react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
 import { Spinner } from "@workspace/ui/components/spinner"
 import {
@@ -15,8 +14,7 @@ import {
 } from "@workspace/ui/components/tooltip"
 import { toast } from "sonner"
 
-import { createSnapshot } from "@/lib/api"
-import { qk } from "@/lib/query-keys"
+import { useCreateSnapshot } from "@/lib/queries"
 import { useResumeState, useSession } from "../session-context"
 import type { SaveStatus } from "../store"
 
@@ -33,15 +31,7 @@ export function SaveBar() {
   const status = useResumeState((s) => s.saveStatus)
   const savable = useResumeState((s) => s.validity.savable)
   const resumeId = useResumeState((s) => s.resumeId)
-  const queryClient = useQueryClient()
-
-  const snapshot = useMutation({
-    mutationFn: () => createSnapshot({ resumeId }),
-    onSuccess: async (version) => {
-      await queryClient.invalidateQueries({ queryKey: qk.versions(resumeId) })
-      toast.success(`Saved version ${version.versionNo}`)
-    },
-  })
+  const snapshot = useCreateSnapshot(resumeId)
 
   return (
     <div className="flex items-center gap-1">
@@ -96,7 +86,12 @@ export function SaveBar() {
               size="icon-xs"
               className="border-none"
               aria-label="Save version"
-              onClick={() => snapshot.mutate()}
+              onClick={() =>
+                snapshot.mutate(undefined, {
+                  onSuccess: (version) =>
+                    toast.success(`Saved version ${version.versionNo}`),
+                })
+              }
               disabled={snapshot.isPending}
             >
               {snapshot.isPending ? <Spinner /> : <BookmarkSimpleIcon />}

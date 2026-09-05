@@ -1,5 +1,5 @@
 import { DotsThreeIcon, PlusIcon } from "@phosphor-icons/react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { templates } from "@workspace/resume-render"
 import {
@@ -15,23 +15,22 @@ import { useState } from "react"
 import { toast } from "sonner"
 
 import { ImportDialog } from "@/features/import/ImportDialog"
-import { deleteResume, duplicateResume, listResumes } from "@/lib/api"
 import { SKELETON_KEYS, relativeTime } from "@/lib/format"
-import { qk } from "@/lib/query-keys"
+import {
+  resumesQuery,
+  useDeleteResume,
+  useDuplicateResume,
+} from "@/lib/queries"
 import { ResumeThumb } from "../resume/preview/TemplateThumb"
 import { RenameDialog } from "./RenameDialog"
 import { DeleteResumeDialog } from "./DeleteResumeDialog"
 
 /** The persistent 252px list of the user's resumes. */
 export function ResumeRail() {
-  const { data, isPending } = useQuery({
-    queryKey: qk.resumes(),
-    queryFn: listResumes,
-  })
+  const { data, isPending } = useQuery(resumesQuery())
   const params = useParams({ strict: false })
   const activeId = "resumeId" in params ? params.resumeId : undefined
 
-  const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [renaming, setRenaming] = useState<{
     id: string
@@ -43,21 +42,8 @@ export function ResumeRail() {
   } | null>(null)
   const [importing, setImporting] = useState(false)
 
-  const duplicate = useMutation({
-    mutationFn: (id: string) => duplicateResume({ id }),
-    onSuccess: async (resume) => {
-      await queryClient.invalidateQueries({ queryKey: qk.resumes() })
-      toast.success(`Duplicated as "${resume.title}"`)
-    },
-  })
-
-  const remove = useMutation({
-    mutationFn: (id: string) => deleteResume({ id }),
-    onSuccess: async (_result, id) => {
-      await queryClient.invalidateQueries({ queryKey: qk.resumes() })
-      if (id === activeId) void navigate({ to: "/dashboard" })
-    },
-  })
+  const duplicate = useDuplicateResume()
+  const remove = useDeleteResume()
 
   return (
     <nav className="flex w-[252px] flex-none flex-col overflow-hidden border-r border-border bg-canvas">
@@ -127,7 +113,12 @@ export function ResumeRail() {
                         Rename
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => duplicate.mutate(resume.id)}
+                        onClick={() =>
+                          duplicate.mutate(resume.id, {
+                            onSuccess: (copy) =>
+                              toast.success(`Duplicated as "${copy.title}"`),
+                          })
+                        }
                       >
                         Duplicate
                       </DropdownMenuItem>
@@ -164,7 +155,11 @@ export function ResumeRail() {
         target={deleting}
         onClose={() => setDeleting(null)}
         onConfirm={(id) => {
-          remove.mutate(id)
+          remove.mutate(id, {
+            onSuccess: () => {
+              if (id === activeId) void navigate({ to: "/dashboard" })
+            },
+          })
           setDeleting(null)
         }}
       />

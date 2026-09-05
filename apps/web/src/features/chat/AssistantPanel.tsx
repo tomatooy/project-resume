@@ -11,8 +11,7 @@ import { Spinner } from "@workspace/ui/components/spinner"
 import { cn } from "@workspace/ui/lib/utils"
 import { useEffect, useRef, useState } from "react"
 
-import { listMessages } from "@/lib/api"
-import { qk } from "@/lib/query-keys"
+import { messagesQuery } from "@/lib/queries"
 import { DEFAULT_SKILL, SKILLS, skillById } from "@/lib/skills"
 import type {
   ChatHistory,
@@ -40,14 +39,7 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
   const [skillId, setSkillId] = useState<SkillId>(DEFAULT_SKILL)
   const skill = skillById.get(skillId)
 
-  // The transcript is fetched once and handed to `useChat` as its starting
-  // state; from then on the stream keeps it current. Never refetched while
-  // the panel is open, since that would replace what the user is watching.
-  const history = useQuery({
-    queryKey: qk.messages(conversationId),
-    queryFn: () => listMessages(conversationId),
-    staleTime: Number.POSITIVE_INFINITY,
-  })
+  const history = useQuery(messagesQuery(conversationId))
 
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col bg-paper">

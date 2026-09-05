@@ -1,5 +1,4 @@
 import { useChat } from "@ai-sdk/react"
-import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { stampSkillId } from "@workspace/resume-core"
 import { ResumePatchSchema, type ResumePatch } from "@workspace/resume-schema"
@@ -7,8 +6,8 @@ import { DefaultChatTransport } from "ai"
 import { useCallback, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { apiErrorFromBody, decideSuggestions } from "@/lib/api"
-import { qk } from "@/lib/query-keys"
+import { apiErrorFromBody } from "@/lib/api"
+import { useDecideSuggestions } from "@/lib/queries"
 import type { ChatUIMessage, SkillId, SuggestionStatus } from "@/lib/types"
 import { useResumeState, useSession } from "../resume/session-context"
 
@@ -40,8 +39,8 @@ export function useAssistant({
   initialStatuses: Record<string, SuggestionStatus>
 }) {
   const session = useSession()
-  const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const decideMutation = useDecideSuggestions(resumeId)
   const doc = useResumeState((s) => s.doc)
   const templateId = useResumeState((s) => s.templateId)
   const templateOptions = useResumeState((s) => s.templateOptions)
@@ -175,7 +174,7 @@ export function useAssistant({
           )
           return
         }
-        const result = await decideSuggestions({
+        const result = await decideMutation.mutateAsync({
           runId,
           decisions: ids.map((suggestionId) => ({ suggestionId, status })),
         })
@@ -187,11 +186,6 @@ export function useAssistant({
           }
           return next
         })
-        if (result.version) {
-          await queryClient.invalidateQueries({
-            queryKey: qk.versions(resumeId),
-          })
-        }
         const stale = result.results.filter((r) => r.status === "stale").length
         if (stale > 0) {
           toast.warning(
@@ -202,7 +196,7 @@ export function useAssistant({
         setDeciding(false)
       }
     },
-    [session, queryClient, resumeId]
+    [session, decideMutation.mutateAsync]
   )
 
   return {

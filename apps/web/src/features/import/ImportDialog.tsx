@@ -3,7 +3,7 @@ import {
   UploadSimpleIcon,
   WarningIcon,
 } from "@phosphor-icons/react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -17,9 +17,8 @@ import { Textarea } from "@workspace/ui/components/textarea"
 import { cn } from "@workspace/ui/lib/utils"
 import { useCallback, useRef, useState } from "react"
 
-import { createResume } from "@/lib/api"
 import type { ResumeSummary } from "@/lib/types"
-import { qk } from "@/lib/query-keys"
+import { resumesQuery, useCreateResume } from "@/lib/queries"
 import { ImportProgressPanel } from "./ImportProgress"
 import { useImport } from "./use-import"
 
@@ -47,7 +46,9 @@ export function ImportDialog({
 
   const finish = useCallback(
     async (resume: ResumeSummary) => {
-      await queryClient.invalidateQueries({ queryKey: qk.resumes() })
+      await queryClient.invalidateQueries({
+        queryKey: resumesQuery().queryKey,
+      })
       onOpenChange(false)
       setPasted("")
       void navigate({
@@ -68,10 +69,7 @@ export function ImportDialog({
   const { progress, failure, warning, busy, run, cancel, reset } =
     useImport(done)
 
-  const blank = useMutation({
-    mutationFn: () => createResume({}),
-    onSuccess: finish,
-  })
+  const blank = useCreateResume()
 
   const take = (file: File | undefined) => {
     if (!file) return
@@ -171,7 +169,7 @@ export function ImportDialog({
                 variant="ghost"
                 size="sm"
                 disabled={blank.isPending}
-                onClick={() => blank.mutate()}
+                onClick={() => blank.mutate({}, { onSuccess: finish })}
               >
                 Start with a blank resume
               </Button>

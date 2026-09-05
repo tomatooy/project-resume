@@ -157,9 +157,17 @@ Autosave (`ResumeSession.save`):
 
 Server state (TanStack Query):
 
-- Query keys are centralized in `lib/query-keys.ts` (`qk`). Invalidate
-  `["resumes"]` after create/rename/duplicate/delete; `["versions", id]` after
-  accept/save/restore.
+- `lib/queries.ts` is the one module for server state: `queryOptions`
+  factories (`resumesQuery`, `resumeQuery`, `versionsQuery`, `messagesQuery`,
+  and so on) hold key, fetcher, and stale policy together, and mutation hooks
+  (`useDuplicateResume`, `useRestoreVersion`, `useDecideSuggestions`, and so
+  on) own their invalidation. Screens add toasts and navigation through the
+  per-call `mutate(vars, { onSuccess })`. Loaders use
+  `queryClient.ensureQueryData(resumeQuery(id))`; nothing outside this file
+  spells a query key.
+- `ResumeSession` takes its api and clock as constructor options
+  (`SessionApi`, `Clock`), so `store.test.ts` drives it with fakes rather than
+  mocking `lib/api`.
 - `getRouter` (`router.tsx`) sets `refetchOnWindowFocus: false` and
   `staleTime: 30_000`: once loaded, the store is authoritative.
 

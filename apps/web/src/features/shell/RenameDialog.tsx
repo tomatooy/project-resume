@@ -1,4 +1,3 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
 import {
   Dialog,
@@ -13,8 +12,7 @@ import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { useEffect, useState } from "react"
 
-import { renameResume } from "@/lib/api"
-import { qk } from "@/lib/query-keys"
+import { useRenameResume } from "@/lib/queries"
 
 export function RenameDialog({
   target,
@@ -24,20 +22,11 @@ export function RenameDialog({
   onClose: () => void
 }) {
   const [title, setTitle] = useState("")
-  const queryClient = useQueryClient()
+  const rename = useRenameResume()
 
   useEffect(() => {
     if (target) setTitle(target.title)
   }, [target])
-
-  const rename = useMutation({
-    mutationFn: (next: string) =>
-      renameResume({ id: target?.id ?? "", title: next }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: qk.resumes() })
-      onClose()
-    },
-  })
 
   return (
     <Dialog open={target !== null} onOpenChange={(open) => !open && onClose()}>
@@ -45,7 +34,11 @@ export function RenameDialog({
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            if (title.trim()) rename.mutate(title.trim())
+            if (!target || !title.trim()) return
+            rename.mutate(
+              { id: target.id, title: title.trim() },
+              { onSuccess: onClose }
+            )
           }}
         >
           <DialogHeader>

@@ -2,8 +2,7 @@ import { WarningIcon } from "@phosphor-icons/react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
 
-import { getResume } from "@/lib/api"
-import { qk } from "@/lib/query-keys"
+import { resumeQuery } from "@/lib/queries"
 import { useResumeState, useSession } from "./session-context"
 
 /**
@@ -35,8 +34,11 @@ export function ConflictBanner() {
             size="sm"
             variant="outline"
             onClick={async () => {
-              const fresh = await getResume({ id: resumeId })
-              queryClient.setQueryData(qk.resume(resumeId), fresh)
+              // Always the server's copy, never the one the loader cached.
+              const fresh = await queryClient.fetchQuery({
+                ...resumeQuery(resumeId),
+                staleTime: 0,
+              })
               session.discardLocal(fresh)
             }}
           >
