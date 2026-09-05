@@ -174,6 +174,27 @@ describe("the versions panel", () => {
     expect(screen.getByText("Globex")).toBeInTheDocument()
   })
 
+  it("diffs a rewritten bullet word by word", async () => {
+    const user = userEvent.setup()
+    const reworded = structuredClone(doc)
+    const item = reworded.sections[0]?.items[0]
+    if (item?.kind !== "experience") throw new Error("bad fixture")
+    const bullet = item.bullets[0]
+    if (!bullet) throw new Error("bad fixture")
+    bullet.text = "Shipped 4 things"
+    renderPanel(reworded)
+
+    await user.click(await screen.findByText("First draft"))
+
+    // Each version's wording lands as its own fragment, which is what a word
+    // diff produces and the old-to-new arrow does not.
+    expect(await screen.findByText("4")).toBeInTheDocument()
+    expect(screen.getByText("3")).toBeInTheDocument()
+    expect(screen.queryByText("Shipped 4 things")).not.toBeInTheDocument()
+    // The breadcrumb already names the bullet.
+    expect(screen.queryByText("text")).not.toBeInTheDocument()
+  })
+
   it("shows the content an addition brought in", async () => {
     const user = userEvent.setup()
     const without = structuredClone(doc)

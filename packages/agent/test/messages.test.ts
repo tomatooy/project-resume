@@ -1,5 +1,5 @@
 import type { ChatMessage } from "@workspace/resume-core"
-import type { UIMessage } from "ai"
+import { type UIMessage, validateUIMessages } from "ai"
 import { describe, expect, it } from "vitest"
 
 import { fromUIMessage, toModelMessages, toUIMessage } from "../src/messages"
@@ -144,6 +144,58 @@ describe("toUIMessage", () => {
         metadata: stored.metadata,
       }).parts
     ).toEqual(stored.parts)
+  })
+
+  it("survives the SDK's message validation after a JSON round trip", async () => {
+    // The browser posts the previous assistant message back with its next
+    // turn. The SDK requires `input` on tool parts past the streaming state,
+    // and JSON drops an `undefined` one, which is what the GET route did.
+    const parts: ChatMessage["parts"] = [
+      { type: "text", text: "Here you go." },
+      {
+        type: "tool-propose_patches",
+        toolCallId: "c1",
+        state: "input-available",
+      },
+      {
+        type: "tool-propose_patches",
+        toolCallId: "c2",
+        state: "output-available",
+        output: proposeOutput,
+      },
+      {
+        type: "tool-check_fit",
+        toolCallId: "c3",
+        state: "output-available",
+        output: { pageCount: 1, pageSize: "LETTER" },
+      },
+      {
+        type: "tool-check_fit",
+        toolCallId: "c4",
+        state: "output-error",
+        errorText: "no",
+      },
+      { type: "tool-check_fit", toolCallId: "c5", state: "input-streaming" },
+    ]
+    const stored: ChatMessage = {
+      id: "m1",
+      conversationId: "conv-1",
+      seq: 3,
+      role: "assistant",
+      agentRunId: "run-1",
+      metadata: {},
+      createdAt: "2026-09-03T00:00:00.000Z",
+      parts,
+    }
+    const posted: unknown[] = JSON.parse(
+      JSON.stringify([
+        toUIMessage(stored),
+        { id: "u1", role: "user", parts: [{ type: "text", text: "More" }] },
+      ])
+    )
+    await expect(
+      validateUIMessages({ messages: posted })
+    ).resolves.toHaveLength(2)
   })
 })
 

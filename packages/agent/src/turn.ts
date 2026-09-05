@@ -132,23 +132,26 @@ export function startTurn(input: StartTurnInput): Response {
  * `awaiting`: the model called `check_fit` and nobody has answered.
  * `answered`: an answer is attached, so the model can carry on.
  * `none`: the message never called it.
+ *
+ * Only the newest call counts. A continued turn keeps the calls it already
+ * made, so a message that answered one check and then opened another is
+ * awaiting, and reading the answered one first would close a run that is
+ * still waiting on the browser. `condense_to_pages` checks more than once
+ * whenever its first cut misses the page target.
  */
 export function checkFitState(
   message: UIMessage
 ): "awaiting" | "answered" | "none" {
-  let seen = false
-  for (const part of message.parts) {
-    if (!isToolUIPart(part) || part.type !== "tool-check_fit") continue
-    seen = true
+  for (let i = message.parts.length - 1; i >= 0; i -= 1) {
+    const part = message.parts[i]
+    if (!part || !isToolUIPart(part) || part.type !== "tool-check_fit") continue
     if (part.state === "output-error") return "answered"
-    if (
-      part.state === "output-available" &&
+    return part.state === "output-available" &&
       CheckFitOutputSchema.safeParse(part.output).success
-    ) {
-      return "answered"
-    }
+      ? "answered"
+      : "awaiting"
   }
-  return seen ? "awaiting" : "none"
+  return "none"
 }
 
 /** The browser's `check_fit` answer, as the model messages that continue the run. */

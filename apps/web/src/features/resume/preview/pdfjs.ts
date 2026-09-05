@@ -16,11 +16,11 @@ import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
  *
  * A function rather than a bare assignment because react-pdf's entry module
  * sets `workerSrc` to the bare specifier "pdf.worker.mjs" as it evaluates, and
- * this module is usually already evaluated by then: the app shell reaches it
- * through ResumeRail -> ImportDialog -> pdf-text on every route. A module body
- * only runs once, so it cannot win that race; a call can. `PdfViewer` calls
- * this after importing react-pdf. Without it the viewer falls through to the
- * fake worker and dies on "Failed to resolve module specifier".
+ * this module may already be evaluated by then (an import or a fit check can
+ * load it first). A module body only runs once, so it cannot win that race; a
+ * call can. `PdfViewer` calls this after importing react-pdf. Without it the
+ * viewer falls through to the fake worker and dies on "Failed to resolve
+ * module specifier".
  *
  * Idempotent. react-pdf resolves to this same copy of pdfjs-dist, so setting
  * the worker here configures the viewer too.

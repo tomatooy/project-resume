@@ -11,13 +11,12 @@ import {
 } from "@workspace/resume-schema"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
-import { diffWords } from "diff"
-import { useMemo } from "react"
 
 import { MessageMarkdown } from "./MessageMarkdown"
 
 import { skillById } from "@/lib/skills"
 import type { Suggestion, SuggestionStatus } from "@/lib/types"
+import { WordDiff } from "@/lib/word-diff"
 
 const STATUS_LABEL: Record<Exclude<SuggestionStatus, "pending">, string> = {
   accepted: "Accepted",
@@ -160,41 +159,6 @@ function PatchBody({ patch, resume }: { patch: ResumePatch; resume: Resume }) {
       {breadcrumb(resume, patch.targetNodeId).split(" > ").at(-2) ??
         "its section"}
       .
-    </p>
-  )
-}
-
-/** Word-level diff, so a small rewrite reads as a small rewrite. */
-function WordDiff({ before, after }: { before: string; after: string }) {
-  const parts = useMemo(() => diffWords(before, after), [before, after])
-
-  return (
-    <p className="text-[12.5px] leading-[1.55]">
-      {parts.map((part) => {
-        // A diff part is uniquely identified by its marker plus its text.
-        const key = `${part.added ? "+" : part.removed ? "-" : "="}${part.value}`
-        if (part.added) {
-          return (
-            <span
-              key={key}
-              className="rounded-[2px] bg-primary/14 font-medium text-primary-deep"
-            >
-              {part.value}
-            </span>
-          )
-        }
-        if (part.removed) {
-          return (
-            <span
-              key={key}
-              className="text-muted-foreground line-through decoration-border"
-            >
-              {part.value}
-            </span>
-          )
-        }
-        return <span key={key}>{part.value}</span>
-      })}
     </p>
   )
 }

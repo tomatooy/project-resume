@@ -23,6 +23,7 @@ import { getVersion, listVersions, restoreVersion } from "@/lib/api"
 import { SKELETON_KEYS, pluralize, relativeTime } from "@/lib/format"
 import { qk } from "@/lib/query-keys"
 import type { VersionSummary } from "@/lib/types"
+import { WordDiff } from "@/lib/word-diff"
 import { useResumeState, useSession } from "../resume/session-context"
 
 const AUTHOR: Record<VersionSummary["createdBy"], string> = {
@@ -238,26 +239,68 @@ function ChangeDetail({ entry }: { entry: NodeDiff }) {
   if (!entry.fields?.length) return null
 
   return (
-    <span className="mt-1 flex flex-col gap-1">
+    <span className="mt-1 flex flex-col gap-1.5">
       {entry.fields.map((field) => (
-        <span key={field.field} className="flex flex-col">
-          <span className="text-[10.5px] text-muted-foreground lowercase">
-            {field.field}
-          </span>
-          <span className="flex min-w-0 items-baseline gap-1.5">
-            <span className="min-w-0 line-clamp-2 text-muted-foreground line-through decoration-border">
-              {fieldValue(field.field, field.before)}
-            </span>
-            <span className="flex-none text-muted-foreground">{"\u2192"}</span>
-            <span className="min-w-0 line-clamp-2 font-medium">
-              {fieldValue(field.field, field.after)}
-            </span>
-          </span>
-        </span>
+        <FieldChangeRow key={field.field} field={field} />
       ))}
     </span>
   )
 }
+
+/**
+ * One changed field, drawn the way its length wants to be read.
+ *
+ * A sentence gets a word diff, so a one-word fix reads as a one-word fix
+ * instead of two paragraphs to compare by eye. Anything shorter gets an arrow:
+ * on a two-word value a struck-through fragment beside a highlighted one is
+ * noisier than simply saying what it was and what it is.
+ */
+function FieldChangeRow({ field }: { field: FieldChange }) {
+  if (PROSE_FIELDS.has(field.field)) {
+    return (
+      <span className="flex flex-col">
+        <FieldName field={field.field} />
+        <WordDiff
+          before={field.before ?? ""}
+          after={field.after ?? ""}
+          className="text-[11.5px] leading-[1.5]"
+        />
+      </span>
+    )
+  }
+
+  return (
+    <span className="flex flex-col">
+      <FieldName field={field.field} />
+      <span className="flex min-w-0 items-baseline gap-1.5">
+        <span className="line-clamp-2 min-w-0 text-muted-foreground line-through decoration-border">
+          {fieldValue(field.field, field.before)}
+        </span>
+        <span className="flex-none text-muted-foreground">{"\u2192"}</span>
+        <span className="line-clamp-2 min-w-0 font-medium">
+          {fieldValue(field.field, field.after)}
+        </span>
+      </span>
+    </span>
+  )
+}
+
+/**
+ * A bullet holds nothing but its text, and the breadcrumb above already says
+ * "bullet 2", so naming the field there is noise. Every other field is one
+ * named part of a node that has several.
+ */
+function FieldName({ field }: { field: string }) {
+  if (field === "text") return null
+  return (
+    <span className="text-[10.5px] text-muted-foreground lowercase">
+      {field}
+    </span>
+  )
+}
+
+/** The fields the schema types as `Text` rather than `Short`. */
+const PROSE_FIELDS = new Set(["text", "summary"])
 
 const DATE_FIELDS = new Set(["start", "end"])
 

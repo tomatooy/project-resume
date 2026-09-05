@@ -144,6 +144,21 @@ function user(content: string, id = "u1"): UIMessage {
   return { id, role: "user", parts: [{ type: "text", text: content }] }
 }
 
+/** The assistant turn as the browser posts it back, with each call answered. */
+function answeredFit(calls: [string, number][]): UIMessage {
+  return {
+    id: "a1",
+    role: "assistant",
+    parts: calls.map(([toolCallId, pageCount]) => ({
+      type: "tool-check_fit",
+      toolCallId,
+      state: "output-available",
+      input: { patches: [] },
+      output: { pageCount, pageSize: "A4" },
+    })),
+  }
+}
+
 describe("handleChat", () => {
   it("opens a run, stores both turns, and finishes with usage", async () => {
     // The patch needs the fixture's bullet, which only exists once the
@@ -317,6 +332,100 @@ describe("handleChat", () => {
     expect(parts).toEqual(["tool-check_fit", "text"])
     await h.background.flush()
     expect(h.background.tasks).toHaveLength(1)
+  })
+
+  it("stays open for a second fit check on the same turn", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCall("check_fit", { patches: [] }, "call-1"),
+        toolCall("check_fit", { patches: [] }, "call-2"),
+        text("That brings it to one page."),
+      ],
+    })
+    const h = await harness(model)
+    const first = await h.post({
+      messages: [user("One page")],
+      skillId: "condense_to_pages",
+      targetPages: 1,
+    })
+    await first.text()
+
+    // Still over the target, so the model cuts again and measures again. The
+    // answered first call stays in the message; only the newest one decides
+    // whether the run is still waiting on the browser.
+    const second = await h.post({
+      messages: [user("One page"), answeredFit([["call-1", 3]])],
+      skillId: "condense_to_pages",
+      targetPages: 1,
+    })
+    expect(second.status).toBe(200)
+    await second.text()
+    expect(h.db.runs).toHaveLength(1)
+    expect(h.db.runs[0]?.status).toBe("running")
+    expect(h.db.messages.map((m) => m.role)).toEqual(["user"])
+
+    const third = await h.post({
+      messages: [
+        user("One page"),
+        answeredFit([
+          ["call-1", 3],
+          ["call-2", 1],
+        ]),
+      ],
+      skillId: "condense_to_pages",
+      targetPages: 1,
+    })
+    expect(third.status).toBe(200)
+    expect(await third.text()).toContain("one page")
+    expect(h.db.runs).toHaveLength(1)
+    expect(h.db.runs[0]?.status).toBe("completed")
+    expect(h.db.messages[1]?.parts.map((p) => p.type)).toEqual([
+      "tool-check_fit",
+      "tool-check_fit",
+      "text",
+    ])
+  })
+
+  it("re-answers a regenerated turn without storing it twice", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [text("First answer."), text("Second answer.")],
+    })
+    const h = await harness(model)
+    const first = await h.post({ messages: [user("Tighten this")] })
+    await first.text()
+
+    // What `useChat` posts on `regenerate`: the answer is dropped and the
+    // same user message goes back up.
+    const second = await h.post({
+      messages: [user("Tighten this")],
+      trigger: "regenerate-message",
+    })
+    expect(second.status).toBe(200)
+    expect(await second.text()).toContain("Second answer")
+
+    expect(h.db.messages.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "assistant",
+    ])
+    expect(h.db.runs).toHaveLength(2)
+    // The prompt ends on the turn being re-answered, not on the answer the
+    // browser threw away.
+    const prompt = model.doStreamCalls[1]?.prompt ?? []
+    expect(prompt[prompt.length - 1]?.role).toBe("user")
+    expect(JSON.stringify(prompt)).not.toContain("First answer")
+  })
+
+  it("stores a regenerated turn the transcript never took", async () => {
+    const model = new MockLanguageModelV3({ doStream: [text("Sure.")] })
+    const h = await harness(model)
+    const response = await h.post({
+      messages: [user("Tighten this")],
+      trigger: "regenerate-message",
+    })
+    expect(response.status).toBe(200)
+    await response.text()
+    expect(h.db.messages.map((m) => m.role)).toEqual(["user", "assistant"])
   })
 
   it("supersedes a run the browser abandoned mid fit check", async () => {

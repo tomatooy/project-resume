@@ -1,4 +1,3 @@
-import { pdfjs } from "../resume/preview/pdfjs"
 import { looksMultiColumn } from "./columns"
 
 export type PdfText = {
@@ -56,6 +55,11 @@ export async function extractPdfText(
   onPage: (page: number, pageCount: number) => void,
   signal?: AbortSignal
 ): Promise<PdfText> {
+  // Imported here, not at the top: this module is on the app shell's import
+  // path (ResumeRail -> ImportDialog -> use-import), so it is evaluated during
+  // server rendering, and pdf.js touches DOMMatrix as it loads. Same reason
+  // `useAssistant` defers `check-fit`.
+  const { pdfjs } = await import("../resume/preview/pdfjs")
   const bytes = new Uint8Array(await file.arrayBuffer())
   const task = pdfjs.getDocument({ data: bytes })
 

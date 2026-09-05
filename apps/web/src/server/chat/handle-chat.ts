@@ -14,6 +14,7 @@ import {
   type AgentRun,
   AppError,
   type Background,
+  type ChatMessage,
   isSkillId,
   type MessageMetadata,
   SKILL_REQUIRES,
@@ -132,15 +133,31 @@ async function startTurn(
   const metadata: MessageMetadata = { skillId: skill.id }
   if (body.selectedNodeId) metadata.selectedNodeId = body.selectedNodeId
   if (input.targetPages !== undefined) metadata.targetPages = input.targetPages
-  await services.messages.append(
-    fromUIMessage(last, {
-      conversationId: body.conversationId,
-      agentRunId: run.id,
-      metadata,
-    })
-  )
 
   const memory = await services.memory.buildContext(body.conversationId)
+  const replay =
+    body.trigger === "regenerate-message"
+      ? windowEndingAt(memory.messages, userMessage)
+      : null
+  if (replay === null) {
+    await services.messages.append(
+      fromUIMessage(last, {
+        conversationId: body.conversationId,
+        agentRunId: run.id,
+        metadata,
+      })
+    )
+  }
+
+  // Either way the window ends with the turn being answered: the stored one
+  // when it was already there, and the one just taken when it was not.
+  const modelMessages: ModelMessage[] = replay
+    ? toModelMessages(replay)
+    : [
+        ...toModelMessages(memory.messages),
+        { role: "user", content: userMessage },
+      ]
+
   return {
     run,
     skill,
@@ -151,8 +168,30 @@ async function startTurn(
       targetPages: input.targetPages,
     },
     summaryText: memory.summaryText,
-    modelMessages: toModelMessages(memory.messages),
+    modelMessages,
   }
+}
+
+/**
+ * A regenerate re-posts a user turn the store already took, so neither the
+ * transcript nor the prompt may take it twice: stored twice it is replayed to
+ * the model twice, summarised twice, and shown twice on reload. The window is
+ * cut back to that turn instead, which also drops the answer the browser
+ * itself dropped when it asked for another one.
+ *
+ * Null when the newest stored user turn is not this one, which is a
+ * regenerate of a message that never landed; the caller stores it as usual.
+ */
+function windowEndingAt(
+  messages: ChatMessage[],
+  userMessage: string
+): ChatMessage[] | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (message?.role !== "user") continue
+    return storedText(message) === userMessage ? messages.slice(0, i + 1) : null
+  }
+  return null
 }
 
 /**
@@ -346,6 +385,15 @@ async function supersedeStalledRun(
     errorClass: "superseded",
   })
   deps.log.info("chat_superseded", { runId: running.id })
+}
+
+/** The text of a stored message, as `textOf` reads an incoming one. */
+function storedText(message: ChatMessage): string {
+  return message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim()
 }
 
 function textOf(message: UIMessage): string {

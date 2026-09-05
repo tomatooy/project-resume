@@ -67,6 +67,12 @@ export function toUIMessage(message: ChatMessage): UIMessage {
   }
 }
 
+/**
+ * The store drops tool inputs, but the SDK's message validation requires the
+ * key once a call is past streaming, and JSON drops an `undefined` one. An
+ * empty object is the input the browser posts back, and is what `useChat`
+ * shows for a call it did not watch stream.
+ */
 function toUIPart(part: MessagePart): UIPart {
   if (part.type === "text") return { type: "text", text: part.text }
   const common = { type: part.type, toolCallId: part.toolCallId }
@@ -74,12 +80,12 @@ function toUIPart(part: MessagePart): UIPart {
     case "input-streaming":
       return { ...common, state: "input-streaming", input: undefined }
     case "input-available":
-      return { ...common, state: "input-available", input: undefined }
+      return { ...common, state: "input-available", input: {} }
     case "output-available":
       return {
         ...common,
         state: "output-available",
-        input: undefined,
+        input: {},
         output: part.output,
       }
     case "output-error":

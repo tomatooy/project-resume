@@ -1,6 +1,7 @@
 import { useChat } from "@ai-sdk/react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
+import { stampSkillId } from "@workspace/resume-core"
 import { ResumePatchSchema, type ResumePatch } from "@workspace/resume-schema"
 import { DefaultChatTransport } from "ai"
 import { useCallback, useMemo, useRef, useState } from "react"
@@ -10,7 +11,6 @@ import { apiErrorFromBody, decideSuggestions } from "@/lib/api"
 import { qk } from "@/lib/query-keys"
 import type { ChatUIMessage, SkillId, SuggestionStatus } from "@/lib/types"
 import { useResumeState, useSession } from "../resume/session-context"
-import { stampSkillId } from "../../../../../packages/resume-core/src/domain/validation"
 
 export type SendOptions = {
   skillId: SkillId
@@ -163,6 +163,18 @@ export function useAssistant({
       setDeciding(true)
       session.previewPatches([])
       try {
+        // The server decides against its own copy of the head and hands back
+        // the result, which `replaceHead` takes wholesale. A keystroke still
+        // sitting in the autosave debounce is not in that copy, so it has to
+        // reach the server first or the reply overwrites it with a document
+        // that never saw it.
+        await session.flush()
+        if (session.state.saveStatus !== "saved") {
+          toast.error(
+            "Your latest edits have not saved yet. Try again shortly."
+          )
+          return
+        }
         const result = await decideSuggestions({
           runId,
           decisions: ids.map((suggestionId) => ({ suggestionId, status })),
