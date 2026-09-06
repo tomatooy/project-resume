@@ -49,10 +49,26 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "recommended"
+      "preset": "recommended",
+      "nursery": {
+        "useTailwindShorthandClasses": "on"
+      }
     }
   },
   "overrides": [
+    {
+      "includes": [
+        "packages/ui/src/components/field.tsx",
+        "packages/ui/src/components/input-group.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "useTailwindShorthandClasses": "off"
+          }
+        }
+      }
+    },
     {
       "includes": ["packages/ui/src/components/**"],
       "linter": {
