@@ -3,7 +3,7 @@ import {
   UploadSimpleIcon,
   WarningIcon,
 } from "@phosphor-icons/react"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -15,16 +15,18 @@ import {
 } from "@workspace/ui/components/dialog"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { cn } from "@workspace/ui/lib/utils"
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { toast } from "sonner"
 
 import type { ResumeSummary } from "@/lib/types"
 import { resumesQuery, useCreateResume } from "@/lib/queries"
 import { ImportProgressPanel } from "./ImportProgress"
+import { JobTab } from "./JobTab"
 import { useImport } from "./use-import"
 
 /**
- * One dialog for every way of starting a resume: a file, pasted text, or
- * nothing at all.
+ * One dialog for every way of starting a resume: a file, pasted text, a job
+ * posting, or nothing at all.
  *
  * Upload and paste share a view rather than sitting behind a switch, because
  * paste is where an unreadable file sends you and it should already be on
@@ -33,16 +35,28 @@ import { useImport } from "./use-import"
 export function ImportDialog({
   open,
   onOpenChange,
+  tab: initialTab = "upload",
+  sourceResumeId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  tab?: "upload" | "job"
+  sourceResumeId?: string
 }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const [tab, setTab] = useState<"upload" | "job">(initialTab)
   const [pasted, setPasted] = useState("")
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement | null>(null)
   const pasteBox = useRef<HTMLTextAreaElement | null>(null)
+  const { data: resumes } = useQuery(resumesQuery())
+
+  // Reset whenever the dialog opens, so the rail's menu item lands on Job and
+  // the rail's New button lands on Upload.
+  useEffect(() => {
+    if (open) setTab(initialTab)
+  }, [open, initialTab])
 
   const finish = useCallback(
     async (resume: ResumeSummary) => {
@@ -96,11 +110,47 @@ export function ImportDialog({
         <DialogHeader>
           <DialogTitle>New resume</DialogTitle>
           <DialogDescription>
-            Start from a resume you already have, or from a blank page.
+            Start from a resume you already have, from a blank page, or from a
+            job you want to apply for.
           </DialogDescription>
         </DialogHeader>
 
-        {progress ? (
+        {busy ? null : (
+          <div className="flex gap-1 rounded-[9px] bg-muted p-0.5">
+            <TabButton
+              active={tab === "upload"}
+              onClick={() => setTab("upload")}
+            >
+              Upload or paste
+            </TabButton>
+            <TabButton
+              active={tab === "job"}
+              disabled={(resumes?.length ?? 0) === 0}
+              title={
+                (resumes?.length ?? 0) === 0
+                  ? "Import or create a resume first"
+                  : undefined
+              }
+              onClick={() => setTab("job")}
+            >
+              From a job posting
+            </TabButton>
+          </div>
+        )}
+
+        {tab === "job" ? (
+          <JobTab
+            sourceResumeId={sourceResumeId}
+            onDone={(result) => {
+              if (!result.tailored) {
+                toast.warning(
+                  "The assistant could not rewrite it, so this is a plain copy of the resume you picked."
+                )
+              }
+              void finish(result.resume)
+            }}
+          />
+        ) : progress ? (
           <ImportProgressPanel progress={progress} onCancel={cancel} />
         ) : (
           <div className="flex flex-col gap-3.5">
@@ -186,6 +236,38 @@ export function ImportDialog({
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+function TabButton({
+  active,
+  disabled,
+  title,
+  onClick,
+  children,
+}: {
+  active: boolean
+  disabled?: boolean
+  title?: string
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+      className={cn(
+        "flex-1 rounded-[7px] px-3 py-1.5 text-[12px] font-medium transition-colors",
+        active
+          ? "bg-background text-foreground shadow-xs"
+          : "text-muted-foreground hover:text-foreground",
+        disabled && "cursor-not-allowed opacity-50 hover:text-muted-foreground"
+      )}
+    >
+      {children}
+    </button>
   )
 }
 

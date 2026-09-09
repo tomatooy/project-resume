@@ -41,6 +41,7 @@ export function ResumeRail() {
     title: string
   } | null>(null)
   const [importing, setImporting] = useState(false)
+  const [tailoring, setTailoring] = useState<string | null>(null)
 
   const duplicate = useDuplicateResume()
   const remove = useDeleteResume()
@@ -122,6 +123,9 @@ export function ResumeRail() {
                       >
                         Duplicate
                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setTailoring(resume.id)}>
+                        Tailor for a job
+                      </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         variant="destructive"
@@ -150,6 +154,14 @@ export function ResumeRail() {
       </div>
 
       <ImportDialog open={importing} onOpenChange={setImporting} />
+      <ImportDialog
+        open={tailoring !== null}
+        onOpenChange={(next) => {
+          if (!next) setTailoring(null)
+        }}
+        tab="job"
+        sourceResumeId={tailoring ?? undefined}
+      />
       <RenameDialog target={renaming} onClose={() => setRenaming(null)} />
       <DeleteResumeDialog
         target={deleting}
