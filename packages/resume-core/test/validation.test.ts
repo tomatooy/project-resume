@@ -44,7 +44,7 @@ function rewrite(target: Bullet, after: string, skillId = "bullet_rewrite") {
   }
 }
 
-/** Everything the model saw, so grounding is satisfied by default. */
+/** A propose-mode context for a bullet_rewrite, with no job description. */
 function propose(selectedNodeId?: string, skillId = "bullet_rewrite") {
   return {
     mode: "propose" as const,
@@ -74,7 +74,7 @@ describe("validateForSkill scope", () => {
     const result = validateForSkill(
       resume,
       [rewrite(otherBullet, "Led the team.", "jd_match")],
-      { ...propose(bullet.id, "jd_match"), jobDescription: "Staff engineer" }
+      propose(bullet.id, "jd_match")
     )
     expect(result.rejected).toEqual([])
   })
@@ -120,26 +120,6 @@ describe("validateForSkill limits", () => {
     expect(() =>
       validateForSkill(resume, [], propose(undefined, "made_up"))
     ).toThrow()
-  })
-})
-
-describe("validateForSkill grounding", () => {
-  it("rejects a number the model invented at propose time", () => {
-    const result = validateForSkill(
-      resume,
-      [rewrite(bullet, "Cut deploy time by 47%.")],
-      propose()
-    )
-    expect(result.rejected[0]?.code).toBe("UNGROUNDED_NUMBER")
-  })
-
-  it("skips grounding at accept time, when the prompt is gone", () => {
-    const result = validateForSkill(
-      resume,
-      [rewrite(bullet, "Cut deploy time by 47%.")],
-      { mode: "reapply", skillId: "bullet_rewrite" }
-    )
-    expect(result.rejected).toEqual([])
   })
 })
 

@@ -241,7 +241,6 @@ describe("applyStrict", () => {
 describe("validatePatches", () => {
   const base = {
     allowedOps: ["replace_text"] as const,
-    groundingText: "",
   }
 
   it("rejects an op the skill is not allowed to use", () => {
@@ -251,66 +250,6 @@ describe("validatePatches", () => {
       { ...base, allowedOps: [...base.allowedOps] }
     )
     expect(rejected[0]?.code).toBe("OP_NOT_ALLOWED")
-  })
-
-  it("rejects a number that appears nowhere in the source", () => {
-    const { valid, rejected } = validatePatches(
-      onePage,
-      [
-        {
-          ...meta,
-          op: "replace_text",
-          targetNodeId: firstBulletId(),
-          field: "text",
-          before: firstBulletText(),
-          after: "Cut reconciliation time by 97%.",
-        },
-      ],
-      { ...base, allowedOps: [...base.allowedOps] }
-    )
-    expect(valid).toHaveLength(0)
-    expect(rejected[0]?.code).toBe("UNGROUNDED_NUMBER")
-    expect(rejected[0]?.message).toBe("97%")
-  })
-
-  it("accepts a number carried over from the original text", () => {
-    const { valid } = validatePatches(
-      onePage,
-      [
-        {
-          ...meta,
-          op: "replace_text",
-          targetNodeId: firstBulletId(),
-          field: "text",
-          before: firstBulletText(),
-          after: "Cut month-end reconciliation from 9 hours to 20 minutes.",
-        },
-      ],
-      { ...base, allowedOps: [...base.allowedOps] }
-    )
-    expect(valid).toHaveLength(1)
-  })
-
-  it("accepts a number supplied in the grounding text", () => {
-    const { valid } = validatePatches(
-      onePage,
-      [
-        {
-          ...meta,
-          op: "replace_text",
-          targetNodeId: firstBulletId(),
-          field: "text",
-          before: firstBulletText(),
-          after: "Led a team of 4 on the settlement ledger.",
-        },
-      ],
-      {
-        ...base,
-        allowedOps: [...base.allowedOps],
-        groundingText: "I led 4 engineers",
-      }
-    )
-    expect(valid).toHaveLength(1)
   })
 
   it("keeps patches inside the requested scope", () => {

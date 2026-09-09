@@ -126,16 +126,15 @@ export function runSkill(input: RunSkillInput) {
       runId: input.runId,
       resume: ctx.resume,
       persist: input.persist,
-      // Op and field whitelists, the scope anchor and the grounding text are
-      // all derived from the skill id and the selection. What the model was
-      // shown (`skill.show`) is a separate decision from what it is allowed
-      // to change, and only the latter is enforced.
+      // Op and field whitelists and the scope anchor are all derived from the
+      // skill id and the selection. What the model was shown (`skill.show`) is
+      // a separate decision from what it is allowed to change, and only the
+      // latter is enforced.
       validation: {
         mode: "propose",
         skillId: skill.id,
         selectedNodeId: ctx.selectedNodeId,
         userMessage: ctx.userMessage,
-        jobDescription: ctx.jobDescription,
       },
     }),
   }

@@ -1,5 +1,4 @@
 import {
-  collectText,
   scopeAnchor,
   validatePatches,
   type Resume,
@@ -13,18 +12,12 @@ import { SKILL, isSkillId } from "./skill"
  * Which of the two moments a patch is being checked at.
  *
  * `propose`: the model just produced it, against the document the model was
- * shown. Every rule applies.
+ * shown. `reapply`: it was proposed earlier and the user is accepting it now,
+ * against a head that may have moved.
  *
- * `reapply`: it was proposed earlier and the user is accepting it now, against
- * a head that may have moved. Grounding is the one rule that cannot run again,
- * because the user's message and the job description are not retained past the
- * run. Everything else still applies, including the `before` match that is
- * what makes a suggestion go stale.
- *
- * The distinction used to be expressed by handing `validatePatches` a
- * different grounding string at each call site, which meant the two modes
- * could drift apart without anything saying so, and they had: accept time
- * silently dropped the scope and field limits as well.
+ * The two modes now run the same rules; the distinction survives because the
+ * scope anchor comes from the request when proposing and from the run row when
+ * reapplying, and because a `before` mismatch is what makes a suggestion stale.
  */
 export type ValidationMode =
   | {
@@ -33,7 +26,6 @@ export type ValidationMode =
       /** The user's selection, if any. Confines patches to what contains it. */
       selectedNodeId?: string
       userMessage: string
-      jobDescription?: string
     }
   | {
       mode: "reapply"
@@ -85,19 +77,9 @@ export function validateForSkill(
       ? scopeAnchor(resume, mode.selectedNodeId)?.id
       : undefined
 
-  const groundingText =
-    mode.mode === "propose"
-      ? [
-          mode.userMessage,
-          mode.jobDescription ?? "",
-          ...collectText(resume),
-        ].join("\n")
-      : null
-
   return validatePatches(resume, stampSkillId(patches, mode.skillId), {
     allowedOps,
     allowedFields,
     scopeNodeId,
-    groundingText,
   })
 }

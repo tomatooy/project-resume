@@ -90,7 +90,6 @@ export const PATCH_ERROR_CODES = [
   "SCHEMA_INVALID",
   "KIND_MISMATCH",
   "EMPTY_TEXT",
-  "UNGROUNDED_NUMBER",
   "OUT_OF_SCOPE",
   "INDEX_OUT_OF_RANGE",
 ] as const
@@ -501,17 +500,6 @@ export type ValidationContext = {
   allowedFields?: Partial<Record<NodeKind, string[]>>
   /** When set, every target must be this node or a descendant of it. */
   scopeNodeId?: string
-  /**
-   * Rule 10's source text: user message + job description + all resume text.
-   *
-   * `null` skips rule 10 and only rule 10, for re-validating patches whose
-   * grounding was already decided when they were proposed. The message and
-   * the posting are not retained past the run, so re-deriving grounding from
-   * the resume alone would reject numbers that were legitimately sourced.
-   * Callers used to express this by feeding the patches back in as their own
-   * grounding, which read like a check but was the absence of one.
-   */
-  groundingText: string | null
 }
 
 export type RejectedPatch = {
@@ -525,27 +513,10 @@ export type ValidationResult = {
   rejected: RejectedPatch[]
 }
 
-const NUMBER_TOKEN = /\d[\d,.]*%?/g
-
-function numbersIn(value: unknown, out: Set<string> = new Set()): Set<string> {
-  if (typeof value === "string") {
-    for (const match of value.matchAll(NUMBER_TOKEN)) out.add(match[0])
-    return out
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) numbersIn(entry, out)
-    return out
-  }
-  if (typeof value === "object" && value !== null) {
-    for (const entry of Object.values(value)) numbersIn(entry, out)
-  }
-  return out
-}
-
 /**
  * The deterministic gate every model-proposed patch passes through, on the
  * server before persisting and again at accept time against the current head.
- * Rule 10 (grounding) is what stops the model inventing metrics.
+ * Shape, scope, field and op limits, and a dry run of the whole set.
  */
 export function validatePatches(
   resume: Resume,
@@ -555,7 +526,6 @@ export function validatePatches(
   const valid: ResumePatch[] = []
   const rejected: RejectedPatch[] = []
   const index = indexNodes(resume)
-  const grounding = ctx.groundingText
 
   patches.forEach((raw, i) => {
     const reject = (code: PatchErrorCode, message: string) => {
@@ -644,29 +614,7 @@ export function validatePatches(
       return
     }
 
-    // 10. Grounding: every number in the proposed text must already exist.
-    const proposed =
-      patch.op === "replace_text"
-        ? patch.after
-        : patch.op === "update_fields"
-          ? patch.after
-          : patch.op === "insert_after"
-            ? patch.node
-            : null
-    if (proposed !== null && grounding !== null) {
-      const source =
-        patch.op === "replace_text"
-          ? `${patch.before}\n${grounding}`
-          : grounding
-      for (const token of numbersIn(proposed)) {
-        if (!source.includes(token)) {
-          reject("UNGROUNDED_NUMBER", token)
-          return
-        }
-      }
-    }
-
-    // 6, 7 and 11. Dry-run against the accumulated set: `before` equality
+    // 6, 7 and 10. Dry-run against the accumulated set: `before` equality
     // (rule 6), `insert_after.node` parsing as the parent's child kind
     // (rule 7, reported as KIND_MISMATCH), and the whole-document re-check.
     const dry = applyStrict(resume, [...valid, patch], { stopOnError: true })

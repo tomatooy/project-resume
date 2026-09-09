@@ -398,8 +398,6 @@ function SuggestionGroup({
 }
 
 const REJECTION_HELP: Record<string, string> = {
-  UNGROUNDED_NUMBER:
-    "used a figure that appears nowhere in your resume or your message.",
   OP_NOT_ALLOWED: "tried a kind of change this skill is not allowed to make.",
   OUT_OF_SCOPE: "tried to edit something outside the part you selected.",
   BEFORE_MISMATCH: "was written against text that has since changed.",

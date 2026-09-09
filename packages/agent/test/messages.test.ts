@@ -235,9 +235,7 @@ describe("toModelMessages", () => {
             state: "output-available",
             output: {
               ...proposeOutput,
-              rejected: [
-                { index: 1, code: "UNGROUNDED_NUMBER", message: "no" },
-              ],
+              rejected: [{ index: 1, code: "OUT_OF_SCOPE", message: "no" }],
             },
           },
         ],

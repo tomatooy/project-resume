@@ -27,8 +27,9 @@ function propose(patches: ResumePatch[], id = "call-1") {
 describe("runSkill", () => {
   const { resume, bullet, otherBullet } = fixture()
   const good = rewrite(bullet, `${bullet.text} Shipped on time.`)
-  // 317 appears nowhere in the resume or the message, so grounding refuses it.
-  const ungrounded = rewrite(bullet, `${bullet.text} Raised revenue 317%.`)
+  // `otherBullet` lives in a different item than the selection, so the scope
+  // rule refuses it.
+  const outOfScope = rewrite(otherBullet, `${otherBullet.text} Reworded.`)
 
   function start(
     model: MockLanguageModelV3,
@@ -54,10 +55,8 @@ describe("runSkill", () => {
     // One refusal earns the model one more turn; here it answers in text.
     const model = new MockLanguageModelV3({
       doStream: [
-        propose([good, ungrounded]),
-        textStream(
-          "Kept the first; the second added a number I cannot source."
-        ),
+        propose([good, outOfScope]),
+        textStream("Kept the first; the second was outside the selected item."),
       ],
     })
     const { result, persist } = start(model)
@@ -73,7 +72,7 @@ describe("runSkill", () => {
     expect(output).toMatchObject({
       runId: "run-1",
       suggestions: [{ id: "s0", ordinal: 0, patch: good }],
-      rejected: [{ index: 1, code: "UNGROUNDED_NUMBER" }],
+      rejected: [{ index: 1, code: "OUT_OF_SCOPE" }],
       gaps: [],
     })
   })
@@ -109,7 +108,7 @@ describe("runSkill", () => {
 
   it("lets the model correct a rejected proposal and persists only the additions", async () => {
     const model = new MockLanguageModelV3({
-      doStream: [propose([ungrounded], "call-1"), propose([good], "call-2")],
+      doStream: [propose([outOfScope], "call-1"), propose([good], "call-2")],
     })
     const { result, persist } = start(model)
     await result.consumeStream()
@@ -121,12 +120,12 @@ describe("runSkill", () => {
 
     // The second call saw why the first was refused.
     const replay = JSON.stringify(model.doStreamCalls[1]?.prompt)
-    expect(replay).toContain("UNGROUNDED_NUMBER")
+    expect(replay).toContain("OUT_OF_SCOPE")
   })
 
   it("stops at the step budget when proposals keep failing", async () => {
     const model = new MockLanguageModelV3({
-      doStream: async () => propose([ungrounded]),
+      doStream: async () => propose([outOfScope]),
     })
     const { result, persist } = start(model)
     await result.consumeStream()
