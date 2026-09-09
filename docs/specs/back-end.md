@@ -64,7 +64,7 @@ Bindings are read with `import { env } from 'cloudflare:workers'` inside server 
 ### 1.2 Environments
 
 | Env | Supabase | Worker | Model |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | local | `supabase start` (Docker) | `wrangler dev` via `vite dev` | real gateway, or `AI_MOCK=1` |
 | preview | branch database (Supabase branching) or a shared staging project | `wrangler versions upload` | real gateway with a low rate limit |
 | production | production project | `wrangler deploy` | real gateway |
@@ -309,7 +309,7 @@ Error codes: `UNAUTHENTICATED` 401, `NOT_FOUND` 404, `CONFLICT` 409, `VALIDATION
 ### 4.1 `resumes.ts`
 
 | Function | Input | Output |
-|---|---|---|
+| --- | --- | --- |
 | `listResumes` | none | `ResumeSummary[]` (`id, title, templateId, updatedAt`) sorted by `updated_at desc`, excluding deleted |
 | `getResume` | `{ id }` | `{ id, title, data, schemaVersion, templateId, templateOptions, currentVersionId, updatedAt }`; runs `migrateResume` if `schemaVersion` is behind |
 | `createResume` | `{ title?, fromResumeId? }` | new `ResumeSummary`; content is the `starter` fixture or a deep copy of the source with all node IDs regenerated |
@@ -322,7 +322,7 @@ Error codes: `UNAUTHENTICATED` 401, `NOT_FOUND` 404, `CONFLICT` 409, `VALIDATION
 ### 4.2 `versions.ts`
 
 | Function | Input | Output |
-|---|---|---|
+| --- | --- | --- |
 | `listVersions` | `{ resumeId }` | `{ id, versionNo, label, createdBy, createdAt }[]` |
 | `getVersion` | `{ id }` | `{ content }` |
 | `createSnapshot` | `{ resumeId, label? }` | version row; content is the current head; no-op returning the current version if `content_hash` equals the current version's hash |
@@ -331,7 +331,7 @@ Error codes: `UNAUTHENTICATED` 401, `NOT_FOUND` 404, `CONFLICT` 409, `VALIDATION
 ### 4.3 `conversations.ts`
 
 | Function | Input | Output |
-|---|---|---|
+| --- | --- | --- |
 | `getOrCreateConversation` | `{ resumeId }` | `{ id }` |
 | `listMessages` | `{ conversationId, limit = 100 }` | `UIMessage[]` in `seq` order (converted from `messages.content`) |
 
@@ -578,6 +578,7 @@ Thin typed wrappers over the `resumes` table used by the server functions in sec
 ### 7.3 `run-service.ts`
 
 `start({ conversationId, resumeId, skillId, selectedNodeId, model, input })`:
+
 1. `runs.failAbandoned(conversationId, now - 10 min)`: a run still `running` after ten minutes is marked `failed` with error class `abandoned`.
 2. If a run is still `running`, throw `CONFLICT` ("A request is already in progress").
 3. `versionService.snapshot(resumeId, { label: 'Before AI run', createdBy: 'system' })` (no-op if unchanged).
@@ -592,6 +593,7 @@ Thin typed wrappers over the `resumes` table used by the server functions in sec
 `persistProposal(runId, resumeId, valid: ResumePatch[])`: inserts one `suggestions` row per patch with `ordinal`, returns rows with IDs. Idempotent per run: a patch equal to one already stored for the run is not inserted again, and ordinals continue from the stored maximum, so a model that repeats a proposal after a correction does not duplicate cards.
 
 `decide(userId, runId, decisions)`:
+
 1. Load the run and its pending suggestions; unknown IDs or non-pending rows are `VALIDATION` errors.
 2. Load the current head.
 3. For accepted suggestions in `ordinal` order, run `validatePatches` against the head with the skill's allowed ops and no scope. Any rejected patch is marked `stale` (not accepted) and reported.
@@ -754,6 +756,7 @@ export const skills: Record<SkillId, ResumeSkill>
 `skill_id` is text, not an enum. It is one of the seven `SKILLS` ids for anything the assistant chooses, plus the reserved `tailor_from_job`, which is deliberately not a registry entry: it writes a whole document rather than patches, so it has no op or field whitelist to be checked against.
 
 `scope` rules:
+
 - `bullet_rewrite`, `grammar_clarity`, `impact_quantification` with a `selectedNodeId`: send the containing item plus `basics.headline`, and set `scopeNodeId` to the selected node's item. Without a selection: send the whole document, no scope.
 - `jd_match`, `ats_keyword`, `condense_to_pages`, `summary_optimize`: whole document, no scope.
 
@@ -853,7 +856,7 @@ Supabase daily backups (managed). Messages and versions are never deleted in the
 ## 12. Testing
 
 | Layer | Tool | Coverage |
-|---|---|---|
+| --- | --- | --- |
 | `resume-schema` | Vitest | schema accepts fixtures and rejects malformed docs; `applyPatches` for every op and inverse; `validatePatches` for every error code; `contentHash` stable across key order |
 | `resume-core` | Vitest on in-memory doubles | run start, conflict, abandoned sweep, rate limit; memory window, threshold, chained summaries; suggestion decide and idempotent persist |
 | Database | pgTAP (`supabase/tests/`) | RLS: user B cannot read or write user A's rows in any table; RPCs create versions, decide suggestions, and activate summaries atomically; grants |

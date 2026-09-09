@@ -56,7 +56,7 @@ These survive any technology swap.
 Everything below ships in the MVP. The build order inside the MVP is chosen so the resume-only path is testable before the AI path exists.
 
 | Step | Deliverable | Done when |
-|---|---|---|
+| --- | --- | --- |
 | 1 | `packages/resume-schema`: Zod schema, node IDs, patch contract, `applyPatches`, `validatePatches` | Unit tests pass on fixtures |
 | 2 | Supabase project, migrations for all seven tables, RLS policies, generated types | `supabase db reset` applies cleanly; RLS tests pass |
 | 3 | Auth (login, callback, logout), dashboard, resume CRUD server functions | A user can create, list, open, rename, duplicate, delete resumes; another user cannot see them |
@@ -136,7 +136,7 @@ flowchart LR
 ### 4.1 Where things run
 
 | Concern | Runs in | Why |
-|---|---|---|
+| --- | --- | --- |
 | Resume editing state | Browser (TanStack Store) | Sub-100ms feedback |
 | PDF layout, preview, download | Browser (`@react-pdf/renderer` + pdf.js) | Same artifact for preview and export; zero render infrastructure |
 | `check_fit` (page count for a proposed change) | Browser, as an AI SDK client-side tool | The renderer is already loaded there; avoids running Yoga WASM on Workers |
@@ -243,7 +243,7 @@ Presentation settings (`template_id`, page size, font scale) live on the `resume
 A skill is a registered domain capability: an ID, a description, a prompt fragment, an allowed set of patch operations, the tools it may call, and a context-scoping rule. The user picks the skill explicitly in the UI. There is no router or intent classifier in the MVP.
 
 | Skill ID | Capability | Allowed ops | MVP |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `bullet_rewrite` | Rewrite bullets, preserve facts | `replace_text` | yes |
 | `jd_match` | Match a job description; report gaps | `replace_text`, `move`, `delete`, `insert_after` | yes |
 | `grammar_clarity` | Grammar, concision, verbs | `replace_text` | yes |
@@ -271,7 +271,7 @@ Three layers per conversation:
 The repo is a Bun + Turborepo monorepo. The architecture document's Appendix B single-tree layout is mapped onto it as follows.
 
 | Appendix B path | This repo | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `src/routes/` | `apps/web/src/routes/` | TanStack file routes, including `api/chat.ts` |
 | `src/features/resume/{editor,preview,versions}` | `apps/web/src/features/resume/{editor,preview,versions,dashboard}` | |
 | `src/features/chat` | `apps/web/src/features/chat` | `useChat`, diff cards, skill picker |
@@ -301,7 +301,7 @@ packages/resume-schema -> (nothing internal)
 ## 8. Decision log
 
 | # | Area | Decision | Rationale |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | Framework | TanStack Start, not Next.js | Logged-in SaaS, no SEO need, closest fit to the Cloudflare runtime |
 | 2 | Compute | One Cloudflare Worker | Short AI requests, one domain, one secret store, no cross-Worker auth |
 | 3 | Persistence | Supabase Postgres via PostgREST from the Worker | HTTP client works on Workers; RLS gives per-user isolation without application-level ownership checks in every query |
