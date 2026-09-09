@@ -6,6 +6,7 @@ import type {
 } from "@workspace/resume-schema"
 
 import type { ChatMessage } from "../domain/chat"
+import type { JobTarget } from "../domain/job-target"
 import type { SummaryRecord } from "../domain/memory"
 import type { AgentRun, SuggestionStatus } from "../domain/suggestion"
 import type { CreatedByKind } from "../domain/version"
@@ -60,6 +61,12 @@ export class InMemoryDb {
   suggestions: SuggestionRow[] = []
   messages: ChatMessage[] = []
   summaries: SummaryRecord[] = []
+  jobTargets: JobTarget[] = []
+  resumeJobTargets: {
+    resumeId: string
+    jobTargetId: string
+    isOrigin: boolean
+  }[] = []
   /** conversation id -> active summary id */
   activeSummaries = new Map<string, string>()
 

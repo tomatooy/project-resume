@@ -1,6 +1,7 @@
 export * from "./agent-run-repository"
 export * from "./background"
 export * from "./conversation-repository"
+export * from "./job-target-repository"
 export * from "./message-repository"
 export * from "./resume-parser"
 export * from "./resume-repository"

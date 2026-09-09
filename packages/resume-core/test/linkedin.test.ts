@@ -27,7 +27,9 @@ describe("normalizeLinkedInJobUrl", () => {
 
   it("accepts the email and mobile hosts and paths", () => {
     expect(
-      normalizeLinkedInJobUrl("https://www.linkedin.com/comm/jobs/view/4456278957")
+      normalizeLinkedInJobUrl(
+        "https://www.linkedin.com/comm/jobs/view/4456278957"
+      )
     ).toBe(CANONICAL)
     expect(
       normalizeLinkedInJobUrl("https://uk.linkedin.com/jobs/view/4456278957/")

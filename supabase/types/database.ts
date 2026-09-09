@@ -155,6 +155,42 @@ export type Database = {
           },
         ]
       }
+      job_targets: {
+        Row: {
+          company: string
+          created_at: string
+          id: string
+          location: string | null
+          raw_text: string
+          requirements: Json
+          source_url: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          company?: string
+          created_at?: string
+          id?: string
+          location?: string | null
+          raw_text: string
+          requirements?: Json
+          source_url?: string | null
+          title?: string
+          user_id: string
+        }
+        Update: {
+          company?: string
+          created_at?: string
+          id?: string
+          location?: string | null
+          raw_text?: string
+          requirements?: Json
+          source_url?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       memory_summaries: {
         Row: {
           conversation_id: string
@@ -233,6 +269,42 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      resume_job_targets: {
+        Row: {
+          created_at: string
+          is_origin: boolean
+          job_target_id: string
+          resume_id: string
+        }
+        Insert: {
+          created_at?: string
+          is_origin?: boolean
+          job_target_id: string
+          resume_id: string
+        }
+        Update: {
+          created_at?: string
+          is_origin?: boolean
+          job_target_id?: string
+          resume_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "resume_job_targets_job_target_id_fkey"
+            columns: ["job_target_id"]
+            isOneToOne: false
+            referencedRelation: "job_targets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "resume_job_targets_resume_id_fkey"
+            columns: ["resume_id"]
+            isOneToOne: false
+            referencedRelation: "resumes"
             referencedColumns: ["id"]
           },
         ]
