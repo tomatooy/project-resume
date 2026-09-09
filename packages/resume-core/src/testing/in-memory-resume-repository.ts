@@ -70,6 +70,16 @@ export class InMemoryResumeRepository implements ResumeRepository {
     return true
   }
 
+  async setSubtitle(id: string, subtitle: string): Promise<boolean> {
+    const row = this.db.resumes.find((r) => r.id === id && !r.deletedAt)
+    if (!row) return false
+    row.subtitle = subtitle
+    // The line under the title is not the document, so it must not move
+    // `revision` either.
+    row.updatedAt = nowIso(this.db)
+    return true
+  }
+
   async setTemplate(
     id: string,
     templateId: TemplateId,

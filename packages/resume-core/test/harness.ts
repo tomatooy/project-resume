@@ -20,6 +20,7 @@ export function harness() {
     suggestionService: services.suggestions,
     runService: services.runs,
     memoryService: services.memory,
+    tailorService: services.tailor,
   }
 }
 

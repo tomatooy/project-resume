@@ -65,6 +65,26 @@ export class RunService {
     return this.runs.findRunning(conversationId)
   }
 
+  /**
+   * A run against a resume that is being created rather than edited.
+   *
+   * No "Before AI run" snapshot, because there is no earlier state worth
+   * restoring: the head is the untouched duplicate, and this flow writes
+   * exactly one version whether the model succeeds or not. No running-run
+   * check either, because the conversation was opened one line ago.
+   */
+  startForCreation(input: StartRunInput): Promise<AgentRun> {
+    return this.runs.create({
+      conversationId: input.conversationId,
+      resumeId: input.resumeId,
+      skillId: input.skillId,
+      model: input.model,
+      selectedNodeId: input.selectedNodeId ?? null,
+      resumeVersionId: null,
+      input: input.input,
+    })
+  }
+
   finish(runId: string, input: FinishAgentRun): Promise<void> {
     return this.runs.finish(runId, input)
   }

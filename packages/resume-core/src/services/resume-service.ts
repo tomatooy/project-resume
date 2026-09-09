@@ -15,11 +15,17 @@ import type { HeadWrite, ResumeRecord, ResumeSummary } from "../domain/resume"
 import type { ResumeRepository } from "../ports/resume-repository"
 
 const UNTITLED = "Untitled resume"
-const NEW_SUBTITLE = "Draft · not tailored"
+export const NEW_SUBTITLE = "Draft · not tailored"
 const IMPORTED_SUBTITLE = "Imported · not tailored"
 
 export type CreateResumeInput = {
   title?: string
+  /**
+   * Forces the line under the title. Without it a copy inherits the source's,
+   * which would let a resume claim it was tailored for a company it has never
+   * been near, because its source once was.
+   */
+  subtitle?: string
   /** When set, the new resume is a deep copy with every node id regenerated. */
   fromResumeId?: string
   /**
@@ -62,11 +68,13 @@ export class ResumeService {
 
     return this.resumes.create({
       title: input.title ?? (source ? `${source.title} copy` : UNTITLED),
-      subtitle: source
-        ? source.subtitle
-        : input.document
-          ? IMPORTED_SUBTITLE
-          : NEW_SUBTITLE,
+      subtitle:
+        input.subtitle ??
+        (source
+          ? source.subtitle
+          : input.document
+            ? IMPORTED_SUBTITLE
+            : NEW_SUBTITLE),
       data,
       schemaVersion: data.schemaVersion,
       templateId: source?.templateId ?? DEFAULT_TEMPLATE_ID,
@@ -105,6 +113,12 @@ export class ResumeService {
   async rename(id: string, title: string): Promise<void> {
     const next = title.trim() || UNTITLED
     if (!(await this.resumes.rename(id, next))) {
+      throw new AppError("NOT_FOUND", "Resume not found")
+    }
+  }
+
+  async setSubtitle(id: string, subtitle: string): Promise<void> {
+    if (!(await this.resumes.setSubtitle(id, subtitle))) {
       throw new AppError("NOT_FOUND", "Resume not found")
     }
   }

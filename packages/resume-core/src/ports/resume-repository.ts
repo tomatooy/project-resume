@@ -37,6 +37,7 @@ export interface ResumeRepository {
   updateData(input: UpdateDataInput): Promise<UpdateDataResult>
   /** Neither of these moves `revision`; only document writes do. */
   rename(id: string, title: string): Promise<boolean>
+  setSubtitle(id: string, subtitle: string): Promise<boolean>
   setTemplate(
     id: string,
     templateId: TemplateId,

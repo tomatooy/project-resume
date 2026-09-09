@@ -142,6 +142,10 @@ export class SupabaseResumeRepository implements ResumeRepository {
     return this.touch(id, { title })
   }
 
+  async setSubtitle(id: string, subtitle: string): Promise<boolean> {
+    return this.touch(id, { subtitle })
+  }
+
   async setTemplate(
     id: string,
     templateId: TemplateId,

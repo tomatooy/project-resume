@@ -26,6 +26,9 @@ export type AgentRunStatus = "running" | "completed" | "failed" | "cancelled"
 export const RunInputSchema = z.object({
   jobDescription: z.string().optional(),
   targetPages: z.number().int().optional(),
+  /** Tailoring: ids only. The posting text lives on the `job_targets` row. */
+  jobTargetId: z.string().optional(),
+  sourceResumeId: z.string().optional(),
 })
 export type RunInput = z.infer<typeof RunInputSchema>
 
