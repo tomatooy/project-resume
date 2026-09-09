@@ -10,7 +10,7 @@ This document is the single source of truth for what the system is, how its part
 
 An AI-powered resume builder and optimization assistant.
 
-A user keeps one or more **structured resumes**. Each resume is a JSON document with stable node IDs. The user edits it in a form-based editor while a live PDF preview renders it through an interchangeable **template**. The user can download the preview as a PDF at any time. The user can also open a chat panel, pick a **skill** (for example "rewrite bullets" or "match to this job description"), and ask the AI to improve the resume. The AI never edits the resume directly: it returns **validated patches**, the user sees them as a diff, and only accepted patches are applied, creating a new immutable **version**.
+A user keeps one or more **structured resumes**. Each resume is a JSON document with stable node IDs. The user edits it in a form-based editor while a live PDF preview renders it through an interchangeable **template**. The user can download the preview as a PDF at any time. The user can also open a chat panel, pick a **skill** (for example "rewrite bullets" or "match to this job description"), and ask the AI to improve the resume. The AI never edits an existing resume directly: it returns patches that are validated on the server and accepted one at a time. Creating a resume is the exception, and it is a narrow one: import and tailoring both write a whole document, because there is nothing yet to patch. Everything that touches a resume after it exists goes through patches.
 
 The resume is the first-class citizen of the app. Everything else (conversations, suggestions, versions, memory) hangs off a resume.
 
@@ -76,7 +76,7 @@ Add only when a real need appears.
 - Cloudflare Queues or Workflows for memory consolidation and other background work
 - Durable Object per resume if stream resumption on reconnect is needed
 - Remaining skills: `ats_keyword`, `impact_quantification`, `summary_optimize`
-- Job-description ingestion (store JDs per resume, reuse across requests)
+- Job-description ingestion: done, stored standalone in `job_targets` and linked many-to-many to resumes via `resume_job_targets` (one posting can be tailored against twice, one resume can accumulate several applications).
 - Resume scoring and ATS lint
 - Render preview in a Web Worker if editor typing jank is measured
 - Re-evaluate `@tanstack/ai` against the Vercel AI SDK

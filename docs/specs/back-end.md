@@ -533,13 +533,12 @@ Pure. Applies in order on a structural copy; a failing patch is skipped (or stop
 export type PatchErrorCode =
   | 'TARGET_NOT_FOUND' | 'PARENT_NOT_FOUND' | 'OP_NOT_ALLOWED' | 'FIELD_NOT_ALLOWED'
   | 'BEFORE_MISMATCH' | 'SCHEMA_INVALID' | 'KIND_MISMATCH' | 'EMPTY_TEXT'
-  | 'UNGROUNDED_NUMBER' | 'OUT_OF_SCOPE' | 'INDEX_OUT_OF_RANGE'
+  | 'OUT_OF_SCOPE' | 'INDEX_OUT_OF_RANGE'
 
 export type ValidationContext = {
   allowedOps: PatchOp[]
   allowedFields?: Partial<Record<NodeKind, string[]>>   // narrows textFields per skill
   scopeNodeId?: string                                  // when set, targets must be this node or a descendant
-  groundingText: string                                 // user message + job description + all resume text
 }
 export function validatePatches(resume: Resume, patches: unknown[], ctx: ValidationContext):
   { valid: ResumePatch[]; rejected: { index: number; code: PatchErrorCode; message: string }[] }
@@ -556,8 +555,7 @@ Rules, in order, per patch:
 7. `insert_after.node` must parse with the child schema for the parent kind, else `KIND_MISMATCH`.
 8. `move.toIndex` must be within the parent's array, else `INDEX_OUT_OF_RANGE`.
 9. `after` text must be non-empty after trimming, else `EMPTY_TEXT`.
-10. **Grounding**: every number token (`/\d[\d,.]*%?/`) in `after` (or in any string of `insert_after.node`) must appear in `before` or in `groundingText`, else `UNGROUNDED_NUMBER`. This is what stops invented metrics.
-11. Dry-run `applyPatches` on the accumulated valid list; a failure marks the patch `SCHEMA_INVALID`.
+10. Dry-run `applyPatches` on the accumulated valid list; a failure marks the patch `SCHEMA_INVALID`.
 
 Validation is deterministic and runs in both the Worker (before persisting suggestions, and again at accept time against the current head) and the browser (for `check_fit`).
 
@@ -585,7 +583,7 @@ Thin typed wrappers over the `resumes` table used by the server functions in sec
 3. `versionService.snapshot(resumeId, { label: 'Before AI run', createdBy: 'system' })` (no-op if unchanged).
 4. Insert `agent_runs` with `status = 'running'`, that `resume_version_id`, and the request's `jobDescription` and `targetPages` in `input`.
 
-`finish(runId, { status, errorClass, inputTokens, outputTokens, latencyMs })` also clears `agent_runs.input` so job descriptions are not retained beyond the run.
+`finish(runId, { status, errorClass, inputTokens, outputTokens, latencyMs })` also clears `agent_runs.input`, so a finished run retains nothing about what was asked. A posting a user tailored against is retained deliberately, on its own `job_targets` row, and the run's `input` holds only that row's id while it runs.
 
 `assertWithinHourlyLimit(limit = 60)` counts the user's `agent_runs` in the last hour (RLS scopes the count) and throws `RATE_LIMITED` with `retryAfterSeconds` at the limit. See section 11.1.
 
@@ -753,6 +751,8 @@ export type ResumeSkill = {
 export const skills: Record<SkillId, ResumeSkill>
 ```
 
+`skill_id` is text, not an enum. It is one of the seven `SKILLS` ids for anything the assistant chooses, plus the reserved `tailor_from_job`, which is deliberately not a registry entry: it writes a whole document rather than patches, so it has no op or field whitelist to be checked against.
+
 `scope` rules:
 - `bullet_rewrite`, `grammar_clarity`, `impact_quantification` with a `selectedNodeId`: send the containing item plus `basics.headline`, and set `scopeNodeId` to the selected node's item. Without a selection: send the whole document, no scope.
 - `jd_match`, `ats_keyword`, `condense_to_pages`, `summary_optimize`: whole document, no scope.
@@ -832,7 +832,7 @@ Deterministic only, on `MockLanguageModelV3`: the loop stops after `propose_patc
 
 ### 11.2 Logging
 
-Structured JSON via `console.log` picked up by Workers observability. `server/log.ts` defines the allowed fields as a closed type: `requestId, userId, resumeId, conversationId, runId, skillId, model, status, errorClass, inputTokens, outputTokens, latencyMs, steps, outcome, count`. Errors are logged as `errorClassOf(error)` (the error's name or code), never the message. Forbidden: message text, resume content, patch text, job descriptions, email addresses.
+Structured JSON via `console.log` picked up by Workers observability. `server/log.ts` defines the allowed fields as a closed type: `requestId, userId, resumeId, conversationId, runId, skillId, model, status, errorClass, inputTokens, outputTokens, latencyMs, steps, outcome, count`. Errors are logged as `errorClassOf(error)` (the error's name or code), never the message. Forbidden: message text, resume content, patch text, job descriptions, `job_targets.raw_text`, the posting URL (a job link identifies what a person is applying for), email addresses.
 
 ### 11.3 Metrics derived from tables
 

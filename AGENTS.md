@@ -324,9 +324,9 @@ Server state (TanStack Query):
 - Typecheck: `bun run typecheck`
 - Format: `bun run format`
 - Check/fix (Biome): `bun run check`
-- Tests (only `resume-schema` and `resume-render` have Vitest suites):
-  `cd packages/resume-schema && bun test` (and the same for `resume-render`).
-  There is no root `test` script yet.
+- Tests (`resume-schema`, `resume-render`, `resume-core`, and `agent` carry
+  Vitest suites): `cd packages/resume-schema && bun test` (and the same for the
+  other three), or `bun run test` at the root.
 
 ## Verifying changes
 
