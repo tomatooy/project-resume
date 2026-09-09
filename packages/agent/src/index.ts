@@ -6,6 +6,7 @@
  */
 export { fromUIMessage, toModelMessages, toUIMessage } from "./messages"
 export { createModels, type Models } from "./models"
+export { createJobParser } from "./job"
 export { createResumeParser } from "./parser"
 export {
   type ResumeSkill,
