@@ -1,5 +1,6 @@
 export * from "./chat"
 export * from "./errors"
+export * from "./linkedin"
 export * from "./memory"
 export * from "./resume"
 export * from "./skill"
