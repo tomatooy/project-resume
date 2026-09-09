@@ -13,6 +13,7 @@ export type LogFields = {
   conversationId?: string
   runId?: string
   skillId?: string
+  jobTargetId?: string
   model?: string
   status?: number
   errorClass?: string
@@ -22,6 +23,8 @@ export type LogFields = {
   steps?: number
   outcome?: string
   count?: number
+  /** Whether a tailoring run wrote the document or left a plain duplicate. */
+  tailored?: boolean
   /** Length of the text an import read. A size, never the text itself. */
   charCount?: number
 }

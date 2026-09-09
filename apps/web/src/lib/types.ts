@@ -14,6 +14,7 @@ export type {
   SkillId,
   Suggestion,
   SuggestionStatus,
+  TailorFromJobResult,
   VersionSummary,
 } from "@workspace/resume-core"
 

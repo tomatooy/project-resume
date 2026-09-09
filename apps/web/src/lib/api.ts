@@ -13,6 +13,10 @@ import {
 } from "@/server/fns/resumes"
 import { getOrCreateConversation as getOrCreateConversationFn } from "@/server/fns/conversations"
 import { importResume as importResumeFn } from "@/server/fns/import"
+import {
+  fetchJobPosting as fetchJobPostingFn,
+  tailorFromJob as tailorFromJobFn,
+} from "@/server/fns/jobs"
 import { decideSuggestions as decideSuggestionsFn } from "@/server/fns/suggestions"
 import {
   createSnapshot as createSnapshotFn,
@@ -20,7 +24,7 @@ import {
   listVersions as listVersionsFn,
   restoreVersion as restoreVersionFn,
 } from "@/server/fns/versions"
-import { ApiError, type ChatHistory } from "./types"
+import { ApiError, type ChatHistory, type TailorFromJobResult } from "./types"
 
 /**
  * The application's data layer: one thin wrapper per server function.
@@ -122,6 +126,38 @@ export async function importResume(
 ): Promise<ResumeSummary> {
   try {
     return await importResumeFn({ data: input, signal })
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+/**
+ * Fetches a LinkedIn posting so the user can read it before generating. The
+ * text lands in the textarea, which is the confirmation step: nothing is
+ * generated from something the user has not seen.
+ */
+export async function fetchJobPosting(
+  input: { url: string },
+  signal?: AbortSignal
+): Promise<{ url: string; text: string }> {
+  try {
+    return await fetchJobPostingFn({ data: input, signal })
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+/**
+ * Creates a resume from a posting. Resolves with `tailored: false` rather than
+ * rejecting when the writing call fails: the user still has a resume, and the
+ * dialog says which one they got.
+ */
+export async function tailorFromJob(
+  input: { sourceResumeId: string; jobText: string; sourceUrl?: string },
+  signal?: AbortSignal
+): Promise<TailorFromJobResult> {
+  try {
+    return await tailorFromJobFn({ data: input, signal })
   } catch (error) {
     throw toApiError(error)
   }
