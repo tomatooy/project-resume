@@ -1,13 +1,22 @@
-import { createResumeParser, createSummarizer } from "@workspace/agent"
 import {
+  createJobParser,
+  createResumeParser,
+  createResumeTailor,
+  createSummarizer,
+} from "@workspace/agent"
+import {
+  type JobParser,
   type Ports,
   type ResumeParser,
+  type ResumeTailor,
   type Summarizer,
   createServices,
 } from "@workspace/resume-core"
 
 import { SupabaseAgentRunRepository } from "./adapters/agent-run-repository"
 import { SupabaseConversationRepository } from "./adapters/conversation-repository"
+import { WorkerJobFetcher } from "./adapters/job-fetcher"
+import { SupabaseJobTargetRepository } from "./adapters/job-target-repository"
 import { SupabaseMessageRepository } from "./adapters/message-repository"
 import { SupabaseResumeRepository } from "./adapters/resume-repository"
 import { SupabaseSuggestionRepository } from "./adapters/suggestion-repository"
@@ -33,6 +42,17 @@ const lazyResumeParser: ResumeParser = {
   parse: (input) => createResumeParser(createModelsFromEnv()).parse(input),
 }
 
+/** Same reason as the summarizer: only tailoring needs the key. */
+const lazyJobParser: JobParser = {
+  parse: (input) => createJobParser(createModelsFromEnv()).parse(input),
+}
+
+const lazyResumeTailor: ResumeTailor = {
+  tailor: (input) => createResumeTailor(createModelsFromEnv()).tailor(input),
+}
+
+const jobFetcher = new WorkerJobFetcher()
+
 /**
  * The adapter half of the composition root: which Supabase class fills which
  * port. How the services hang off the ports is `createServices`, written
@@ -56,6 +76,10 @@ export function supabasePorts(
     summaries: new SupabaseSummaryRepository(db),
     summarizer: lazySummarizer,
     resumeParser: lazyResumeParser,
+    jobTargets: new SupabaseJobTargetRepository(db, userId),
+    jobParser: lazyJobParser,
+    resumeTailor: lazyResumeTailor,
+    jobFetcher,
     ...over,
   }
 }
