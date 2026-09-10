@@ -1,4 +1,6 @@
 import {
+  ArrowsInSimpleIcon,
+  ArrowsOutSimpleIcon,
   CaretDownIcon,
   CaretUpIcon,
   MinusIcon,
@@ -17,10 +19,12 @@ import { cn } from "@workspace/ui/lib/utils"
 import { lazy, Suspense, useCallback, useState } from "react"
 
 import { ClientOnly } from "@/lib/client-only"
+import { useThrottledValue } from "@/lib/use-throttled-value"
 import { useResumeState, useSession } from "../session-context"
 import { usePreview, usePreviewStore } from "./preview-context"
-import { ZOOM_STEPS } from "./preview-store"
+import { clampZoom, ZOOM_MAX, ZOOM_MIN, ZOOM_STEPS } from "./preview-store"
 import { TemplateThumb } from "./TemplateThumb"
+import { usePinchZoom } from "./use-pinch-zoom"
 import { useTemplateThumbs } from "./use-template-thumbs"
 
 const PdfViewer = lazy(() =>
@@ -41,10 +45,14 @@ const FONT_SCALES: { value: FontScale; label: string }[] = [
 
 export function PreviewPane({
   compact = false,
+  maximized = false,
   onClose,
+  onToggleMaximize,
 }: {
   compact?: boolean
+  maximized?: boolean
   onClose?: () => void
+  onToggleMaximize?: () => void
 }) {
   const session = useSession()
   const templateId = useResumeState((s) => s.templateId)
@@ -56,11 +64,18 @@ export function PreviewPane({
   const pageCount = usePreview((s) => s.pageCount)
   const [menuOpen, setMenuOpen] = useState(false)
 
+  // Every zoom change costs the viewer a fresh pdf.js render, which blanks the
+  // page while it runs. A pinch reports tens of events a second, so the pages
+  // follow it at a rate they can keep up with while the readout keeps up with
+  // the pointer.
+  const renderedZoom = useThrottledValue(zoom, 100)
+  const pinchRef = usePinchZoom(store, renderedZoom)
+
   const picked =
     templateList.find((t) => t.id === templateId) ?? templateList[0]
 
   const setZoom = (next: number) =>
-    store.setState((s) => ({ ...s, zoom: Math.min(150, Math.max(50, next)) }))
+    store.setState((s) => ({ ...s, zoom: clampZoom(next) }))
 
   const onPageCount = useCallback(
     (pages: number) =>
@@ -112,19 +127,19 @@ export function PreviewPane({
               variant="ghost"
               size="icon-xs"
               aria-label="Zoom out"
-              disabled={zoom <= ZOOM_STEPS[0]}
+              disabled={zoom <= ZOOM_MIN}
               onClick={() => setZoom(previousStep(zoom))}
             >
               <MinusIcon />
             </Button>
             <span className="w-9 text-center text-[11px] tabular-nums">
-              {zoom}%
+              {Math.round(zoom)}%
             </span>
             <Button
               variant="ghost"
               size="icon-xs"
               aria-label="Zoom in"
-              disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
+              disabled={zoom >= ZOOM_MAX}
               onClick={() => setZoom(nextStep(zoom))}
             >
               <PlusIcon />
@@ -149,6 +164,22 @@ export function PreviewPane({
               <CaretDownIcon className="size-2.5 opacity-60" />
             )}
           </button>
+
+          {onToggleMaximize ? (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={maximized ? "Restore preview" : "Maximize preview"}
+              title={
+                maximized
+                  ? "Restore the editor beside the preview"
+                  : "Give the preview the whole screen"
+              }
+              onClick={onToggleMaximize}
+            >
+              {maximized ? <ArrowsInSimpleIcon /> : <ArrowsOutSimpleIcon />}
+            </Button>
+          ) : null}
 
           {onClose ? (
             <Button
@@ -176,6 +207,7 @@ export function PreviewPane({
       </div>
 
       <div
+        ref={pinchRef}
         className={cn(
           "flex min-h-0 flex-1 justify-center overflow-auto",
           compact ? "px-5 pt-5 pb-[22px]" : "px-5 pt-[22px] pb-[76px]"
@@ -186,7 +218,7 @@ export function PreviewPane({
             <PdfViewer
               blob={blob}
               baseWidth={420}
-              zoom={zoom}
+              zoom={renderedZoom}
               onPageCount={onPageCount}
             />
           </Suspense>

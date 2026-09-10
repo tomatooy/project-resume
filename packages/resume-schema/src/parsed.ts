@@ -42,6 +42,8 @@ export const ParsedItemSchema = z.object({
   field: RawShort.optional(),
   name: RawShort.optional(),
   title: RawShort.optional(),
+  /** A skills group's name, under the key the input document already uses. */
+  label: RawShort.optional(),
   subtitle: RawShort.optional(),
   url: RawShort.optional(),
   location: RawShort.optional(),
@@ -89,6 +91,13 @@ const DEFAULT_SECTION_TITLE: Record<SectionTypeName, string> = {
   skills: "Skills",
   custom: "Other",
 }
+
+/**
+ * A skills group the model left unnamed. Not the section heading: that string
+ * already sits above the group, so it would repeat on every group instead of
+ * naming one.
+ */
+const DEFAULT_GROUP_LABEL = "Skills"
 
 /* ------------------------------------------------------------------ dates */
 
@@ -244,7 +253,7 @@ function projectItem(parsed: ParsedItem): Item | null {
   }
 }
 
-function skillsItem(parsed: ParsedItem, fallbackLabel: string): Item | null {
+function skillsItem(parsed: ParsedItem): Item | null {
   const skills = (parsed.skills ?? [])
     .map((entry) => short(entry))
     .filter((entry) => entry.length > 0)
@@ -253,7 +262,9 @@ function skillsItem(parsed: ParsedItem, fallbackLabel: string): Item | null {
   return {
     id: newId("skl"),
     kind: "skills",
-    label: short(parsed.title ?? parsed.name ?? parsed.role) || fallbackLabel,
+    label:
+      short(parsed.label ?? parsed.title ?? parsed.name ?? parsed.role) ||
+      DEFAULT_GROUP_LABEL,
     skills,
   }
 }
@@ -302,11 +313,7 @@ function demotedItem(parsed: ParsedItem): Item | null {
   }
 }
 
-function buildItem(
-  parsed: ParsedItem,
-  kind: Item["kind"],
-  fallbackLabel: string
-): Item | null {
+function buildItem(parsed: ParsedItem, kind: Item["kind"]): Item | null {
   switch (kind) {
     case "experience":
       return experienceItem(parsed)
@@ -315,7 +322,7 @@ function buildItem(
     case "project":
       return projectItem(parsed)
     case "skills":
-      return skillsItem(parsed, fallbackLabel)
+      return skillsItem(parsed)
     case "custom":
       return customItem(parsed)
   }
@@ -356,7 +363,7 @@ function assembleSection(parsed: ParsedSection): Section[] {
   const items: Item[] = []
   const demoted: Item[] = []
   for (const raw of parsed.items) {
-    const built = buildItem(raw, kind, title)
+    const built = buildItem(raw, kind)
     if (built) {
       items.push(built)
       continue

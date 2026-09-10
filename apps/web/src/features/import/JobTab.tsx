@@ -1,5 +1,6 @@
 import { SparkleIcon } from "@phosphor-icons/react"
 import { useQuery } from "@tanstack/react-query"
+import { normalizeLinkedInJobUrl } from "@workspace/resume-core"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import {
@@ -36,10 +37,27 @@ export function JobTab({
   const [url, setUrl] = useState("")
   const [text, setText] = useState("")
   const [source, setSource] = useState(sourceResumeId ?? "")
+  const [touched, setTouched] = useState(false)
   const { progress, failure, fetching, busy, fetchPosting, run, cancel } =
     useTailor(onDone)
 
+  // The rule the Worker applies before it fetches, run here too so the button
+  // can answer for it. It is cheap and offline, which is the point: no request
+  // is spent to find out the link was never going to be fetched.
+  const target = normalizeLinkedInJobUrl(url)
+  // Held back while the link is being typed, the way a field error is: half an
+  // address is invalid for a moment, and saying so is nagging. A paste or a
+  // step away from the field is the answer the user is asking for.
+  const badLink = touched && url.trim() !== "" && target === null
+
   if (progress) return <JobProgressPanel stage={progress} onCancel={cancel} />
+
+  // Item children are only rendered inside the popup. Without `items` on the
+  // root, the trigger falls back to printing the raw value, which is an id.
+  const options = (resumes ?? []).map((resume) => ({
+    label: resume.title,
+    value: resume.id,
+  }))
 
   const ready = source !== "" && text.trim().length >= MIN_CHARS
 
@@ -57,13 +75,17 @@ export function JobTab({
             id="job-url"
             value={url}
             onChange={(event) => setUrl(event.target.value)}
+            onBlur={() => setTouched(true)}
+            onPaste={() => setTouched(true)}
             placeholder="https://www.linkedin.com/jobs/view/..."
             className="text-[12.5px]"
+            aria-invalid={badLink}
+            aria-describedby={badLink ? "job-url-error" : undefined}
           />
           <Button
             variant="outline"
             size="sm"
-            disabled={url.trim() === "" || fetching}
+            disabled={target === null || fetching}
             onClick={() => {
               void fetchPosting(url).then((result) => {
                 if (result) setText(result.text)
@@ -73,6 +95,11 @@ export function JobTab({
             {fetching ? "Fetching" : "Fetch"}
           </Button>
         </div>
+        {badLink ? (
+          <p id="job-url-error" className="mt-1 text-[11px] text-destructive">
+            That is not a LinkedIn job link. Paste the description instead.
+          </p>
+        ) : null}
       </div>
 
       <div>
@@ -100,6 +127,7 @@ export function JobTab({
           Build it from
         </label>
         <Select
+          items={options}
           value={source}
           onValueChange={(value) => setSource(value ?? "")}
         >
@@ -110,9 +138,9 @@ export function JobTab({
             <SelectValue placeholder="Choose a resume" />
           </SelectTrigger>
           <SelectContent>
-            {(resumes ?? []).map((resume) => (
-              <SelectItem key={resume.id} value={resume.id}>
-                {resume.title}
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
               </SelectItem>
             ))}
           </SelectContent>

@@ -30,7 +30,7 @@ function EditorScreen() {
   const navigate = Route.useNavigate()
   const versionsOpen = view === "versions"
   const layout = useEditorLayout({ versionsOpen })
-  const { panels, togglePanel } = layout
+  const { panels, togglePanel, maximized, toggleMaximize } = layout
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -60,23 +60,55 @@ function EditorScreen() {
     </div>
   )
 
+  // A pane lands in three layouts, so its props are written once here rather
+  // than three times in the branches below.
+  const preview = (compact: boolean) => (
+    <PreviewPane
+      compact={compact}
+      maximized={maximized === "preview"}
+      onToggleMaximize={() => toggleMaximize("preview")}
+      onClose={() => togglePanel("preview")}
+    />
+  )
+  const assistant = (
+    <AssistantPanel
+      maximized={maximized === "assistant"}
+      onToggleMaximize={() => toggleMaximize("assistant")}
+      onClose={() => togglePanel("assistant")}
+    />
+  )
+
   const side = layout.splitBoth ? (
     <ResizablePanelGroup orientation="vertical" {...layout.side}>
       {/* Sizes are strings so they are read as percentages; a bare
           number would be interpreted as pixels. */}
       <ResizablePanel id="preview" defaultSize="60" minSize="28">
-        <PreviewPane compact onClose={() => togglePanel("preview")} />
+        {preview(true)}
       </ResizablePanel>
       <ResizableHandle withHandle />
       <ResizablePanel id="assistant" defaultSize="40" minSize="25">
-        <AssistantPanel onClose={() => togglePanel("assistant")} />
+        {assistant}
       </ResizablePanel>
     </ResizablePanelGroup>
   ) : panels.preview ? (
-    <PreviewPane onClose={() => togglePanel("preview")} />
+    preview(false)
   ) : (
-    <AssistantPanel onClose={() => togglePanel("assistant")} />
+    assistant
   )
+
+  // Maximizing hands the pane the whole row right of the resume rail: the
+  // section rail and the form column stand down until it is restored. The
+  // other pane is hidden rather than switched off, so restoring brings back
+  // the arrangement that was there before.
+  if (maximized) {
+    return (
+      <div ref={layout.ref} className="relative flex h-full min-h-0">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-canvas">
+          {maximized === "preview" ? preview(false) : assistant}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div ref={layout.ref} className="relative flex h-full min-h-0">

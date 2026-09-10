@@ -1,4 +1,8 @@
-import { XIcon } from "@phosphor-icons/react"
+import {
+  ArrowsInSimpleIcon,
+  ArrowsOutSimpleIcon,
+  XIcon,
+} from "@phosphor-icons/react"
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
 import { Spinner } from "@workspace/ui/components/spinner"
@@ -13,7 +17,15 @@ import { Composer } from "./Composer"
 import { Transcript } from "./Transcript"
 import { useAssistant } from "./use-assistant"
 
-export function AssistantPanel({ onClose }: { onClose?: () => void }) {
+export function AssistantPanel({
+  maximized = false,
+  onClose,
+  onToggleMaximize,
+}: {
+  maximized?: boolean
+  onClose?: () => void
+  onToggleMaximize?: () => void
+}) {
   const session = useSession()
   const doc = useResumeState((s) => s.doc)
   const resumeId = useResumeState((s) => s.resumeId)
@@ -49,6 +61,21 @@ export function AssistantPanel({ onClose }: { onClose?: () => void }) {
           </span>
         )}
         <div className="flex-1" />
+        {onToggleMaximize ? (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={maximized ? "Restore assistant" : "Maximize assistant"}
+            title={
+              maximized
+                ? "Restore the editor beside the assistant"
+                : "Give the assistant the whole screen"
+            }
+            onClick={onToggleMaximize}
+          >
+            {maximized ? <ArrowsInSimpleIcon /> : <ArrowsOutSimpleIcon />}
+          </Button>
+        ) : null}
         {onClose ? (
           <Button
             variant="ghost"

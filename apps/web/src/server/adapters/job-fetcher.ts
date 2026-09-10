@@ -34,17 +34,28 @@ export class WorkerJobFetcher implements JobFetcher {
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     })
     if (!response.ok) return ""
-    return toText(await response.text())
+    return htmlToText(await response.text())
   }
 }
 
-function toText(html: string): string {
+/**
+ * One line per block of the page.
+ *
+ * The nesting is the problem: LinkedIn wraps every line box in its own div and
+ * ships the markup pretty-printed, so most of the file is indentation and blank
+ * space between tags. Those lines come out whitespace-only rather than empty,
+ * which is why collapsing bare newline runs leaves them: each one still costs a
+ * line in the textarea and a token in the prompt. Trimming every line and
+ * dropping the empty ones leaves what the page was showing.
+ */
+export function htmlToText(html: string): string {
   return html
     .replace(DROP, " ")
     .replace(BLOCK, "\n")
     .replace(TAG, " ")
     .replace(/&[a-z#0-9]+;/gi, (entity) => ENTITY[entity.toLowerCase()] ?? " ")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line !== "")
+    .join("\n")
 }

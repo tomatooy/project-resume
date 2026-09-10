@@ -13,6 +13,14 @@ export type PreviewState = {
 
 export const ZOOM_STEPS = [50, 75, 100, 125, 150] as const
 
+/** What a pinch may reach. The steps above walk inside this range. */
+export const ZOOM_MIN = 50
+export const ZOOM_MAX = 150
+
+export function clampZoom(zoom: number): number {
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom))
+}
+
 export function createPreviewStore(): Store<PreviewState> {
   return new Store<PreviewState>({
     blob: null,

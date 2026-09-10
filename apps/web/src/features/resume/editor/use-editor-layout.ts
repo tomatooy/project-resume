@@ -28,7 +28,9 @@ type SplitProps = Pick<
 /**
  * Everything the editor screen remembers about its own shape: which section
  * is open, which side panels are up, and where the user dragged the splits.
- * The panels and splits persist across reloads; the open section does not.
+ * The panels and splits persist across reloads; the open section does not,
+ * and neither does a maximized pane: that hides the form, and a reload should
+ * not reopen a screen the user cannot edit.
  *
  * Versions is the one column the caller decides, since it lives in the URL.
  */
@@ -37,6 +39,7 @@ export function useEditorLayout({ versionsOpen }: { versionsOpen: boolean }) {
   const { ref, width } = useElementWidth()
 
   const [pane, setPane] = useState<PaneKey>("contact")
+  const [maximized, setMaximized] = useState<PanelKey | null>(null)
   const [panels, setPanels] = useLocalStorage("resume-studio.panels", Panels, {
     preview: true,
     assistant: false,
@@ -74,6 +77,17 @@ export function useEditorLayout({ versionsOpen }: { versionsOpen: boolean }) {
   const togglePanel = (panel: PanelKey) =>
     setPanels((current) => ({ ...current, [panel]: !current[panel] }))
 
+  // Maximizing is a look, not a close: the other pane stays switched on and
+  // comes back when this one is restored.
+  const toggleMaximize = (panel: PanelKey) =>
+    setMaximized((current) => (current === panel ? null : panel))
+
+  // A maximized pane that gets switched off has nothing left to render, so the
+  // layout follows it out.
+  useEffect(() => {
+    if (maximized && !panels[maximized]) setMaximized(null)
+  }, [maximized, panels])
+
   const columns: SplitProps = {
     groupRef: columnsRef,
     defaultLayout: columnSplit,
@@ -95,6 +109,9 @@ export function useEditorLayout({ versionsOpen }: { versionsOpen: boolean }) {
     setPane,
     panels,
     togglePanel,
+    /** The pane filling everything but the resume rail, or null for the grid. */
+    maximized,
+    toggleMaximize,
     collapsed,
     rightOpen,
     centerOpen,

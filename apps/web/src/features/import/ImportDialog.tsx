@@ -14,6 +14,11 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog"
 import { Textarea } from "@workspace/ui/components/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -126,9 +131,9 @@ export function ImportDialog({
             <TabButton
               active={tab === "job"}
               disabled={(resumes?.length ?? 0) === 0}
-              title={
+              tooltip={
                 (resumes?.length ?? 0) === 0
-                  ? "Import or create a resume first"
+                  ? "You need to have at least one resume to be your base resume"
                   : undefined
               }
               onClick={() => setTab("job")}
@@ -242,32 +247,48 @@ export function ImportDialog({
 function TabButton({
   active,
   disabled,
-  title,
+  tooltip,
   onClick,
   children,
 }: {
   active: boolean
   disabled?: boolean
-  title?: string
+  tooltip?: string
   onClick: () => void
   children: React.ReactNode
 }) {
-  return (
+  const wrap = Boolean(disabled && tooltip)
+  const button = (
     <button
       type="button"
       disabled={disabled}
-      title={title}
       onClick={onClick}
       className={cn(
         "flex-1 rounded-[7px] px-3 py-1.5 text-[12px] font-medium transition-colors",
         active
           ? "bg-background text-foreground shadow-xs"
           : "text-muted-foreground hover:text-foreground",
-        disabled && "cursor-not-allowed opacity-50 hover:text-muted-foreground"
+        disabled && "cursor-not-allowed opacity-50 hover:text-muted-foreground",
+        wrap && "pointer-events-none"
       )}
     >
       {children}
     </button>
+  )
+
+  // A disabled button swallows pointer events, so the tooltip hangs off a
+  // wrapper and the button lets hover pass through to it.
+  if (!wrap) return button
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="flex flex-1 cursor-not-allowed">{button}</span>
+        }
+      />
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
   )
 }
 

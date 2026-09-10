@@ -34,4 +34,23 @@ describe("createResumeTailor", () => {
     expect(prompt).toContain("TypeScript")
     expect(prompt).toContain(starter.basics.name ?? "")
   })
+
+  it("tells the model how to name a skills group", async () => {
+    const model = new MockLanguageModelV3({
+      modelId: "smart-test",
+      doGenerate: [
+        textGenerate(JSON.stringify({ basics: { name: "Ada" }, sections: [] })),
+      ],
+    })
+
+    await createResumeTailor(testModels(model)).tailor({
+      resume: starter,
+      posting: POSTING,
+    })
+
+    // A group's name only survives a model that is told the key it arrives
+    // under: the document calls it `label`, the output contract `title`.
+    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt)
+    expect(prompt).toContain("that group's own name")
+  })
 })

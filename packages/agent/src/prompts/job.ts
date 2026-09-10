@@ -46,7 +46,17 @@ export const TAILOR_PROMPT = [
     "- Reorder items within a section so the most relevant comes first.",
     "- Drop bullets and items that have nothing to do with this posting, except that every job in the experience section stays. An old or unrelated role may come down to a single line, but removing it would leave a gap in the person's history that is not yours to create.",
     "- Write a summary and a headline aimed at this posting, built only from what the resume already says.",
-    "- Group and name skills the way the posting groups and names them, keeping only skills the resume supports.",
+    "- Group and name skills the way the posting groups and names them, keeping only skills the resume supports. Every group keeps a name of its own; a section heading is not a group name.",
+  ].join("\n"),
+
+  [
+    "Item fields, by the section's type:",
+    "- experience: company, role, location, start, end, bullets",
+    "- education: school, degree, field, start, end, bullets",
+    "- projects: name, url, start, end, bullets",
+    "- skills: title (that group's own name, such as Languages) and skills (that group's entries)",
+    "- custom: title, subtitle, start, end, bullets",
+    "Leave every other field out. A skills group's name is also accepted as `label`, which is the key the document you are given uses.",
   ].join("\n"),
 
   "Keep every section the resume has, with its heading as written. Do not add a section. Do not translate. Do not change the language the resume is written in.",
