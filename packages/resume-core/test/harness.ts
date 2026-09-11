@@ -1,5 +1,6 @@
 import {
   indexNodes,
+  type NodeRef,
   type Resume,
   type ResumePatch,
 } from "@workspace/resume-schema"
@@ -30,6 +31,14 @@ export function firstBullet(resume: Resume): { id: string; text: string } {
     if (ref.kind === "bullet") return ref.node
   }
   throw new Error("fixture has no bullets")
+}
+
+/** The first item of the first section, for tests that restructure. */
+export function firstItem(resume: Resume): Extract<NodeRef, { kind: "item" }> {
+  for (const ref of indexNodes(resume).values()) {
+    if (ref.kind === "item") return ref
+  }
+  throw new Error("fixture has no items")
 }
 
 export function rewriteBullet(

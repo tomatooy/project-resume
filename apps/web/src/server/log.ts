@@ -12,7 +12,8 @@ export type LogFields = {
   resumeId?: string
   conversationId?: string
   runId?: string
-  skillId?: string
+  /** The playbook the composer hinted at, or a writer id. Never content. */
+  hintSkillId?: string
   jobTargetId?: string
   model?: string
   status?: number
@@ -22,6 +23,10 @@ export type LogFields = {
   latencyMs?: number
   steps?: number
   outcome?: string
+  /** Whether the user enabled removing and restructuring for the turn. */
+  structural?: boolean
+  /** The step budget ran out with nothing proposed. */
+  budgetExhausted?: boolean
   count?: number
   /** Whether a tailoring run wrote the document or left a plain duplicate. */
   tailored?: boolean
@@ -60,11 +65,19 @@ export function createLogger(base: LogFields = {}): Logger {
 /**
  * The class of an error, never its message. A message from PostgREST or a
  * model provider can quote the row or the prompt that failed.
+ *
+ * A `code` wins over the class name on purpose. The values thrown from the
+ * data layer are plain PostgREST objects rather than `Error`s, and their
+ * SQLSTATE is the only thing that says *what* broke: a missing column is
+ * `42703`, a stale schema cache is `PGRST204`, a unique violation is `23505`.
+ * Reading the name first made all of those log as `object`, which is how a
+ * pending migration looked like an unexplained 500.
  */
 export function errorClassOf(error: unknown): string {
-  if (error instanceof Error) return error.name || "Error"
   if (typeof error === "object" && error !== null && "code" in error) {
-    return String(error.code)
+    const code = (error as { code: unknown }).code
+    if (typeof code === "string" && code.length > 0) return code
   }
+  if (error instanceof Error) return error.name || "Error"
   return typeof error
 }

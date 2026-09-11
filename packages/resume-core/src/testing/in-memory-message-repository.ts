@@ -37,4 +37,10 @@ export class InMemoryMessageRepository implements MessageRepository {
       (m) => m.conversationId === conversationId && m.seq > (afterSeq ?? 0)
     ).length
   }
+
+  async clearForConversation(conversationId: string): Promise<void> {
+    this.db.messages = this.db.messages.filter(
+      (message) => message.conversationId !== conversationId
+    )
+  }
 }

@@ -1,4 +1,5 @@
 import { AppError } from "../domain/errors"
+import type { TurnPlan } from "../domain/chat"
 import type { AgentRun, RunInput } from "../domain/suggestion"
 import type {
   AgentRunRepository,
@@ -9,9 +10,12 @@ import type { VersionService } from "./version-service"
 export type StartRunInput = {
   conversationId: string
   resumeId: string
-  skillId: string
+  /** The composer's hint, or the tailoring writer's id. Advisory. */
+  hintSkillId?: string | null
   model: string
   selectedNodeId?: string | null
+  /** The user enabled removing and restructuring for this turn. */
+  structural?: boolean
   input: RunInput
 }
 
@@ -53,16 +57,31 @@ export class RunService {
     return this.runs.create({
       conversationId: input.conversationId,
       resumeId: input.resumeId,
-      skillId: input.skillId,
+      hintSkillId: input.hintSkillId ?? null,
       model: input.model,
       selectedNodeId: input.selectedNodeId ?? null,
       resumeVersionId: version.id,
+      structural: input.structural ?? false,
       input: input.input,
     })
   }
 
   findRunning(conversationId: string): Promise<AgentRun | null> {
     return this.runs.findRunning(conversationId)
+  }
+
+  /**
+   * Closes the one run a conversation may have open. Clearing the transcript
+   * does this first: a run left `running` refuses the next turn with CONFLICT
+   * until `failAbandoned` gives up on it ten minutes later.
+   */
+  async cancelRunning(
+    conversationId: string,
+    errorClass: string
+  ): Promise<void> {
+    const running = await this.runs.findRunning(conversationId)
+    if (!running) return
+    await this.runs.finish(running.id, { status: "cancelled", errorClass })
   }
 
   /**
@@ -77,16 +96,27 @@ export class RunService {
     return this.runs.create({
       conversationId: input.conversationId,
       resumeId: input.resumeId,
-      skillId: input.skillId,
+      hintSkillId: input.hintSkillId ?? null,
       model: input.model,
       selectedNodeId: input.selectedNodeId ?? null,
       resumeVersionId: null,
+      structural: input.structural ?? false,
       input: input.input,
     })
   }
 
   finish(runId: string, input: FinishAgentRun): Promise<void> {
     return this.runs.finish(runId, input)
+  }
+
+  /** The line the turn is working to, recorded for the panel and the record. */
+  recordPlan(runId: string, plan: TurnPlan): Promise<void> {
+    return this.runs.recordPlan(runId, plan)
+  }
+
+  /** Appends a loaded playbook. Telemetry and the panel's chips. */
+  addSkill(runId: string, skillId: string): Promise<void> {
+    return this.runs.addSkill(runId, skillId)
   }
 
   /**

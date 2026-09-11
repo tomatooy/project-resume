@@ -6,7 +6,7 @@ import {
 } from "@workspace/resume-schema"
 
 import { AppError } from "../domain/errors"
-import { validateForSkill } from "../domain/validation"
+import { validateForRun } from "../domain/validation"
 import type {
   DecideResult,
   DecisionStatus,
@@ -32,11 +32,17 @@ function addressOf(patch: ResumePatch): string {
 }
 
 /**
- * Identity of a patch for dedupe: what it does, not why. A model retrying a
- * tool call may reword its reason or confidence for the same change.
+ * Identity of a patch for dedupe: what it does, not why or by which playbook.
+ * A model retrying a tool call may reword its reason, drop its confidence or
+ * tag a different playbook for the same change.
  */
 function patchKey(patch: ResumePatch): string {
-  const { reason: _reason, confidence: _confidence, ...rest } = patch
+  const {
+    reason: _reason,
+    confidence: _confidence,
+    skillId: _skillId,
+    ...rest
+  } = patch
   return canonicalJson(rest)
 }
 
@@ -147,12 +153,12 @@ export class SuggestionService {
 
     if (accepted.length > 0) {
       const patches = accepted.map((s) => s.patch)
-      const validation = validateForSkill(head, patches, {
+      const validation = validateForRun(head, patches, {
         mode: "reapply",
-        skillId: run.skillId,
-        // The run's `input` is cleared when it finishes, but the selection is
-        // a column on the run, so the scope the patches were proposed under is
-        // still enforceable here.
+        // The user's flag is a column on the run, so a structural patch stays
+        // acceptable even after the panel's toggle has moved on. The run's
+        // `input` is cleared when it finishes; the selection is not.
+        allowStructural: run.structural,
         selectedNodeId: run.selectedNodeId ?? undefined,
       })
 

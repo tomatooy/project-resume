@@ -7,12 +7,16 @@ import {
 } from "@workspace/resume-core"
 import { type ModelMessage, type UIMessage, isToolUIPart } from "ai"
 
+import { visibleParts } from "./visible"
+
 type UIPart = UIMessage["parts"][number]
 
 /**
  * Store side of the boundary: whatever the SDK produced, reduced to the parts
- * the domain schema admits. Tool inputs are dropped on purpose; the output
- * carries everything the UI renders, and the input is the model's draft.
+ * the domain schema admits, and to what the turn is allowed to show. Tool
+ * inputs are dropped on purpose; the output carries everything the UI renders,
+ * and the input is the model's draft. `visibleParts` is the same rule the
+ * stream applied, so a reload shows what the stream showed.
  */
 export function fromUIMessage(
   message: UIMessage,
@@ -23,7 +27,7 @@ export function fromUIMessage(
   }
 ): NewChatMessage {
   const parts: MessagePart[] = []
-  for (const part of message.parts) {
+  for (const part of visibleParts(message.parts)) {
     const candidate = pick(part)
     if (candidate === null) continue
     const parsed = MessagePartSchema.safeParse(candidate)
@@ -38,14 +42,28 @@ export function fromUIMessage(
   }
 }
 
+/**
+ * The parts the transcript keeps. `find_skills` is absent on purpose: it is a
+ * search, its result is the index, and nothing renders it. `plan` and
+ * `load_skill` are here because the turn's opening line and its playbook chips
+ * have to survive a reload.
+ */
+const KEPT_TOOL_PARTS = [
+  "tool-plan",
+  "tool-load_skill",
+  "tool-check_fit",
+  "tool-propose_patches",
+] as const
+
+function isKeptToolPart(part: UIPart): boolean {
+  return KEPT_TOOL_PARTS.some((type) => part.type === type)
+}
+
 function pick(part: UIPart): unknown {
   if (part.type === "text") {
     return part.text.length > 0 ? { type: "text", text: part.text } : null
   }
-  if (
-    isToolUIPart(part) &&
-    (part.type === "tool-check_fit" || part.type === "tool-propose_patches")
-  ) {
+  if (isToolUIPart(part) && isKeptToolPart(part)) {
     return {
       type: part.type,
       toolCallId: part.toolCallId,
@@ -131,10 +149,27 @@ function modelMessage(
   }
 }
 
+/**
+ * A memory line, not a transcript: enough to know what the turn did and asked,
+ * so that dropping the prose does not also drop the model's memory of its own
+ * turn. The plan's line is not replayed: it described an intention, and the
+ * next turn is answered about what happened.
+ */
+const MAX_MEMORY_LINE = 400
+const MAX_MEMORY_GAPS = 3
+
+function clip(line: string): string {
+  if (line.length <= MAX_MEMORY_LINE) return line
+  return `${line.slice(0, MAX_MEMORY_LINE - 4).trimEnd()}...`
+}
+
 function compact(part: MessagePart): string {
   switch (part.type) {
     case "text":
       return part.text
+    case "tool-plan":
+    case "tool-load_skill":
+      return ""
     case "tool-check_fit": {
       if (part.output) {
         const n = part.output.pageCount
@@ -144,10 +179,22 @@ function compact(part: MessagePart): string {
     }
     case "tool-propose_patches": {
       if (!part.output) return part.errorText ? "[propose_patches failed]" : ""
-      const kept = part.output.suggestions.length
-      const rejected = part.output.rejected.length
-      const head = `[proposed ${kept} ${kept === 1 ? "patch" : "patches"}`
-      return rejected > 0 ? `${head}, ${rejected} rejected]` : `${head}]`
+      const { suggestions, rejected, summary, gaps, followUpQuestion } =
+        part.output
+      const kept = suggestions.length
+      const counts = `proposed ${kept} ${kept === 1 ? "patch" : "patches"}`
+      const head =
+        rejected.length > 0
+          ? `${counts}, ${rejected.length} rejected.`
+          : `${counts}.`
+      const tail = [
+        summary ?? "",
+        gaps.length > 0
+          ? `Missing: ${gaps.slice(0, MAX_MEMORY_GAPS).join("; ")}.`
+          : "",
+        followUpQuestion ? `Asked: ${followUpQuestion}` : "",
+      ].filter((piece) => piece.length > 0)
+      return clip(`[${head}${tail.length > 0 ? ` ${tail.join(" ")}` : ""}]`)
     }
   }
 }

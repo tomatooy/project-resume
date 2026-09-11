@@ -72,6 +72,7 @@ export async function settleRun(
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       latencyMs,
+      budgetExhausted: outcome.budgetExhausted,
     })
   } catch (failure) {
     log.error("chat_finish_failed", {
@@ -81,10 +82,12 @@ export async function settleRun(
   }
   log.info("chat_finished", {
     runId: run.id,
-    skillId: run.skillId,
+    hintSkillId: run.hintSkillId ?? undefined,
     model: open.model,
     outcome: status,
     errorClass,
+    structural: run.structural,
+    budgetExhausted: outcome.budgetExhausted,
     steps: usage.steps,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,

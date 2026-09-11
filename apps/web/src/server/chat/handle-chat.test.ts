@@ -66,7 +66,7 @@ async function harness(model: MockLanguageModelV3) {
     smart: model,
     fast: model,
     ids: { smart: "smart-test", fast: "fast-test" },
-    providerOptions: {},
+    providerOptions: { smart: {}, fast: {} },
   }
   const deps: ChatDeps = {
     services,
@@ -91,7 +91,7 @@ async function harness(model: MockLanguageModelV3) {
   const base = {
     conversationId: conversation.id,
     resumeId: record.id,
-    skillId: "bullet_rewrite",
+    hintSkillId: "bullet_rewrite",
   }
   const post = (body: Record<string, unknown>) =>
     handleChat(
@@ -147,7 +147,12 @@ describe("handleChat", () => {
       after: `${h.bullet.text} Shipped on time.`,
       reason: "Leads with the outcome.",
     }
-    turns.push(toolCall("propose_patches", { patches: [patch] }))
+    turns.push(
+      toolCall("propose_patches", {
+        patches: [patch],
+        summary: "Tightened one bullet.",
+      })
+    )
 
     const response = await h.post({ messages: [user("Tighten this")] })
     expect(response.status).toBe(200)
@@ -164,7 +169,7 @@ describe("handleChat", () => {
 
     const stored = h.db.messages
     expect(stored.map((m) => m.role)).toEqual(["user", "assistant"])
-    expect(stored[0]?.metadata).toEqual({ skillId: "bullet_rewrite" })
+    expect(stored[0]?.metadata).toEqual({ hintSkillId: "bullet_rewrite" })
     expect(stored[0]?.agentRunId).toBe(run?.id)
     const part = stored[1]?.parts.find((p) => p.type === "tool-propose_patches")
     expect(part?.type === "tool-propose_patches" && part.output).toMatchObject({
@@ -186,7 +191,7 @@ describe("handleChat", () => {
       const run = await h.services.runs.start({
         conversationId: h.db.conversations[0]?.id ?? "",
         resumeId: h.record.id,
-        skillId: "bullet_rewrite",
+        hintSkillId: "bullet_rewrite",
         model: "test",
         input: {},
       })
@@ -201,25 +206,80 @@ describe("handleChat", () => {
     expect(h.db.runs).toHaveLength(60)
   })
 
-  it("rejects a phase 2 skill and a skill missing its input", async () => {
-    const h = await harness(new MockLanguageModelV3({ doStream: [] }))
-    const phase2 = await h.post({
-      messages: [user("Keywords")],
-      skillId: "ats_keyword",
-      jobDescription: "Staff engineer",
+  it("refuses a structural patch until the turn asked for one", async () => {
+    const turns: LanguageModelV3StreamResult[] = []
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        const next = turns.shift()
+        if (!next) throw new Error("no model turn queued")
+        return next
+      },
     })
-    expect(phase2.status).toBe(400)
+    const h = await harness(model)
+    const section = h.record.data.sections[0]
+    if (!section) throw new Error("fixture has no sections")
+    const drop: ResumePatch = {
+      op: "delete",
+      targetNodeId: section.id,
+      before: section,
+      reason: "That role is not relevant to this posting.",
+    }
 
-    const missing = await h.post({
-      messages: [user("Match")],
-      skillId: "jd_match",
+    // Off: the delete is refused, and the refusal names the gate rather than
+    // reading as a malformed patch.
+    turns.push(
+      toolCall(
+        "propose_patches",
+        { patches: [drop], summary: "Cut one section." },
+        "call-1"
+      )
+    )
+    const refused = await h.post({
+      messages: [user("Cut what does not match")],
     })
-    expect(missing.status).toBe(400)
-    expect(await missing.json()).toMatchObject({
-      error: { code: "VALIDATION" },
+    expect(refused.status).toBe(200)
+    expect(await refused.text()).toContain("STRUCTURAL_NOT_REQUESTED")
+    expect(h.db.suggestions).toHaveLength(0)
+    expect(h.db.runs[0]?.structural).toBe(false)
+    expect(h.db.messages[0]?.metadata).toEqual({
+      hintSkillId: "bullet_rewrite",
     })
-    expect(h.db.runs).toHaveLength(0)
-    expect(h.db.messages).toHaveLength(0)
+
+    // On: the same patch is stored as a suggestion.
+    turns.push(
+      toolCall(
+        "propose_patches",
+        { patches: [drop], summary: "Cut one section." },
+        "call-2"
+      )
+    )
+    const taken = await h.post({
+      messages: [user("Cut what does not match")],
+      structural: true,
+    })
+    expect(taken.status).toBe(200)
+    // Drain the stream before reading the store: the run closes as the body
+    // finishes, so the row is not there yet while it is still open.
+    await taken.text()
+    expect(h.db.suggestions).toHaveLength(1)
+    expect(h.db.runs[1]?.structural).toBe(true)
+    expect(h.db.messages.at(-2)?.metadata).toEqual({
+      hintSkillId: "bullet_rewrite",
+      structural: true,
+    })
+  })
+
+  it("takes an unknown playbook hint without refusing the turn", async () => {
+    // An id from another release, or one the model invented: the hint is a
+    // label, so it is recorded as given rather than validated here.
+    const model = new MockLanguageModelV3({ doStream: [text("Sure.")] })
+    const h = await harness(model)
+    const response = await h.post({
+      messages: [user("Hello")],
+      hintSkillId: "invented_playbook",
+    })
+    expect(response.status).toBe(200)
+    expect(h.db.runs[0]?.hintSkillId).toBe("invented_playbook")
   })
 
   it("answers 400 for a body that is not a chat request", async () => {
@@ -261,8 +321,6 @@ describe("handleChat", () => {
     const h = await harness(model)
     const response = await h.post({
       messages: [user("One page")],
-      skillId: "condense_to_pages",
-      targetPages: 1,
     })
     expect(response.status).toBe(200)
     await response.text()
@@ -282,8 +340,6 @@ describe("handleChat", () => {
     const h = await harness(model)
     const first = await h.post({
       messages: [user("One page")],
-      skillId: "condense_to_pages",
-      targetPages: 1,
     })
     await first.text()
     const run = h.db.runs[0]
@@ -303,8 +359,6 @@ describe("handleChat", () => {
     }
     const second = await h.post({
       messages: [user("One page"), assistant],
-      skillId: "condense_to_pages",
-      targetPages: 1,
     })
     expect(second.status).toBe(200)
     const body = await second.text()
@@ -334,8 +388,6 @@ describe("handleChat", () => {
     const h = await harness(model)
     const first = await h.post({
       messages: [user("One page")],
-      skillId: "condense_to_pages",
-      targetPages: 1,
     })
     await first.text()
 
@@ -344,8 +396,6 @@ describe("handleChat", () => {
     // whether the run is still waiting on the browser.
     const second = await h.post({
       messages: [user("One page"), answeredFit([["call-1", 3]])],
-      skillId: "condense_to_pages",
-      targetPages: 1,
     })
     expect(second.status).toBe(200)
     await second.text()
@@ -361,8 +411,6 @@ describe("handleChat", () => {
           ["call-2", 1],
         ]),
       ],
-      skillId: "condense_to_pages",
-      targetPages: 1,
     })
     expect(third.status).toBe(200)
     expect(await third.text()).toContain("one page")
@@ -424,8 +472,6 @@ describe("handleChat", () => {
     const h = await harness(model)
     const first = await h.post({
       messages: [user("One page")],
-      skillId: "condense_to_pages",
-      targetPages: 1,
     })
     await first.text()
 

@@ -1,11 +1,11 @@
 import { createDeepSeek } from "@ai-sdk/deepseek"
-import type { JSONValue, LanguageModel } from "ai"
+import type { LanguageModel, streamText } from "ai"
 
 /**
  * Two tiers, so the expensive model is a choice per call site rather than a
- * global. Skills use `smart`; memory consolidation uses `fast`. Both default
- * to the same flash model for now; the split is what lets that change per
- * tier without touching a call site.
+ * global. The turn loop uses `smart`; memory consolidation uses `fast`. Both
+ * default to the same flash model for now; the split is what lets that change
+ * per tier without touching a call site.
  */
 export type ModelTier = "smart" | "fast"
 
@@ -22,15 +22,22 @@ export type ModelConfig = {
   modelIds?: Partial<Record<ModelTier, string>>
 }
 
-/** Per-request provider settings, passed through on every model call. */
-export type ProviderOptions = Record<string, Record<string, JSONValue>>
+/**
+ * Per-request provider settings, one set per tier. Typed from the SDK's own
+ * option rather than hand-rolled, so a provider change that alters the shape
+ * is a type error here instead of a rejected request at runtime.
+ */
+export type ProviderOptions = NonNullable<
+  Parameters<typeof streamText>[0]["providerOptions"]
+>
 
 export type Models = {
   smart: LanguageModel
   fast: LanguageModel
   /** What to record on the run row. */
   ids: Record<ModelTier, string>
-  providerOptions: ProviderOptions
+  /** Pass the set belonging to the tier the call site uses. */
+  providerOptions: Record<ModelTier, ProviderOptions>
 }
 
 export const DEFAULT_MODEL_IDS: Record<
@@ -57,9 +64,14 @@ export function createModels(config: ModelConfig): Models {
         smart: deepseek(ids.smart),
         fast: deepseek(ids.fast),
         ids,
-        // Thinking is on by default for V4 and would stream reasoning parts
-        // the app neither stores nor shows; patches do not need it.
-        providerOptions: { deepseek: { thinking: { type: "disabled" } } },
+        // V4 reasons by default. `smart` keeps the channel: deliberation
+        // belongs in the private one, and `sendReasoning: false` keeps it off
+        // the wire. `fast` only produces structured output, where a scratchpad
+        // buys nothing.
+        providerOptions: {
+          smart: { deepseek: { thinking: { type: "disabled" } } },
+          fast: { deepseek: { thinking: { type: "disabled" } } },
+        },
       }
     }
   }

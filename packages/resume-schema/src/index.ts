@@ -44,23 +44,37 @@ export {
   collectText,
   findNode,
   indexNodes,
+  nodeField,
   nodeSummary,
   readField,
   scopeAnchor,
 } from "./nodes"
 export { type DocumentValidity, NO_ERRORS, documentErrors } from "./validity"
+/**
+ * The patch gate, re-exported whole.
+ *
+ * `structuralReason` is public on purpose: the panel recomputes a card's
+ * treatment and the bulk accept from the same function the server validates
+ * with, so what the user sees as destructive is exactly what the server
+ * refuses without the structural flag. `addedFigures` is its counterpart for
+ * estimates: the panel names the figures a patch adds that the resume does not
+ * state, and the model never sees this call, so the note is the user's alone.
+ */
 export {
   type ApplyResult,
   PATCH_ERROR_CODES,
   type PatchErrorCode,
   type PatchOp,
+  ROOT_PARENT,
   type RejectedPatch,
   type ResumePatch,
   ResumePatchSchema,
   type StrictApplyResult,
   type ValidationResult,
+  addedFigures,
   applyDraft,
   applyStrict,
+  structuralReason,
   validatePatches,
 } from "./patch"
 export { formatRange, formatYearMonth } from "./format"

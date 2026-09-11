@@ -67,4 +67,24 @@ export class SupabaseSummaryRepository implements SummaryRepository {
     if (error) throw error
     return toRecord(data)
   }
+
+  /**
+   * The pointer is nulled first. `conversations.active_summary_id` references
+   * `memory_summaries`, so a row the conversation still points at cannot be
+   * deleted, and a clear that stopped after this step is harmless: `findActive`
+   * follows the pointer and finds nothing rather than a row that is gone.
+   */
+  async clearForConversation(conversationId: string): Promise<void> {
+    const { error } = await this.db
+      .from("conversations")
+      .update({ active_summary_id: null })
+      .eq("id", conversationId)
+    if (error) throw error
+
+    const { error: deleteError } = await this.db
+      .from("memory_summaries")
+      .delete()
+      .eq("conversation_id", conversationId)
+    if (deleteError) throw deleteError
+  }
 }

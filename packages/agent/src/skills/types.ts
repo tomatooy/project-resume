@@ -1,28 +1,32 @@
-import type { SkillSpec } from "@workspace/resume-core"
-import type { Resume, ResumeNode } from "@workspace/resume-schema"
-
-/** Everything a skill can see for one request (back-end design, 10.2). */
-export type SkillContext = {
-  resume: Resume
-  userMessage: string
-  selectedNodeId?: string
-  jobDescription?: string
-  targetPages?: number
+/**
+ * A playbook: prompt text about how to do something well.
+ *
+ * Nothing else. It has no schema, no `execute`, no whitelist and no
+ * authority; loading one puts its `body` in the next step's context and
+ * changes nothing about what the turn may do. That is the whole point of the
+ * split: permission comes from the request, capability from the tool set.
+ *
+ * Bodies are static text rather than a function of the turn, because nothing
+ * per-turn belongs in a playbook and a static body keeps a loaded playbook
+ * byte-identical while the same prompt prefix is reused.
+ */
+export type Skill = {
+  /** Stable id; recorded on the run and on the patch as attribution. */
+  id: string
+  /** Shown in the panel's chips and on the turn's opening line. */
+  name: string
+  /** One line for `find_skills` and the prompt index: when this playbook fits. */
+  whenToUse: string
+  /** One line: when it does not, so a near-miss is not loaded by mistake. */
+  notFor: string
+  /** What tapping the chip puts in the composer. Editable, never sent as-is. */
+  starter: string
+  /** The playbook itself. */
+  body: string
 }
 
 /**
- * What the model is shown: the whole resume, or the selected item with the
- * headline for orientation. Not what it may change; that is derived from the
- * same selection by `validateForSkill`, so the two cannot drift.
+ * The client-safe half of a playbook: everything the panel needs and nothing
+ * of the prompt. The catalog module holds these; the library adds bodies.
  */
-export type SkillScope =
-  | { kind: "document"; resume: Resume }
-  | { kind: "node"; headline?: string; selected: ResumeNode }
-
-/** A registry row plus the two things only the prompt side knows. */
-export type ResumeSkill = SkillSpec & {
-  /** What the model is shown for this request. */
-  show(ctx: SkillContext): SkillScope
-  /** Base prompt, patch contract and the skill's own instructions. No resume. */
-  systemPrompt(ctx: SkillContext): string
-}
+export type SkillMeta = Omit<Skill, "body">

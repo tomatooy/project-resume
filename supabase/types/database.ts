@@ -36,55 +36,67 @@ export type Database = {
     Tables: {
       agent_runs: {
         Row: {
+          budget_exhausted: boolean
           conversation_id: string
           created_at: string
           error_class: string | null
           finished_at: string | null
+          hint_skill_id: string | null
           id: string
           input: Json
           input_tokens: number | null
           latency_ms: number | null
           model: string
           output_tokens: number | null
+          plan: Json | null
           resume_id: string
           resume_version_id: string | null
           selected_node_id: string | null
-          skill_id: string
+          skill_ids: string[]
           status: Database["public"]["Enums"]["run_status"]
+          structural: boolean
         }
         Insert: {
+          budget_exhausted?: boolean
           conversation_id: string
           created_at?: string
           error_class?: string | null
           finished_at?: string | null
+          hint_skill_id?: string | null
           id?: string
           input?: Json
           input_tokens?: number | null
           latency_ms?: number | null
           model: string
           output_tokens?: number | null
+          plan?: Json | null
           resume_id: string
           resume_version_id?: string | null
           selected_node_id?: string | null
-          skill_id: string
+          skill_ids?: string[]
           status?: Database["public"]["Enums"]["run_status"]
+          structural?: boolean
         }
         Update: {
+          budget_exhausted?: boolean
           conversation_id?: string
           created_at?: string
           error_class?: string | null
           finished_at?: string | null
+          hint_skill_id?: string | null
           id?: string
           input?: Json
           input_tokens?: number | null
           latency_ms?: number | null
           model?: string
           output_tokens?: number | null
+          plan?: Json | null
           resume_id?: string
           resume_version_id?: string | null
           selected_node_id?: string | null
-          skill_id?: string
+          skill_ids?: string[]
           status?: Database["public"]["Enums"]["run_status"]
+          structural?: boolean
         }
         Relationships: [
           {

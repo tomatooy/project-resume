@@ -12,8 +12,10 @@ accepted patches are applied, each creating a new immutable version.
 - Live PDF preview through interchangeable templates (six shipped)
 - One-click PDF export (the download is the exact preview blob)
 - AI assistant with explicit skills: rewrite bullets, match a job description,
-  grammar and clarity, and cut to a page target. Suggestions arrive as
-  accept/reject cards, and a grounding rule stops invented numbers.
+  grammar and clarity, cut to a page target, quantify impact, and a technical
+  resume pass. Suggestions arrive as accept/reject cards, and a pending card
+  names any figure the resume does not already state, so an estimate is
+  confirmed rather than absorbed.
 - Version history with compare and restore
 
 ## Stack

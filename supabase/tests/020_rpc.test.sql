@@ -21,7 +21,7 @@ insert into conversations (id, user_id, resume_id) values
   ('c0000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001',
    'b0000000-0000-4000-8000-000000000001');
 
-insert into agent_runs (id, conversation_id, resume_id, skill_id, model) values
+insert into agent_runs (id, conversation_id, resume_id, hint_skill_id, model) values
   ('d0000000-0000-4000-8000-000000000001', 'c0000000-0000-4000-8000-000000000001',
    'b0000000-0000-4000-8000-000000000001', 'tighten-bullets', 'demo'),
   ('d0000000-0000-4000-8000-000000000002', 'c0000000-0000-4000-8000-000000000001',

@@ -13,7 +13,7 @@ import { z } from "zod"
 
 /**
  * What `useChat` posts: its own envelope plus the fields the panel adds. The
- * skill inputs travel with every request, but only a new turn reads them; a
+ * turn inputs travel with every request, but only a new turn reads them; a
  * continuation takes them from the run it belongs to.
  */
 export const ChatRequestSchema = z.object({
@@ -22,17 +22,18 @@ export const ChatRequestSchema = z.object({
   messages: z.array(z.unknown()).min(1),
   conversationId: z.uuid(),
   resumeId: z.uuid(),
-  skillId: z.string().optional(),
+  /** The composer's hint. Advisory: the model may ignore it. */
+  hintSkillId: z.string().optional(),
   selectedNodeId: z.string().nullable().optional(),
-  jobDescription: z.string().trim().max(20_000).optional(),
-  targetPages: z.number().int().min(1).max(4).optional(),
+  /** The user enabled removing and restructuring for this turn. */
+  structural: z.boolean().optional(),
 })
 export type ChatRequest = z.infer<typeof ChatRequestSchema>
 
 /** The per-turn fields the panel adds to the transport's own body. */
 export type ChatTurnInputs = Pick<
   ChatRequest,
-  "skillId" | "selectedNodeId" | "jobDescription" | "targetPages"
+  "hintSkillId" | "selectedNodeId" | "structural"
 >
 
 /** What the GET reads from the query string. */

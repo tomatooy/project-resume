@@ -219,19 +219,20 @@ if (!bullet) throw new Error("starter fixture has no bullets")
 const run = await a.runs.start({
   conversationId: conversation.id,
   resumeId: created.id,
-  skillId: "bullet_rewrite",
+  hintSkillId: "bullet_rewrite",
   model: "demo",
   input: {},
 })
 check("run is created", run.resumeId === created.id)
 check("run snapshots the head first", run.resumeVersionId !== null)
+check("a fresh run has no plan yet", run.plan === null)
 check(
   "a running run blocks a second",
   await a.runs
     .start({
       conversationId: conversation.id,
       resumeId: created.id,
-      skillId: "bullet_rewrite",
+      hintSkillId: "bullet_rewrite",
       model: "demo",
       input: {},
     })
@@ -292,7 +293,7 @@ const userMessage = await a.memory.record({
   role: "user",
   parts: [{ type: "text", text: "Tighten this" }],
   agentRunId: run.id,
-  metadata: { skillId: "bullet_rewrite" },
+  metadata: { hintSkillId: "bullet_rewrite" },
 })
 check("message gets a seq", userMessage.seq > 0)
 const context = await a.memory.buildContext(conversation.id)

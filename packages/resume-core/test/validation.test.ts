@@ -1,8 +1,8 @@
-import { indexNodes, type Resume } from "@workspace/resume-schema"
+import { indexNodes, ROOT_PARENT, type Resume } from "@workspace/resume-schema"
 import { onePage } from "@workspace/resume-schema/fixtures"
 import { describe, expect, it } from "vitest"
 
-import { stampSkillId, validateForSkill } from "../src/domain/validation"
+import { validateForRun } from "../src/domain/validation"
 
 type Bullet = { id: string; text: string; itemId: string }
 
@@ -44,19 +44,18 @@ function rewrite(target: Bullet, after: string, skillId = "bullet_rewrite") {
   }
 }
 
-/** A propose-mode context for a bullet_rewrite, with no job description. */
-function propose(selectedNodeId?: string, skillId = "bullet_rewrite") {
+/** A propose-mode context for the assistant, with structural edits off. */
+function propose(selectedNodeId?: string) {
   return {
     mode: "propose" as const,
-    skillId,
+    allowStructural: false,
     selectedNodeId,
-    userMessage: "Tighten this up",
   }
 }
 
-describe("validateForSkill scope", () => {
-  it("confines a node-scoped skill to the item holding the selection", () => {
-    const result = validateForSkill(
+describe("validateForRun scope", () => {
+  it("confines patches to the item holding the selection", () => {
+    const result = validateForRun(
       resume,
       [
         rewrite(bullet, "Cut deploy time."),
@@ -70,72 +69,79 @@ describe("validateForSkill scope", () => {
     ])
   })
 
-  it("leaves a whole-document skill free to edit past the selection", () => {
-    const result = validateForSkill(
+  it("leaves patches free to edit past the selection when nothing was selected", () => {
+    const result = validateForRun(
       resume,
-      [rewrite(otherBullet, "Led the team.", "jd_match")],
-      propose(bullet.id, "jd_match")
+      [rewrite(otherBullet, "Led the team.")],
+      propose()
     )
     expect(result.rejected).toEqual([])
   })
 
   it("applies the same scope when the suggestion is accepted later", () => {
-    const result = validateForSkill(
-      resume,
-      [rewrite(otherBullet, "Led the team.")],
-      { mode: "reapply", skillId: "bullet_rewrite", selectedNodeId: bullet.id }
-    )
+    const result = validateForRun(resume, [rewrite(otherBullet, "Led it.")], {
+      mode: "reapply",
+      allowStructural: false,
+      selectedNodeId: bullet.id,
+    })
     expect(result.rejected[0]?.code).toBe("OUT_OF_SCOPE")
-  })
-
-  it("scopes to the whole document when nothing was selected", () => {
-    const result = validateForSkill(
-      resume,
-      [rewrite(otherBullet, "Led the team.")],
-      propose()
-    )
-    expect(result.rejected).toEqual([])
   })
 })
 
-describe("validateForSkill limits", () => {
-  it("rejects an op the skill does not own", () => {
-    const result = validateForSkill(
+describe("validateForRun tiers", () => {
+  const item = onePage.sections[0]?.items[0]
+  if (!item) throw new Error("fixture needs an item")
+
+  it("refuses a structural patch when the request did not enable it", () => {
+    const result = validateForRun(
       resume,
       [
         {
           op: "delete",
           skillId: "bullet_rewrite",
-          targetNodeId: bullet.id,
-          before: bullet.text,
-          reason: "Redundant.",
+          targetNodeId: item.id,
+          before: item,
+          reason: "No longer relevant.",
         },
       ],
       propose()
     )
-    expect(result.rejected[0]?.code).toBe("OP_NOT_ALLOWED")
+    expect(result.rejected[0]?.code).toBe("STRUCTURAL_NOT_REQUESTED")
   })
 
-  it("refuses an unknown skill rather than validating against nothing", () => {
-    expect(() =>
-      validateForSkill(resume, [], propose(undefined, "made_up"))
-    ).toThrow()
-  })
-})
-
-describe("stampSkillId", () => {
-  it("overwrites whatever skill the model claimed", () => {
-    const [stamped] = stampSkillId(
-      [rewrite(bullet, "Cut deploy time.", "jd_match")],
-      "bullet_rewrite"
+  it("accepts it on a turn that enabled structural edits", () => {
+    const result = validateForRun(
+      resume,
+      [
+        {
+          op: "delete",
+          skillId: "bullet_rewrite",
+          targetNodeId: item.id,
+          before: item,
+          reason: "No longer relevant.",
+        },
+      ],
+      { mode: "propose", allowStructural: true }
     )
-    expect(stamped).toMatchObject({ skillId: "bullet_rewrite" })
+    expect(result.rejected).toEqual([])
+    expect(result.valid).toHaveLength(1)
   })
 
-  it("leaves a non-object alone for the shape check to reject", () => {
-    expect(stampSkillId([null, "nope"], "bullet_rewrite")).toEqual([
-      null,
-      "nope",
-    ])
+  it("keeps the root outside any scope, since a selection is never the document", () => {
+    const result = validateForRun(
+      resume,
+      [
+        {
+          op: "insert_after",
+          skillId: "bullet_rewrite",
+          parentId: ROOT_PARENT,
+          afterNodeId: null,
+          node: { type: "custom", title: "Speaking", items: [] },
+          reason: "Adds a section.",
+        },
+      ],
+      { mode: "propose", allowStructural: true, selectedNodeId: bullet.id }
+    )
+    expect(result.rejected[0]?.code).toBe("OUT_OF_SCOPE")
   })
 })

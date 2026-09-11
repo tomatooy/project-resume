@@ -43,6 +43,28 @@ export function toolCallStream(
   return { stream: simulateReadableStream({ chunks }) }
 }
 
+/** One model turn that writes a paragraph and then calls a tool, in one step. */
+export function textThenToolStream(
+  text: string,
+  toolName: string,
+  input: unknown,
+  toolCallId = "call-1"
+): LanguageModelV3StreamResult {
+  const chunks: LanguageModelV3StreamPart[] = [
+    { type: "stream-start", warnings: [] },
+    { type: "text-start", id: "t1" },
+    { type: "text-delta", id: "t1", delta: text },
+    { type: "text-end", id: "t1" },
+    { type: "tool-call", toolCallId, toolName, input: JSON.stringify(input) },
+    {
+      type: "finish",
+      finishReason: { unified: "tool-calls", raw: undefined },
+      usage,
+    },
+  ]
+  return { stream: simulateReadableStream({ chunks }) }
+}
+
 /** One model turn that answers in plain text and stops. */
 export function textStream(text: string): LanguageModelV3StreamResult {
   const chunks: LanguageModelV3StreamPart[] = [
@@ -73,7 +95,7 @@ export function testModels(model: MockLanguageModelV3): Models {
     smart: model,
     fast: model,
     ids: { smart: model.modelId, fast: model.modelId },
-    providerOptions: {},
+    providerOptions: { smart: {}, fast: {} },
   }
 }
 

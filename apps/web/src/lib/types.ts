@@ -11,12 +11,17 @@ export type {
   DecideResult,
   ResumeRecord,
   ResumeSummary,
-  SkillId,
   Suggestion,
   SuggestionStatus,
   TailorFromJobResult,
   VersionSummary,
 } from "@workspace/resume-core"
+
+/**
+ * The playbook catalog is the agent package's, not the domain's: a playbook is
+ * prompt text, so its type lives next to the library that holds it.
+ */
+export type { SkillId } from "@/lib/skills"
 
 /**
  * The chat route's wire shapes come from the contract the route itself parses

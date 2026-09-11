@@ -1,3 +1,4 @@
+import type { TurnPlan } from "../domain/chat"
 import type { AgentRun } from "../domain/suggestion"
 import type {
   AgentRunRepository,
@@ -14,10 +15,14 @@ export class InMemoryAgentRunRepository implements AgentRunRepository {
       id: this.db.uuid(),
       conversationId: input.conversationId,
       resumeId: input.resumeId,
-      skillId: input.skillId,
+      hintSkillId: input.hintSkillId ?? null,
       model: input.model,
       selectedNodeId: input.selectedNodeId ?? null,
       resumeVersionId: input.resumeVersionId ?? null,
+      plan: null,
+      skillIds: [],
+      structural: input.structural ?? false,
+      budgetExhausted: false,
       input: input.input ?? {},
       status: "running",
       errorClass: null,
@@ -42,7 +47,18 @@ export class InMemoryAgentRunRepository implements AgentRunRepository {
     run.inputTokens = input.inputTokens ?? null
     run.outputTokens = input.outputTokens ?? null
     run.latencyMs = input.latencyMs ?? null
+    run.budgetExhausted = input.budgetExhausted ?? false
     run.input = {}
+  }
+
+  async recordPlan(id: string, plan: TurnPlan): Promise<void> {
+    const run = this.db.runs.find((r) => r.id === id)
+    if (run) run.plan = plan
+  }
+
+  async addSkill(id: string, skillId: string): Promise<void> {
+    const run = this.db.runs.find((r) => r.id === id)
+    if (run && !run.skillIds.includes(skillId)) run.skillIds.push(skillId)
   }
 
   async findRunning(conversationId: string): Promise<AgentRun | null> {

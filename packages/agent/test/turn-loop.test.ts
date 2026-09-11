@@ -3,8 +3,8 @@ import type { ResumePatch } from "@workspace/resume-schema"
 import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it, vi } from "vitest"
 
-import { runSkill } from "../src/turn"
-import { skills } from "../src/skills/index"
+import { MAX_PLAYBOOKS_PER_TURN } from "../src/tools"
+import { type TurnState, runTurn } from "../src/turn"
 import {
   fixture,
   rewrite,
@@ -20,11 +20,23 @@ function persistStub() {
   )
 }
 
-function propose(patches: ResumePatch[], id = "call-1") {
-  return toolCallStream("propose_patches", { patches }, id)
+function propose(
+  patches: ResumePatch[],
+  summary = "Tightened the selected bullet.",
+  id = "call-1"
+) {
+  return toolCallStream("propose_patches", { patches, summary }, id)
 }
 
-describe("runSkill", () => {
+function turnState(overrides: Partial<TurnState> = {}): TurnState {
+  return {
+    loadedSkillIds: [],
+    allowStructural: false,
+    ...overrides,
+  }
+}
+
+describe("runTurn", () => {
   const { resume, bullet, otherBullet } = fixture()
   const good = rewrite(bullet, `${bullet.text} Shipped on time.`)
   // `otherBullet` lives in a different item than the selection, so the scope
@@ -33,22 +45,26 @@ describe("runSkill", () => {
 
   function start(
     model: MockLanguageModelV3,
-    overrides: Partial<Parameters<typeof runSkill>[0]> = {}
+    overrides: Partial<Parameters<typeof runTurn>[0]> = {}
   ) {
     const persist = persistStub()
-    const result = runSkill({
-      skill: skills.bullet_rewrite,
-      ctx: { resume, userMessage: "Tighten this", selectedNodeId: bullet.id },
+    const recordPlan = vi.fn(async () => undefined)
+    const addSkill = vi.fn(async () => undefined)
+    const { result } = runTurn({
+      state: turnState({ selectedNodeId: bullet.id }),
+      resume,
       models: testModels(model),
       runId: "run-1",
       persist,
+      recordPlan,
+      addSkill,
       memory: {
         summaryText: null,
         messages: [{ role: "user", content: "Tighten this" }],
       },
       ...overrides,
     })
-    return { result, persist }
+    return { result, persist, recordPlan, addSkill }
   }
 
   it("validates and persists only the valid patches, then lets the model explain", async () => {
@@ -74,10 +90,11 @@ describe("runSkill", () => {
       suggestions: [{ id: "s0", ordinal: 0, patch: good }],
       rejected: [{ index: 1, code: "OUT_OF_SCOPE" }],
       gaps: [],
+      summary: "Tightened the selected bullet.",
     })
   })
 
-  it("sends a scoped resume and the patch contract in the system prompt", async () => {
+  it("sends the whole document, the contract and every tool", async () => {
     const model = new MockLanguageModelV3({ doStream: [propose([good])] })
     const { result } = start(model)
     await result.consumeStream()
@@ -88,27 +105,233 @@ describe("runSkill", () => {
     const text = system?.role === "system" ? system.content : ""
     expect(text).toContain(bullet.id)
     expect(text).toContain(bullet.text)
-    expect(text).not.toContain(otherBullet.text)
-    expect(text).toContain("propose_patches")
-    expect(text).toContain("replace_text")
-    expect(text).not.toContain("insert_after")
-    expect(call?.tools?.map((t) => t.name)).toEqual(["propose_patches"])
+    // The selection scopes what may change; the model still reads everything.
+    expect(text).toContain(otherBullet.text)
+    for (const op of [
+      "replace_text",
+      "update_fields",
+      "insert_after",
+      "delete",
+      "move",
+    ]) {
+      expect(text).toContain(op)
+    }
+    expect(text).toContain('"root"')
+    expect(text).toContain("A value of `null` in `after` clears the field")
+    expect(text).toContain("Structural edits")
+    expect(call?.tools?.map((t) => t.name)).toEqual([
+      "plan",
+      "find_skills",
+      "load_skill",
+      "check_fit",
+      "propose_patches",
+    ])
   })
 
-  it("offers check_fit only to skills that declare it", async () => {
-    const model = new MockLanguageModelV3({ doStream: [propose([])] })
-    const { result } = start(model, {
-      skill: skills.condense_to_pages,
-      ctx: { resume, userMessage: "One page please", targetPages: 1 },
+  it("keeps the tool set identical on every step and every turn", async () => {
+    // The whole reason the tools-versus-skills split exists: a request prefix
+    // that does not change between steps is one the provider can cache.
+    const model = new MockLanguageModelV3({
+      doStream: [propose([outOfScope], "Retrying."), propose([good])],
     })
+    const { result } = start(model)
     await result.consumeStream()
-    const names = model.doStreamCalls[0]?.tools?.map((t) => t.name) ?? []
-    expect(names.sort()).toEqual(["check_fit", "propose_patches"])
+
+    const [first, second] = model.doStreamCalls
+    expect(model.doStreamCalls).toHaveLength(2)
+    expect(JSON.stringify(first?.tools)).toBe(JSON.stringify(second?.tools))
+    expect(JSON.stringify(first?.prompt[0])).toBe(
+      JSON.stringify(second?.prompt[0])
+    )
+  })
+
+  it("assembles the same system prompt for two turns with the same state", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [propose([good]), propose([good])],
+    })
+    const { result } = start(model)
+    await result.consumeStream()
+    const { result: again } = start(model, { runId: "run-2" })
+    await again.consumeStream()
+
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt[0])).toBe(
+      JSON.stringify(model.doStreamCalls[1]?.prompt[0])
+    )
+  })
+
+  it("carries the summary, gaps and question through the proposal", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCallStream("propose_patches", {
+          patches: [good],
+          summary: "Rewrote the first bullet to lead with the outcome.",
+          gaps: ["team size on the migration bullet"],
+          followUpQuestion: "How large was the team?",
+        }),
+      ],
+    })
+    const { result } = start(model)
+    await result.consumeStream()
+
+    const steps = await result.steps
+    expect(steps[0]?.toolResults[0]?.output).toMatchObject({
+      summary: "Rewrote the first bullet to lead with the outcome.",
+      gaps: ["team size on the migration bullet"],
+      followUpQuestion: "How large was the team?",
+    })
+  })
+
+  it("refuses a proposal without a summary and gives the model the step to fix it", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async () =>
+        toolCallStream("propose_patches", { patches: [good] }),
+    })
+    const { result, persist } = start(model)
+    await result.consumeStream()
+
+    // The field is required, so the tool never runs and the model is handed
+    // the schema error instead. The step budget is what ends the loop.
+    expect(persist).not.toHaveBeenCalled()
+    expect(model.doStreamCalls).toHaveLength(6)
+  })
+
+  it("records the plan and hands back the line", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCallStream("plan", {
+          summary: "Tightening the three Acme bullets.",
+        }),
+        propose([good]),
+      ],
+    })
+    const { result, recordPlan } = start(model)
+    await result.consumeStream()
+
+    expect(recordPlan).toHaveBeenCalledWith({
+      summary: "Tightening the three Acme bullets.",
+    })
+    const steps = await result.steps
+    expect(steps[0]?.toolResults[0]?.output).toMatchObject({
+      summary: "Tightening the three Acme bullets.",
+    })
+  })
+
+  it("loads a playbook once, records it, and answers a repeat with no body", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCallStream("load_skill", { ids: ["bullet_rewrite", "nope"] }),
+        toolCallStream("load_skill", { ids: ["bullet_rewrite"] }, "call-2"),
+        propose([good], "Done.", "call-3"),
+      ],
+    })
+    const state = turnState({ selectedNodeId: bullet.id })
+    const { result, addSkill } = start(model, { state })
+    await result.consumeStream()
+
+    const steps = await result.steps
+    expect(steps[0]?.toolResults[0]?.output).toMatchObject({
+      unknown: ["nope"],
+      alreadyLoaded: [],
+      validIds: expect.arrayContaining(["bullet_rewrite", "jd_match"]),
+    })
+    const repeated = steps[1]?.toolResults[0]?.output
+    expect(repeated).toMatchObject({
+      loaded: [],
+      alreadyLoaded: ["bullet_rewrite"],
+    })
+    expect(JSON.stringify(repeated)).not.toContain("Responsible for")
+    expect(addSkill).toHaveBeenCalledTimes(1)
+    expect(state.loadedSkillIds).toEqual(["bullet_rewrite"])
+  })
+
+  it("loads three playbooks and answers the fourth as over cap", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCallStream("load_skill", {
+          ids: [
+            "bullet_rewrite",
+            "grammar_clarity",
+            "jd_match",
+            "condense_to_pages",
+          ],
+        }),
+        propose([good], "Done.", "call-2"),
+      ],
+    })
+    const state = turnState({ selectedNodeId: bullet.id })
+    const { result, addSkill } = start(model, { state })
+    await result.consumeStream()
+
+    // The library holds four and the call asked for all four, so the fourth is
+    // the one the turn's ceiling refuses. It comes back named rather than
+    // dropped, which is what tells the model to stop asking for it.
+    const steps = await result.steps
+    expect(steps[0]?.toolResults[0]?.output).toMatchObject({
+      loaded: [
+        { id: "bullet_rewrite" },
+        { id: "grammar_clarity" },
+        { id: "jd_match" },
+      ],
+      overCap: ["condense_to_pages"],
+    })
+    expect(addSkill).toHaveBeenCalledTimes(MAX_PLAYBOOKS_PER_TURN)
+    expect(state.loadedSkillIds).toEqual([
+      "bullet_rewrite",
+      "grammar_clarity",
+      "jd_match",
+    ])
+  })
+
+  it("finds playbooks by query without returning a body", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCallStream("find_skills", { query: "grammar" }),
+        propose([good], "Done.", "call-2"),
+      ],
+    })
+    const { result } = start(model)
+    await result.consumeStream()
+
+    const steps = await result.steps
+    const output = steps[0]?.toolResults[0]?.output
+    expect(output).toMatchObject({ skills: [{ id: "grammar_clarity" }] })
+    expect(JSON.stringify(output)).not.toContain("past tense for past roles")
+  })
+
+  it("refuses a structural patch when the turn did not allow it", async () => {
+    const section = resume.sections[0]
+    if (!section) throw new Error("bad fixture")
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCallStream("propose_patches", {
+          patches: [
+            {
+              op: "delete",
+              skillId: "bullet_rewrite",
+              targetNodeId: section.id,
+              before: section,
+              reason: "Not needed.",
+            },
+          ],
+          summary: "Removing the section.",
+        }),
+      ],
+    })
+    const { result, persist } = start(model)
+    await result.consumeStream()
+
+    const steps = await result.steps
+    expect(steps[0]?.toolResults[0]?.output).toMatchObject({
+      suggestions: [],
+      rejected: [{ code: "STRUCTURAL_NOT_REQUESTED" }],
+      summary: "Removing the section.",
+    })
+    expect(persist).toHaveBeenCalledWith([])
   })
 
   it("lets the model correct a rejected proposal and persists only the additions", async () => {
     const model = new MockLanguageModelV3({
-      doStream: [propose([outOfScope], "call-1"), propose([good], "call-2")],
+      doStream: [propose([outOfScope]), propose([good], "Fixed.")],
     })
     const { result, persist } = start(model)
     await result.consumeStream()
@@ -159,7 +382,7 @@ describe("runSkill", () => {
 
   it("stops the loop when the proposal has no valid patch but nothing was rejected", async () => {
     const model = new MockLanguageModelV3({
-      doStream: [propose([])],
+      doStream: [propose([], "Nothing to change.")],
     })
     const { result, persist } = start(model)
     await result.consumeStream()

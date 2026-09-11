@@ -6,6 +6,7 @@ import {
   isWithin,
   type NodeKind,
   type NodeRef,
+  nodeField,
   textFields,
 } from "./nodes"
 import {
@@ -14,17 +15,35 @@ import {
   LinkSchema,
   NodeId,
   ResumeSchema,
+  SectionSchema,
   type Bullet,
   type Item,
   type Link,
   type Resume,
+  type Section,
 } from "./schema"
 
 /* ------------------------------------------------------------------ types */
 
+/**
+ * The parent the top-level sections live under. They have no node to name, so
+ * `insert_after` and `move` address their container as `"root"`. It is a
+ * pseudo-parent: it is never a target and never a real node, so the checks
+ * that walk the document treat it as outside every scope.
+ */
+export const ROOT_PARENT = "root"
+
+/** A node id, or the root pseudo-parent. */
+export const ParentId = z.union([NodeId, z.literal(ROOT_PARENT)])
+
 const Common = z.object({
   reason: z.string().max(500),
-  skillId: z.string(),
+  /**
+   * Which playbook shaped this patch. Attribution only: never validated, never
+   * an enforcement key, and absent on a patch the editor built by hand or a
+   * model that forgot to tag it.
+   */
+  skillId: z.string().optional(),
   confidence: z.number().min(0).max(1).optional(),
 })
 
@@ -36,6 +55,11 @@ export const ReplaceText = Common.extend({
   after: z.string().min(1),
 })
 
+/**
+ * Both records cover the same key set. A key that is absent from the node and
+ * a key whose value is `null` are the same state, so `null` in `after` clears
+ * the field and `null` in `before` says the field is currently absent.
+ */
 export const UpdateFields = Common.extend({
   op: z.literal("update_fields"),
   targetNodeId: NodeId,
@@ -45,7 +69,7 @@ export const UpdateFields = Common.extend({
 
 export const InsertAfter = Common.extend({
   op: z.literal("insert_after"),
-  parentId: NodeId,
+  parentId: ParentId,
   afterNodeId: NodeId.nullable(),
   node: z.unknown(),
 })
@@ -60,6 +84,8 @@ export const Move = Common.extend({
   op: z.literal("move"),
   targetNodeId: NodeId,
   toIndex: z.number().int().min(0),
+  /** Absent, or the node's own parent, means a reorder among its siblings. */
+  toParentId: ParentId.optional(),
 })
 
 export const ResumePatchSchema = z.discriminatedUnion("op", [
@@ -92,12 +118,25 @@ export const PATCH_ERROR_CODES = [
   "EMPTY_TEXT",
   "OUT_OF_SCOPE",
   "INDEX_OUT_OF_RANGE",
+  "STRUCTURAL_NOT_REQUESTED",
+  "REQUIRED_FIELD",
 ] as const
 
 export type PatchErrorCode = (typeof PATCH_ERROR_CODES)[number]
 
-/** Fields no patch may ever write, because they are structural. */
-const PROTECTED_FIELDS = new Set(["id", "kind", "items", "bullets", "links"])
+/**
+ * Fields no patch may ever write, because they are structural. `type` is here
+ * for the same reason as `kind`: rewriting it would re-interpret every item in
+ * the section.
+ */
+const PROTECTED_FIELDS = new Set([
+  "id",
+  "kind",
+  "type",
+  "items",
+  "bullets",
+  "links",
+])
 
 /* ------------------------------------------------------------------ apply */
 
@@ -209,11 +248,17 @@ function locate(resume: Resume, id: string): Located | undefined {
   return undefined
 }
 
+/** The kind of node a container array holds. */
+type ChildKind = "section" | "item" | "bullet" | "link"
+
 /** The array `insert_after` would push into, given a parent node id. */
 function childArray(
   resume: Resume,
   parentId: string
-): { array: { id: string }[]; child: "link" | "item" | "bullet" } | undefined {
+): { array: { id: string }[]; child: ChildKind } | undefined {
+  if (parentId === ROOT_PARENT) {
+    return { array: resume.sections, child: "section" }
+  }
   if (parentId === "basics") {
     return { array: resume.basics.links, child: "link" }
   }
@@ -230,6 +275,13 @@ function childArray(
 
 function normalize(text: string): string {
   return text.trim().replace(/\s+/g, " ")
+}
+
+/** `update_fields` needs both records to cover the same keys, or an inverse is
+ * not expressible. */
+function sameKeySet(before: Record<string, unknown>, keys: string[]): boolean {
+  const own = Object.keys(before)
+  return own.length === keys.length && keys.every((key) => key in before)
 }
 
 type ApplyOpts = { stopOnError?: boolean }
@@ -348,20 +400,43 @@ function applyOne(draft: Resume, patch: ResumePatch): ApplyOne {
       if (!found) {
         return { code: "TARGET_NOT_FOUND", message: patch.targetNodeId }
       }
-      const before: Record<string, unknown> = {}
-      for (const key of Object.keys(patch.after)) {
+      const keys = Object.keys(patch.after)
+      if (!sameKeySet(patch.before, keys)) {
+        return {
+          code: "BEFORE_MISMATCH",
+          message: "before and after must list the same fields",
+        }
+      }
+      const previous: Record<string, unknown> = {}
+      const expected: Record<string, unknown> = {}
+      for (const key of keys) {
         if (PROTECTED_FIELDS.has(key)) {
           return { code: "FIELD_NOT_ALLOWED", message: key }
         }
-        before[key] = found.node[key]
+        const field = nodeField(found.kind, found.node, key)
+        if (!field) return { code: "FIELD_NOT_ALLOWED", message: key }
+        if (field === "required" && (patch.after[key] ?? null) === null) {
+          return { code: "REQUIRED_FIELD", message: key }
+        }
+        // Absent and null are the same state on both sides, so an inverse is
+        // exact and "was it empty or missing?" never has to be answered.
+        previous[key] = found.node[key] ?? null
+        expected[key] = patch.before[key] ?? null
       }
-      if (canonicalJson(before) !== canonicalJson(patch.before)) {
+      if (canonicalJson(expected) !== canonicalJson(previous)) {
         return { code: "BEFORE_MISMATCH", message: patch.targetNodeId }
       }
-      Object.assign(found.node, patch.after)
+      for (const key of keys) {
+        const value = patch.after[key] ?? null
+        if (value === null) {
+          delete found.node[key]
+        } else {
+          found.node[key] = value
+        }
+      }
       return {
         patch,
-        inverse: { ...patch, before: patch.after, after: before },
+        inverse: { ...patch, before: patch.after, after: previous },
       }
     }
 
@@ -411,7 +486,11 @@ function applyOne(draft: Resume, patch: ResumePatch): ApplyOne {
           op: "insert_after",
           reason: `Undo: ${patch.reason}`,
           skillId: patch.skillId,
-          parentId: found.parentId ?? "basics",
+          // A section has no parent node, so its inverse is an insert into
+          // the root. Naming a real parent here produced a `basics` insert
+          // that failed the kind check, which is why undo after deleting a
+          // section used to do nothing.
+          parentId: found.parentId ?? ROOT_PARENT,
           afterNodeId: previous?.id ?? null,
           node: removed,
         },
@@ -423,6 +502,38 @@ function applyOne(draft: Resume, patch: ResumePatch): ApplyOne {
       if (!found?.siblings) {
         return { code: "TARGET_NOT_FOUND", message: patch.targetNodeId }
       }
+      const currentParent = found.parentId ?? ROOT_PARENT
+      const toParentId = patch.toParentId
+
+      if (toParentId !== undefined && toParentId !== currentParent) {
+        const destination = childArray(draft, toParentId)
+        if (!destination) {
+          return { code: "PARENT_NOT_FOUND", message: toParentId }
+        }
+        if (destination.child !== found.kind) {
+          return { code: "KIND_MISMATCH", message: destination.child }
+        }
+        if (patch.toIndex > destination.array.length) {
+          return {
+            code: "INDEX_OUT_OF_RANGE",
+            message: `${patch.toIndex} of ${destination.array.length + 1}`,
+          }
+        }
+        const moved = found.siblings.splice(found.index, 1)[0]
+        if (!moved) {
+          return { code: "TARGET_NOT_FOUND", message: patch.targetNodeId }
+        }
+        destination.array.splice(patch.toIndex, 0, moved)
+        return {
+          patch,
+          inverse: {
+            ...patch,
+            toParentId: currentParent,
+            toIndex: found.index,
+          },
+        }
+      }
+
       if (patch.toIndex >= found.siblings.length) {
         return { code: "INDEX_OUT_OF_RANGE", message: String(patch.toIndex) }
       }
@@ -441,22 +552,20 @@ function applyOne(draft: Resume, patch: ResumePatch): ApplyOne {
  * ids on it and every descendant. Ids the model supplied are always discarded.
  */
 function buildChild(
-  child: "link" | "item" | "bullet",
+  child: ChildKind,
   raw: unknown
 ):
   | { node: { id: string } & Record<string, unknown>; ids: string[] }
   | undefined {
   if (typeof raw !== "object" || raw === null) return undefined
-  const ids: string[] = []
 
   if (child === "link") {
     const id = newId("lnk")
     const parsed = LinkSchema.safeParse({ ...raw, id })
     if (!parsed.success) return undefined
-    ids.push(id)
     return {
       node: parsed.data as unknown as Link & Record<string, unknown>,
-      ids,
+      ids: [id],
     }
   }
 
@@ -464,40 +573,66 @@ function buildChild(
     const id = newId("bul")
     const parsed = BulletSchema.safeParse({ ...raw, id })
     if (!parsed.success) return undefined
-    ids.push(id)
     return {
       node: parsed.data as unknown as Bullet & Record<string, unknown>,
-      ids,
+      ids: [id],
     }
   }
 
-  const kind = (raw as Record<string, unknown>).kind
+  if (child === "section") {
+    const id = newId("sec")
+    const record = raw as Record<string, unknown>
+    const rawItems = Array.isArray(record.items) ? record.items : undefined
+    const built = rawItems?.map(stampItem)
+    if (built?.some((entry) => entry === undefined)) return undefined
+    const items = built?.flatMap((entry) => (entry ? [entry.node] : []))
+    const parsed = SectionSchema.safeParse({
+      ...record,
+      id,
+      ...(items ? { items } : {}),
+    })
+    if (!parsed.success) return undefined
+    return {
+      node: parsed.data as unknown as Section & Record<string, unknown>,
+      ids: [id, ...(built ?? []).flatMap((entry) => entry?.ids ?? [])],
+    }
+  }
+
+  const built = stampItem(raw)
+  if (!built) return undefined
+  const node = built.node as Item & Record<string, unknown>
+  return { node, ids: built.ids }
+}
+
+/** The item branch, shared by a section insert and an insert into a section. */
+function stampItem(raw: unknown): { node: Item; ids: string[] } | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined
+  const record = raw as Record<string, unknown>
+  const kind = record.kind
   if (typeof kind !== "string" || !(kind in ITEM_PREFIX)) return undefined
   const id = newId(ITEM_PREFIX[kind as keyof typeof ITEM_PREFIX])
-  const bullets = Array.isArray((raw as Record<string, unknown>).bullets)
-    ? ((raw as Record<string, unknown>).bullets as unknown[]).map((b) => {
-        const bulletId = newId("bul")
-        ids.push(bulletId)
-        return { ...(b as object), id: bulletId }
-      })
-    : undefined
-  const candidate = {
-    ...raw,
+  const rawBullets = Array.isArray(record.bullets) ? record.bullets : undefined
+  const bullets = rawBullets?.map((bullet) => ({
+    ...(bullet as object),
+    id: newId("bul"),
+  }))
+  const parsed = ItemSchema.safeParse({
+    ...record,
     id,
     ...(bullets ? { bullets } : {}),
-  }
-  const parsed = ItemSchema.safeParse(candidate)
+  })
   if (!parsed.success) return undefined
-  ids.unshift(id)
-  return { node: parsed.data as unknown as Item & Record<string, unknown>, ids }
+  return {
+    node: parsed.data,
+    ids: [id, ...(bullets ?? []).map((bullet) => bullet.id)],
+  }
 }
 
 /* --------------------------------------------------------------- validate */
 
 export type ValidationContext = {
-  allowedOps: PatchOp[]
-  /** Narrows `textFields` further, per skill. */
-  allowedFields?: Partial<Record<NodeKind, string[]>>
+  /** The user asked for this turn to be able to restructure the document. */
+  allowStructural: boolean
   /** When set, every target must be this node or a descendant of it. */
   scopeNodeId?: string
 }
@@ -514,9 +649,144 @@ export type ValidationResult = {
 }
 
 /**
+ * What kind of request a patch needs, computed from the patch and the
+ * document rather than stated by the model or the client.
+ *
+ * The panel recomputes the same answer for a card's treatment and for the
+ * bulk accept, from this one function, so what the user sees as destructive
+ * is what the server refuses without the flag.
+ *
+ * Returns the reason phrase, or `undefined` when the patch is a content edit.
+ */
+export function structuralReason(
+  resume: Resume,
+  patch: ResumePatch
+): string | undefined {
+  const index = indexNodes(resume)
+  const target =
+    patch.op === "insert_after"
+      ? index.get(patch.parentId)
+      : index.get(patch.targetNodeId)
+  return tierReason(index, patch, target)
+}
+
+/** The same answer when the caller already holds the index and the target. */
+function tierReason(
+  index: Map<string, NodeRef>,
+  patch: ResumePatch,
+  target: NodeRef | undefined
+): string | undefined {
+  switch (patch.op) {
+    case "delete":
+      if (target?.kind === "item") return "delete an item"
+      if (target?.kind === "section") return "delete a section"
+      return undefined
+    case "insert_after":
+      if (patch.parentId === ROOT_PARENT) return "add a section"
+      if (index.get(patch.parentId)?.kind === "section") return "add an item"
+      return undefined
+    case "move": {
+      if (patch.toParentId === undefined) return undefined
+      const current = target ? (target.parentId ?? ROOT_PARENT) : undefined
+      return patch.toParentId === current
+        ? undefined
+        : "move a node to another container"
+    }
+    default:
+      return undefined
+  }
+}
+
+/* ------------------------------------------------------ estimate figures */
+
+/**
+ * A quantity in resume prose: `40`, `1,000`, `99.9`, `250+`, `2x`, `75%`.
+ * The leading guard keeps identifiers out (`EC2`, `S3`, `AES256`, `p99`).
+ */
+const FIGURE =
+  /(?:^|[^A-Za-z0-9])((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:x|%)?\+?)/g
+
+/** Keys whose strings are not a claim: identity, type, and the dates. */
+const NOT_CLAIM = new Set(["id", "kind", "type", "start", "end"])
+
+/**
+ * The figures a patch writes that the document does not already state, in the
+ * order they appear (`["40", "250+"]`). A range yields one entry per figure.
+ *
+ * Not a gate. A figure the user cannot stand behind in an interview costs more
+ * than the bullet gains, so the panel turns these into a note to check before
+ * accepting, and the playbooks prefer a conservative shape. A figure the
+ * source already states is not reported, and commas do not make two figures of
+ * one (`1,000`).
+ */
+export function addedFigures(resume: Resume, patch: ResumePatch): string[] {
+  const known = new Set(figuresIn(claimText(resume).join("\n")).keys())
+  const out: string[] = []
+  for (const [figure, display] of figuresIn(addedText(patch))) {
+    if (!known.has(figure)) out.push(display)
+  }
+  return out
+}
+
+/** Normalized figure to the first spelling it appeared in. */
+function figuresIn(text: string): Map<string, string> {
+  const found = new Map<string, string>()
+  for (const match of text.matchAll(FIGURE)) {
+    const display = match[1]
+    if (display === undefined) continue
+    const figure = display.replaceAll(",", "")
+    if (!found.has(figure)) found.set(figure, display)
+  }
+  return found
+}
+
+/**
+ * The text that can back a figure. Not `collectText`: a digit in the phone
+ * number, the email or a start date is not a claim, and counting it as one
+ * would silence the note for a figure the resume does not actually state.
+ */
+function claimText(resume: Resume): string[] {
+  const out: string[] = [resume.basics.name]
+  const basics = resume.basics
+  if (basics.headline) out.push(basics.headline)
+  if (basics.location) out.push(basics.location)
+  if (basics.summary) out.push(basics.summary)
+  collectStrings(basics.links, out)
+  collectStrings(resume.sections, out)
+  return out
+}
+
+/** Every string a patch adds, wherever the op keeps it. */
+function addedText(patch: ResumePatch): string {
+  const out: string[] = []
+  if (patch.op === "replace_text") out.push(patch.after)
+  if (patch.op === "update_fields") collectStrings(patch.after, out)
+  if (patch.op === "insert_after") collectStrings(patch.node, out)
+  return out.join("\n")
+}
+
+/** Strings inside an unknown node, minus the keys that are never claims. */
+function collectStrings(value: unknown, out: string[]): void {
+  if (typeof value === "string") {
+    out.push(value)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectStrings(entry, out)
+    return
+  }
+  if (typeof value === "object" && value !== null) {
+    for (const [key, entry] of Object.entries(value)) {
+      if (NOT_CLAIM.has(key)) continue
+      collectStrings(entry, out)
+    }
+  }
+}
+
+/**
  * The deterministic gate every model-proposed patch passes through, on the
  * server before persisting and again at accept time against the current head.
- * Shape, scope, field and op limits, and a dry run of the whole set.
+ * Shape, tier, scope, field limits, and a dry run of the whole set.
  */
 export function validatePatches(
   resume: Resume,
@@ -540,16 +810,11 @@ export function validatePatches(
     }
     const patch = parsed.data
 
-    // 2. Op allowed for this skill.
-    if (!ctx.allowedOps.includes(patch.op)) {
-      reject("OP_NOT_ALLOWED", patch.op)
-      return
-    }
-
-    // 3. Target or parent exists.
+    // 2. Target or parent exists. `"root"` is the pseudo-parent the top-level
+    // sections live under, so it is present by definition.
     let target: NodeRef | undefined
     if (patch.op === "insert_after") {
-      if (!index.has(patch.parentId)) {
+      if (patch.parentId !== ROOT_PARENT && !index.has(patch.parentId)) {
         reject("PARENT_NOT_FOUND", patch.parentId)
         return
       }
@@ -566,7 +831,15 @@ export function validatePatches(
       }
     }
 
-    // 4. Scope.
+    // 3. Tier. The user asked for restructuring, or this is refused.
+    const structural = tierReason(index, patch, target)
+    if (structural && !ctx.allowStructural) {
+      reject("STRUCTURAL_NOT_REQUESTED", structural)
+      return
+    }
+
+    // 4. Scope. `"root"` is outside every scope, because a selection is never
+    // the whole document.
     if (ctx.scopeNodeId) {
       const id =
         patch.op === "insert_after" ? patch.parentId : patch.targetNodeId
@@ -579,44 +852,67 @@ export function validatePatches(
     // 5. Field allowed.
     if (patch.op === "replace_text" && target) {
       const allowed = textFields(target.kind, target.node)
-      const narrowed = ctx.allowedFields?.[target.kind]
-      if (
-        !allowed.includes(patch.field) ||
-        (narrowed && !narrowed.includes(patch.field))
-      ) {
+      if (!allowed.includes(patch.field)) {
         reject("FIELD_NOT_ALLOWED", patch.field)
         return
       }
     }
-    if (patch.op === "update_fields") {
+    if (patch.op === "update_fields" && target) {
+      if (!sameKeySet(patch.before, Object.keys(patch.after))) {
+        reject("BEFORE_MISMATCH", "before and after must list the same fields")
+        return
+      }
       for (const key of Object.keys(patch.after)) {
         if (PROTECTED_FIELDS.has(key)) {
           reject("FIELD_NOT_ALLOWED", key)
           return
         }
+        const field = nodeField(target.kind, target.node, key)
+        if (!field) {
+          reject("FIELD_NOT_ALLOWED", key)
+          return
+        }
+        if (field === "required" && (patch.after[key] ?? null) === null) {
+          reject("REQUIRED_FIELD", key)
+          return
+        }
       }
     }
 
-    // 8. Move bounds.
+    // 6. Move bounds, against the destination when the move crosses parents.
     if (patch.op === "move" && target) {
-      const parent = target.parentId ? index.get(target.parentId) : null
-      const size = siblingCount(resume, target)
-      if (patch.toIndex >= size) {
-        reject("INDEX_OUT_OF_RANGE", `${patch.toIndex} of ${size}`)
+      const toParentId = patch.toParentId
+      if (
+        toParentId !== undefined &&
+        toParentId !== (target.parentId ?? ROOT_PARENT)
+      ) {
+        const destination = childArray(resume, toParentId)
+        if (!destination) {
+          reject("PARENT_NOT_FOUND", toParentId)
+          return
+        }
+        if (patch.toIndex > destination.array.length) {
+          reject(
+            "INDEX_OUT_OF_RANGE",
+            `${patch.toIndex} of ${destination.array.length + 1}`
+          )
+          return
+        }
+      } else if (patch.toIndex >= siblingCount(resume, target)) {
+        reject("INDEX_OUT_OF_RANGE", `${patch.toIndex}`)
         return
       }
-      void parent
     }
 
-    // 9. Non-empty text.
+    // 7. Non-empty text.
     if (patch.op === "replace_text" && patch.after.trim() === "") {
       reject("EMPTY_TEXT", patch.field)
       return
     }
 
-    // 6, 7 and 10. Dry-run against the accumulated set: `before` equality
-    // (rule 6), `insert_after.node` parsing as the parent's child kind
-    // (rule 7, reported as KIND_MISMATCH), and the whole-document re-check.
+    // Dry-run against the accumulated set: `before` equality,
+    // `insert_after.node` parsing as the parent's child kind (reported as
+    // KIND_MISMATCH), and the whole-document re-check.
     const dry = applyStrict(resume, [...valid, patch], { stopOnError: true })
     const problem = dry.failed[0]
     if (problem) {

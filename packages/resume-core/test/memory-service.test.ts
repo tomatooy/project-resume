@@ -144,3 +144,42 @@ describe("MemoryService.history", () => {
     expect(history[0]?.parts).toEqual([{ type: "text", text: "message 1" }])
   })
 })
+
+describe("MemoryService.clearConversation", () => {
+  it("drops the transcript and the summary behind it", async () => {
+    const h = await seeded()
+    h.summarizer.result = SUMMARY
+    await h.say(12)
+    await h.memoryService.maybeConsolidate(h.conversationId)
+
+    await h.memoryService.clearConversation(h.conversationId)
+
+    const context = await h.memoryService.buildContext(h.conversationId)
+    expect(context.summaryText).toBeNull()
+    expect(context.messages).toEqual([])
+    expect(await h.memoryService.history(h.conversationId)).toEqual([])
+    expect(h.db.summaries).toEqual([])
+    expect(await h.summaries.findActive(h.conversationId)).toBeNull()
+  })
+
+  it("leaves another conversation's history alone", async () => {
+    const h = await seeded()
+    await h.say(3)
+    const { id: otherResumeId } = await h.resumeService.create({
+      title: "Other",
+    })
+    const { id: otherConversationId } =
+      await h.conversations.getOrCreate(otherResumeId)
+    await h.messages.append({
+      conversationId: otherConversationId,
+      role: "user",
+      parts: [{ type: "text", text: "elsewhere" }],
+      agentRunId: null,
+      metadata: {},
+    })
+
+    await h.memoryService.clearConversation(h.conversationId)
+
+    expect(await h.memoryService.history(otherConversationId)).toHaveLength(1)
+  })
+})

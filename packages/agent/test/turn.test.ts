@@ -1,7 +1,15 @@
 import type { UIMessage } from "ai"
+import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it } from "vitest"
 
-import { checkFitState } from "../src/turn"
+import { checkFitState, startTurn } from "../src/turn"
+import {
+  fixture,
+  rewrite,
+  testModels,
+  textStream,
+  textThenToolStream,
+} from "./mock"
 
 function message(parts: UIMessage["parts"]): UIMessage {
   return { id: "m1", role: "assistant", parts }
@@ -132,5 +140,70 @@ describe("checkFitState", () => {
     expect(
       checkFitState(message([{ type: "text", text: "Tightened two bullets." }]))
     ).toBe("none")
+  })
+})
+
+/**
+ * What the browser actually receives. The store rule is tested in
+ * `messages.test.ts`; this is the wire, and the two have to agree or a reload
+ * shows something the stream never did.
+ */
+describe("startTurn", () => {
+  const { resume, bullet } = fixture()
+  const good = rewrite(bullet, `${bullet.text} Shipped on time.`)
+
+  function turn(model: MockLanguageModelV3): Response {
+    return startTurn({
+      state: {
+        loadedSkillIds: [],
+        selectedNodeId: bullet.id,
+        allowStructural: false,
+      },
+      resume,
+      models: testModels(model),
+      runId: "run-1",
+      persist: async () => [],
+      recordPlan: async () => undefined,
+      addSkill: async () => undefined,
+      memory: {
+        summaryText: null,
+        messages: [{ role: "user", content: "Tighten this" }],
+      },
+      originalMessages: [],
+      metadata: { hintSkillId: "bullet_rewrite" },
+      onSettled: async () => undefined,
+    })
+  }
+
+  async function chunkTypes(response: Response): Promise<string[]> {
+    const body = await response.text()
+    return body
+      .split("\n\n")
+      .map((line) => line.replace(/^data: /, ""))
+      .filter((line) => line.length > 0 && line !== "[DONE]")
+      .map((line) => (JSON.parse(line) as { type: string }).type)
+  }
+
+  it("never streams the notes of a step that called a tool", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [
+        textThenToolStream(
+          "Let me think about which bullet to change.",
+          "propose_patches",
+          { patches: [good], summary: "Tightened the selected bullet." }
+        ),
+      ],
+    })
+    const types = await chunkTypes(turn(model))
+    expect(types).not.toContain("text-delta")
+    expect(types).toContain("tool-input-available")
+  })
+
+  it("still streams a turn that never proposed", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [textStream("Which bullet do you mean?")],
+    })
+    const types = await chunkTypes(turn(model))
+    expect(types).toContain("text-delta")
   })
 })

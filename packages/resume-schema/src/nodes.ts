@@ -1,4 +1,22 @@
-import type { Basics, Bullet, Item, Link, Resume, Section } from "./schema"
+import type { z } from "zod"
+
+import {
+  BasicsSchema,
+  BulletSchema,
+  CustomItemSchema,
+  EducationItemSchema,
+  ExperienceItemSchema,
+  LinkSchema,
+  ProjectItemSchema,
+  SectionSchema,
+  SkillsGroupSchema,
+  type Basics,
+  type Bullet,
+  type Item,
+  type Link,
+  type Resume,
+  type Section,
+} from "./schema"
 
 export type NodeKind = "basics" | "section" | "item" | "bullet" | "link"
 
@@ -102,9 +120,14 @@ export function findNode(resume: Resume, id: string): NodeRef | undefined {
   return indexNodes(resume).get(id)
 }
 
-/** Fields of each node kind that `replace_text` may target. */
+/**
+ * Fields of each node kind that `replace_text` may target. Contact details
+ * and link URLs are here as well: a typo in an email address is exactly the
+ * kind of edit a resume needs, and `update_fields` alone cannot reach a field
+ * that is already present.
+ */
 const TEXT_FIELDS: Record<NodeKind, readonly string[]> = {
-  basics: ["headline", "summary"],
+  basics: ["headline", "summary", "name", "email", "phone", "location"],
   section: ["title"],
   item: [
     "role",
@@ -118,7 +141,56 @@ const TEXT_FIELDS: Record<NodeKind, readonly string[]> = {
     "label",
   ],
   bullet: ["text"],
-  link: ["label"],
+  link: ["label", "url"],
+}
+
+const ITEM_SCHEMAS: Record<Item["kind"], z.ZodObject> = {
+  experience: ExperienceItemSchema,
+  education: EducationItemSchema,
+  project: ProjectItemSchema,
+  skills: SkillsGroupSchema,
+  custom: CustomItemSchema,
+}
+
+const NODE_SCHEMAS: Record<Exclude<NodeKind, "item">, z.ZodObject> = {
+  basics: BasicsSchema,
+  section: SectionSchema,
+  bullet: BulletSchema,
+  link: LinkSchema,
+}
+
+/**
+ * Whether a node's own schema accepts this field, and whether the field may be
+ * cleared.
+ *
+ * `undefined` means the node has no such field, which `update_fields` refuses.
+ * A field the schema declares optional is the one kind `null` may clear. The
+ * answer is read off the schema rather than a second list of field names, so
+ * the two cannot disagree when a field is added.
+ */
+export function nodeField(
+  kind: NodeKind,
+  node: unknown,
+  field: string
+): "required" | "optional" | undefined {
+  const record =
+    typeof node === "object" && node !== null
+      ? (node as Record<string, unknown>)
+      : undefined
+  let schema: z.ZodObject | undefined
+  if (kind === "item") {
+    const itemKind = record?.kind
+    schema =
+      typeof itemKind === "string" && itemKind in ITEM_SCHEMAS
+        ? ITEM_SCHEMAS[itemKind as Item["kind"]]
+        : undefined
+  } else {
+    schema = NODE_SCHEMAS[kind]
+  }
+  const fieldSchema = schema?.shape[field]
+  if (!fieldSchema) return undefined
+  // Zod deprecates `isOptional` in favour of exactly this probe.
+  return fieldSchema.safeParse(undefined).success ? "optional" : "required"
 }
 
 /**

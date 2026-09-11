@@ -24,9 +24,12 @@ describe("createModels", () => {
     })
   })
 
-  it("turns thinking off for DeepSeek", () => {
+  it("gives the smart tier a private channel and keeps the fast tier flat", () => {
     const models = createModels({ provider: "deepseek", apiKey: "k" })
-    expect(models.providerOptions).toEqual({
+    expect(models.providerOptions.smart).toEqual({
+      deepseek: { thinking: { type: "enabled" } },
+    })
+    expect(models.providerOptions.fast).toEqual({
       deepseek: { thinking: { type: "disabled" } },
     })
   })

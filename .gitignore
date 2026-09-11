@@ -29,3 +29,5 @@ ds-bundle/
 .design-sync/learnings/
 .design-sync/node_modules
 packages/ui/.ds-css/ds.css
+
+.pi

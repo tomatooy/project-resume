@@ -38,12 +38,56 @@ export const RejectedPatchSchema = z.object({
   message: z.string(),
 })
 
+/**
+ * The `plan` tool's input: one line saying what the turn is about to do. The
+ * harness does not require it (nothing safety-relevant hangs off it), but the
+ * prompt does, so a turn that skipped planning is visible as a turn with no
+ * opening line. Rows written while the input also carried the playbooks the
+ * model intended to load still parse: `z.object` strips the unknown key.
+ */
+export const TurnPlanSchema = z.object({
+  summary: z.string().min(1).max(300),
+})
+export type TurnPlan = z.infer<typeof TurnPlanSchema>
+
+/** `plan`'s output. It echoes the input, because a stored part keeps outputs. */
+export const PlanOutputSchema = TurnPlanSchema
+export type PlanOutput = TurnPlan
+
 export const ProposedSuggestionSchema = z.object({
   id: z.string(),
   ordinal: z.number().int(),
   patch: ResumePatchSchema,
 })
 export type ProposedSuggestion = z.infer<typeof ProposedSuggestionSchema>
+
+/** One playbook as `load_skill` returns it. */
+export const LoadedSkillSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  body: z.string(),
+})
+export type LoadedSkill = z.infer<typeof LoadedSkillSchema>
+
+/**
+ * `load_skill`'s output. Unknown ids are answered rather than thrown, and
+ * `validIds` is the whole library, so a model that guessed still finds its way.
+ * `overCap` is the same courtesy for the turn's playbook limit: the ids it
+ * refused, so the model learns the ceiling from the tool rather than from a
+ * refusal it cannot see.
+ *
+ * `overCap` carries a default because rows stored before the limit existed
+ * still have to parse. The transcript read path drops a part it cannot parse,
+ * so a required key here would silently erase the chips of every older turn.
+ */
+export const LoadSkillOutputSchema = z.object({
+  loaded: z.array(LoadedSkillSchema),
+  unknown: z.array(z.string()),
+  alreadyLoaded: z.array(z.string()),
+  overCap: z.array(z.string()).default([]),
+  validIds: z.array(z.string()),
+})
+export type LoadSkillOutput = z.infer<typeof LoadSkillOutputSchema>
 
 /** What `propose_patches` returns, and therefore what a suggestion group renders from. */
 export const ProposeOutputSchema = z.object({
@@ -52,11 +96,31 @@ export const ProposeOutputSchema = z.object({
   rejected: z.array(RejectedPatchSchema),
   gaps: z.array(z.string()),
   followUpQuestion: z.string().optional(),
+  /**
+   * The one sentence the turn shows above its cards. Optional here because a
+   * row stored before it existed still has to parse; the tool requires it of
+   * the model.
+   */
+  summary: z.string().optional(),
 })
 export type ProposeOutput = z.infer<typeof ProposeOutputSchema>
 
 export const MessagePartSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({
+    type: z.literal("tool-plan"),
+    toolCallId: z.string(),
+    state: ToolStateSchema,
+    output: PlanOutputSchema.optional(),
+    errorText: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("tool-load_skill"),
+    toolCallId: z.string(),
+    state: ToolStateSchema,
+    output: LoadSkillOutputSchema.optional(),
+    errorText: z.string().optional(),
+  }),
   z.object({
     type: z.literal("tool-check_fit"),
     toolCallId: z.string(),
@@ -75,10 +139,15 @@ export const MessagePartSchema = z.discriminatedUnion("type", [
 export type MessagePart = z.infer<typeof MessagePartSchema>
 
 export const MessageMetadataSchema = z.object({
+  /** The playbooks the turn loaded, for a row that recorded them. */
+  skillIds: z.array(z.string()).optional(),
+  /** The playbook the composer hinted at. Advisory, kept for the record. */
+  hintSkillId: z.string().optional(),
+  /** Structural edits were enabled when this turn was sent. */
+  structural: z.boolean().optional(),
+  /** Tolerated on rows stored before `hintSkillId` replaced it. */
   skillId: z.string().optional(),
   selectedNodeId: z.string().optional(),
-  /** The page target the run was given, so a fit chip can say "over". */
-  targetPages: z.number().int().min(1).max(4).optional(),
   /** The user pressed Stop; the assistant text is whatever had streamed. */
   stopped: z.boolean().optional(),
 })

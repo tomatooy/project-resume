@@ -143,6 +143,6 @@ describe("TailorService", () => {
     const runs = h.db.runs
     expect(runs).toHaveLength(1)
     expect(runs[0]?.resumeId).toBe(result.resume.id)
-    expect(runs[0]?.skillId).toBe("tailor_from_job")
+    expect(runs[0]?.hintSkillId).toBe("tailor_from_job")
   })
 })

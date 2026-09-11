@@ -29,8 +29,14 @@ function proposeResult(): Part {
     type: "tool-propose_patches",
     toolCallId: "c2",
     state: "output-available",
-    input: { patches: [] },
-    output: { runId: "r1", suggestions: [], rejected: [], gaps: [] },
+    input: { patches: [], summary: "Tightened three bullets." },
+    output: {
+      runId: "r1",
+      suggestions: [],
+      rejected: [],
+      gaps: [],
+      summary: "Tightened three bullets.",
+    },
   } as Part
 }
 

@@ -12,4 +12,9 @@ export interface MessageRepository {
     limit: number
   ): Promise<ChatMessage[]>
   countAfter(conversationId: string, afterSeq: number | null): Promise<number>
+  /**
+   * Drops the whole transcript. The conversation row stays, so its id and the
+   * runs recorded against it survive the clear.
+   */
+  clearForConversation(conversationId: string): Promise<void>
 }

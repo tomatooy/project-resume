@@ -11,7 +11,10 @@ import {
   setTemplate as setTemplateFn,
   updateResume as updateResumeFn,
 } from "@/server/fns/resumes"
-import { getOrCreateConversation as getOrCreateConversationFn } from "@/server/fns/conversations"
+import {
+  clearConversation as clearConversationFn,
+  getOrCreateConversation as getOrCreateConversationFn,
+} from "@/server/fns/conversations"
 import { importResume as importResumeFn } from "@/server/fns/import"
 import {
   fetchJobPosting as fetchJobPostingFn,
@@ -184,6 +187,9 @@ export const restoreVersion = guard(restoreVersionFn)
 /* -------------------------------------------------- conversations, runs */
 
 export const getOrCreateConversation = guard(getOrCreateConversationFn)
+
+/** Forgets the conversation: transcript and memory, never the resume. */
+export const clearConversation = guard(clearConversationFn)
 
 /**
  * Rebuilds an `ApiError` from the JSON the chat route answers with when it

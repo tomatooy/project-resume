@@ -1,21 +1,17 @@
 /**
  * Everything the app is allowed to know about the model side, and nothing
- * else. Prompts, tools, the run loop and the scope rules stay inside; a
+ * else. The prompts, the tool bodies and the visibility rule stay inside; a
  * caller gets a turn, a parser, a summarizer, the models, and the message
- * conversions.
+ * conversions. The playbook catalog has its own subpath (`./skills`), which is
+ * the client-safe half of the library.
  */
 export { fromUIMessage, toModelMessages, toUIMessage } from "./messages"
-export { createModels, type Models } from "./models"
+export { type Models, type ModelTier, createModels } from "./models"
 export { createJobParser, createResumeTailor } from "./job"
 export { createResumeParser } from "./parser"
-export {
-  type ResumeSkill,
-  type SkillContext,
-  skills,
-} from "./skills/index"
 export { createSummarizer } from "./summarizer"
+export type { AgentTools, TurnState } from "./tools"
 export {
-  type AgentTools,
   TURN_ERROR_TEXT,
   type TurnOutcome,
   checkFitAnswer,

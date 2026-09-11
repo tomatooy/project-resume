@@ -23,11 +23,10 @@ import type { RunService } from "./run-service"
 import type { VersionService } from "./version-service"
 
 /**
- * Deliberately not a member of the `SKILLS` registry. A skill is something the
- * assistant chooses between mid-conversation and whose patches are checked
- * against an op and field whitelist; this is neither, and adding it to the
- * registry would put a whole-document writer behind a union that promises
- * patch validation.
+ * Deliberately not a playbook: it is a whole-document writer for the
+ * tailoring flow, not something the assistant chooses between mid-conversation
+ * and not a patch producer. Its id lands on the run row as the hint, which is
+ * where a reader can tell which writer produced the version.
  */
 export const TAILOR_SKILL_ID = "tailor_from_job"
 
@@ -155,7 +154,7 @@ export class TailorService {
     const run = await this.runs.startForCreation({
       conversationId: conversation.id,
       resumeId: created.id,
-      skillId: TAILOR_SKILL_ID,
+      hintSkillId: TAILOR_SKILL_ID,
       model: parseModel,
       // Ids only. `finish` clears this column anyway; the link row is what
       // makes the posting recoverable afterwards.

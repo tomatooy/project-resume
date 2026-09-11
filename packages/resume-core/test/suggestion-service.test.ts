@@ -1,21 +1,28 @@
 import type { ResumePatch } from "@workspace/resume-schema"
 import { describe, expect, it } from "vitest"
 
-import { firstBullet, harness, only, rewriteBullet } from "./harness"
+import { firstBullet, firstItem, harness, only, rewriteBullet } from "./harness"
 
-async function seeded(skillId = "bullet_rewrite") {
+async function seeded(hintSkillId = "bullet_rewrite", structural = false) {
   const h = harness()
   const { id: resumeId } = await h.resumeService.create({ title: "CV" })
   const { id: conversationId } = await h.conversations.getOrCreate(resumeId)
   const run = await h.runService.start({
     conversationId,
     resumeId,
-    skillId,
+    hintSkillId,
     model: "test-model",
+    structural,
     input: {},
   })
   const record = await h.resumeService.get(resumeId)
-  return { ...h, resumeId, run, bullet: firstBullet(record.data) }
+  return {
+    ...h,
+    resumeId,
+    run,
+    bullet: firstBullet(record.data),
+    item: firstItem(record.data),
+  }
 }
 
 describe("SuggestionService.decide", () => {
@@ -112,19 +119,19 @@ describe("SuggestionService.decide", () => {
     expect(firstBullet(result.head).text).toBe(h.bullet.text)
   })
 
-  it("re-applies the skill's op whitelist on the server", async () => {
-    // `bullet_rewrite` may only replace text. A delete reaching accept time,
-    // however it got persisted, must not land.
-    const h = await seeded("bullet_rewrite")
-    const deletion: ResumePatch = {
+  it("re-applies the structural gate the run was proposed under", async () => {
+    // Removing an item is structural, and accept-time validation reads the
+    // flag stored on the run rather than the panel's current toggle.
+    const h = await seeded("bullet_rewrite", false)
+    const removal: ResumePatch = {
       op: "delete",
-      targetNodeId: h.bullet.id,
-      before: { id: h.bullet.id, text: h.bullet.text },
+      targetNodeId: h.item.id,
+      before: h.item.node,
       reason: "Not needed.",
       skillId: "bullet_rewrite",
     }
     const suggestion = only(
-      await h.suggestionService.persistProposal(h.run.id, [deletion])
+      await h.suggestionService.persistProposal(h.run.id, [removal])
     )
 
     const result = await h.suggestionService.decide({
@@ -136,14 +143,17 @@ describe("SuggestionService.decide", () => {
     expect(result.version).toBeUndefined()
   })
 
-  it("keeps the grounded numbers a suggestion was proposed with", async () => {
-    // The number came from a job description that is not retained past the
-    // run. Re-deriving grounding text from the resume alone would reject it.
-    const h = await seeded()
+  it("accepts a structural patch on a run that enabled restructuring", async () => {
+    const h = await seeded("bullet_rewrite", true)
+    const removal: ResumePatch = {
+      op: "delete",
+      targetNodeId: h.item.id,
+      before: h.item.node,
+      reason: "Not needed.",
+      skillId: "bullet_rewrite",
+    }
     const suggestion = only(
-      await h.suggestionService.persistProposal(h.run.id, [
-        rewriteBullet(h.bullet, "Cut render time by 40% across the fleet."),
-      ])
+      await h.suggestionService.persistProposal(h.run.id, [removal])
     )
 
     const result = await h.suggestionService.decide({
@@ -152,7 +162,7 @@ describe("SuggestionService.decide", () => {
     })
 
     expect(result.results[0]?.status).toBe("accepted")
-    expect(firstBullet(result.head).text).toContain("40%")
+    expect(result.version?.createdBy).toBe("agent")
   })
 
   it("applies several accepted patches in ordinal order", async () => {

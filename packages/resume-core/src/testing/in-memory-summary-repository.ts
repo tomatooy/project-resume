@@ -25,4 +25,11 @@ export class InMemorySummaryRepository implements SummaryRepository {
     this.db.activeSummaries.set(conversationId, row.id)
     return row
   }
+
+  async clearForConversation(conversationId: string): Promise<void> {
+    this.db.summaries = this.db.summaries.filter(
+      (summary) => summary.conversationId !== conversationId
+    )
+    this.db.activeSummaries.delete(conversationId)
+  }
 }

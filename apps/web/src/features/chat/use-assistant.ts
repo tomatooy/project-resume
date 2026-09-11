@@ -1,6 +1,5 @@
 import { useChat } from "@ai-sdk/react"
 import { useNavigate } from "@tanstack/react-router"
-import { stampSkillId } from "@workspace/resume-core"
 import { ResumePatchSchema, type ResumePatch } from "@workspace/resume-schema"
 import { DefaultChatTransport } from "ai"
 import { useCallback, useMemo, useRef, useState } from "react"
@@ -11,23 +10,26 @@ import { useDecideSuggestions } from "@/lib/queries"
 import type {
   ChatTurnInputs,
   ChatUIMessage,
-  SkillId,
   SuggestionStatus,
 } from "@/lib/types"
 import { useResumeState, useSession } from "../resume/session-context"
 
 export type SendOptions = {
-  skillId: SkillId
+  /**
+   * The playbook the composer hinted at. Advisory: it travels with the request
+   * for the record and a label, and the model may ignore it.
+   */
+  hintSkillId?: string
   selectedNodeId: string | null
-  jobDescription?: string
-  targetPages?: number
+  /** The user enabled removing and restructuring for this turn. */
+  structural?: boolean
 }
 
 /**
  * The panel's side of `/api/chat`.
  *
  * `useChat` owns the transcript and the stream; this wraps it with the three
- * things the route and the editor need around it: the skill inputs travel in
+ * things the route and the editor need around it: the turn inputs travel in
  * the request body, a `check_fit` call is answered by rendering the document
  * here in the browser, and suggestion statuses are kept beside the messages
  * because a card's patch is in the transcript but its decision is not.
@@ -113,13 +115,11 @@ export function useAssistant({
     // DOMMatrix on load, which does not exist while the panel is being
     // server-rendered. The same reason PdfViewer is lazy.
     const { checkFit } = await import("../resume/preview/check-fit")
-    const skillId = lastSend.current?.skillId ?? "condense_to_pages"
+    // Drafts are the model's candidates, not stored suggestions, so they are
+    // parsed here without a playbook tag: `skillId` is attribution and is
+    // optional. Malformed drafts are skipped rather than failing the count.
     const patches: ResumePatch[] = []
-    // Drafts carry no skill tag yet; the server stamps it on the final
-    // proposal. `stampSkillId` is the same helper the server gate uses, so the
-    // tag the browser measures under cannot disagree with the one that is
-    // enforced. Malformed drafts are skipped rather than failing the count.
-    for (const draft of stampSkillId(drafts, skillId)) {
+    for (const draft of drafts) {
       const parsed = ResumePatchSchema.safeParse(draft)
       if (parsed.success) patches.push(parsed.data)
     }
@@ -157,9 +157,24 @@ export function useAssistant({
     [chat.sendMessage]
   )
 
-  const retry = useCallback(() => {
-    void chat.regenerate({ body: bodyOf(lastSend.current) })
-  }, [chat.regenerate])
+  /**
+   * Re-runs the last turn. With an override, it is how a refused structural
+   * request becomes the one affordance that fixes it: the same message, the
+   * structural flag now set.
+   */
+  const retry = useCallback(
+    (override?: Partial<SendOptions>) => {
+      const base = lastSend.current
+      if (base === null && override === undefined) {
+        void chat.regenerate()
+        return
+      }
+      void chat.regenerate({
+        body: bodyOf({ ...(base ?? { selectedNodeId: null }), ...override }),
+      })
+    },
+    [chat.regenerate]
+  )
 
   const decide = useCallback(
     async (ids: string[], status: "accepted" | "rejected", runId: string) => {
@@ -256,9 +271,8 @@ export function checkFitAnswered({
 function bodyOf(options: SendOptions | null): ChatTurnInputs {
   if (!options) return {}
   return {
-    skillId: options.skillId,
+    hintSkillId: options.hintSkillId,
     selectedNodeId: options.selectedNodeId,
-    jobDescription: options.jobDescription,
-    targetPages: options.targetPages,
+    structural: options.structural,
   }
 }

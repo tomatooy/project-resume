@@ -4,6 +4,7 @@ import { setResponseStatus } from "@tanstack/react-start/server"
 import type { z } from "zod"
 
 import type { Logger } from "./log"
+import { errorClassOf } from "./log"
 
 /**
  * Postgres error codes that mean something specific to a caller. Everything
@@ -123,10 +124,4 @@ export function errorResponse(error: unknown, log: Logger): Response {
     }),
     { status: appError.status, headers }
   )
-}
-
-function errorClassOf(error: unknown): string {
-  if (error instanceof AppError) return error.code
-  if (error instanceof Error) return error.name
-  return typeof error
 }

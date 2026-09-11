@@ -68,6 +68,19 @@ export class MemoryService {
   }
 
   /**
+   * Forgets the conversation: every summary and the whole transcript. The
+   * conversation itself stays, so the panel's id and the runs recorded against
+   * it do; only what the next turn would read goes.
+   *
+   * Summaries first. A clear that fails halfway must not leave the model
+   * remembering a conversation whose transcript the user still sees.
+   */
+  async clearConversation(conversationId: string): Promise<void> {
+    await this.summaries.clearForConversation(conversationId)
+    await this.messages.clearForConversation(conversationId)
+  }
+
+  /**
    * Runs after a completed response, off the request path. Errors propagate so
    * the caller can log the class; nothing is written until the summariser has
    * answered, so a failure leaves the previous summary active.

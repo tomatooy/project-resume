@@ -1,104 +1,100 @@
 import { ArrowUpIcon, StopIcon } from "@phosphor-icons/react"
+import { Switch } from "@workspace/ui/components/switch"
 import { cn } from "@workspace/ui/lib/utils"
-import { useState } from "react"
 
-import { SKILLS, available, needs, skillOf } from "@/lib/skills"
+import { SKILL_META } from "@/lib/skills"
 import type { SkillId } from "@/lib/types"
 import { useResumeState } from "../resume/session-context"
 import type { SendOptions } from "./use-assistant"
 
 /**
- * Where a turn is put together: the skill, the inputs that skill asks for,
- * and the message. Hands the finished turn up as one value, so the panel
- * never has to know which skill wanted a job description.
+ * Where a turn is put together: the message, the playbook chip that shortcut
+ * it, and the flag that allows structural edits.
+ *
+ * A chip is a shortcut, not a mode. Tapping one writes its starter into the
+ * box and remembers the id as a hint; typing anything clears the hint, because
+ * a hint the text no longer reflects is a lie. What the model may do comes
+ * from the request (the structural toggle) and the user's per-patch accept,
+ * never from a chip.
+ *
+ * The job description and the page target used to sit in a context strip here.
+ * Both are the message's job now: a posting is pasted into the turn, and the
+ * page count is measured only when the turn asks about length, so neither has
+ * a slot the request can preset.
  */
 export function Composer({
-  skillId,
-  onSkillChange,
+  draft,
+  onDraftChange,
+  hintSkillId,
+  onHintChange,
+  structural,
+  onStructuralChange,
   busy,
   onSend,
   onStop,
 }: {
-  skillId: SkillId
-  onSkillChange: (skillId: SkillId) => void
+  draft: string
+  onDraftChange: (text: string) => void
+  hintSkillId?: SkillId
+  onHintChange: (skillId: SkillId | undefined) => void
+  structural: boolean
+  onStructuralChange: (structural: boolean) => void
   busy: boolean
   onSend: (text: string, options: SendOptions) => void
   onStop: () => void
 }) {
   const selectedNodeId = useResumeState((s) => s.selectedNodeId)
-  const [draft, setDraft] = useState("")
-  const [jobDescription, setJobDescription] = useState("")
-  const [targetPages, setTargetPages] = useState(1)
-  const skill = skillOf(skillId)
 
   function send() {
     const trimmed = draft.trim()
     if (!trimmed || busy) return
-    setDraft("")
+    onDraftChange("")
     onSend(trimmed, {
-      skillId,
+      hintSkillId,
       selectedNodeId,
-      jobDescription: needs(skill, "jobDescription")
-        ? jobDescription.trim() || undefined
-        : undefined,
-      targetPages: needs(skill, "targetPages") ? targetPages : undefined,
+      structural,
     })
+  }
+
+  function applyStarter(skillId: SkillId, starter: string) {
+    onDraftChange(starter)
+    onHintChange(skillId)
   }
 
   return (
     <div className="flex-none border-t border-border p-3.5">
       <div className="mb-2.5 flex flex-wrap gap-[7px]">
-        {SKILLS.map((option) => (
+        {SKILL_META.map((option) => (
           <button
             key={option.id}
             type="button"
-            disabled={!available(option)}
-            title={
-              available(option)
-                ? option.description
-                : `${option.description} (not in this release)`
-            }
-            onClick={() => onSkillChange(option.id)}
+            title={`${option.whenToUse} Not for: ${option.notFor}`}
+            onClick={() => applyStarter(option.id, option.starter)}
             className={cn(
               "h-[26px] rounded-full border px-2.5 text-[11.5px] transition-colors",
-              option.id === skillId
+              option.id === hintSkillId
                 ? "border-transparent bg-primary font-medium text-primary-foreground"
-                : "border-border bg-paper text-foreground hover:bg-muted",
-              !available(option) &&
-                "cursor-not-allowed opacity-40 hover:bg-paper"
+                : "border-border bg-paper text-foreground hover:bg-muted"
             )}
           >
-            {option.label}
+            {option.name}
           </button>
         ))}
       </div>
 
-      {needs(skill, "targetPages") ? (
-        <label className="mb-2.5 flex items-center gap-2 text-[11.5px] text-muted-foreground">
-          Fit onto
-          <input
-            type="number"
-            min={1}
-            max={4}
-            value={targetPages}
-            onChange={(event) =>
-              setTargetPages(clampPages(event.target.valueAsNumber))
-            }
-            className="h-[26px] w-14 rounded-[7px] border border-border bg-canvas px-2 text-[12px] text-foreground outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/20"
-          />
-          {targetPages === 1 ? "page" : "pages"}
-        </label>
-      ) : null}
-
-      {needs(skill, "jobDescription") ? (
-        <textarea
-          value={jobDescription}
-          onChange={(event) => setJobDescription(event.target.value)}
-          rows={3}
-          placeholder="Paste the job description"
-          className="mb-2.5 w-full resize-y rounded-[9px] border border-border bg-canvas px-2.5 py-2 text-[12px] leading-[1.5] outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/20"
+      <div className="mb-2.5 flex items-center gap-2">
+        <Switch
+          checked={structural}
+          onCheckedChange={onStructuralChange}
+          aria-label="Allow removing and restructuring"
         />
-      ) : null}
+        <span
+          className="text-[11.5px] text-muted-foreground"
+          title="Off, the assistant only rewrites what is already there. On, a turn may also propose removing an item or a section, adding one, or moving a bullet to another entry."
+        >
+          Allow removing and restructuring
+        </span>
+      </div>
 
       <form
         onSubmit={(event) => {
@@ -109,7 +105,11 @@ export function Composer({
       >
         <input
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            onDraftChange(event.target.value)
+            // Editing by hand is the user taking the turn back.
+            if (hintSkillId) onHintChange(undefined)
+          }}
           placeholder="Ask about this resume…"
           aria-label="Message the assistant"
           className="flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-muted-foreground/70"
@@ -136,10 +136,4 @@ export function Composer({
       </form>
     </div>
   )
-}
-
-/** Keeps the page target usable when the number input is cleared or pasted into. */
-function clampPages(value: number): number {
-  if (!Number.isFinite(value)) return 1
-  return Math.min(4, Math.max(1, Math.round(value)))
 }

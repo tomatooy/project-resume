@@ -126,15 +126,28 @@ describe("editing an experience card", () => {
     expect(location).toHaveValue("Berlin")
   })
 
-  it("lets the start month be cleared and re-picked", async () => {
+  // The start is a month picker, not a text box: it opens a calendar and
+  // commits the month of whatever day is chosen. What this still checks is
+  // the whole path the old typing test checked: the pick goes through the
+  // field, the action, the patch engine and the store, and comes back out on
+  // the control.
+  it("lets the start month be re-picked from the picker", async () => {
     const user = userEvent.setup()
     renderCard()
-    const start = screen.getByLabelText<HTMLInputElement>("Start")
+    const start = screen.getByLabelText("Start")
+    expect(start).toHaveTextContent("Jan 2020")
 
-    await user.clear(start)
-    expect(start).toHaveValue("")
+    await user.click(start)
 
-    await user.type(start, "2021-06")
-    expect(start).toHaveValue("2021-06")
+    // The calendar's caption is two transparent dropdowns, month then year.
+    // The month options are 0-based, as react-day-picker numbers them.
+    const [monthSelect] = screen.getAllByRole("combobox")
+    if (!monthSelect) throw new Error("the picker has no month dropdown")
+    await user.selectOptions(monthSelect, "5")
+
+    const day = screen.getByText("15", { selector: "button" })
+    await user.click(day)
+
+    expect(start).toHaveTextContent("Jun 2020")
   })
 })

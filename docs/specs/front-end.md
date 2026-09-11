@@ -7,7 +7,7 @@ Spec version 1.0, 2026-09-01. Read `over-all-design.md` first. Types referenced 
 ## 1. Stack
 
 | Concern | Choice | Package | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Framework | TanStack Start on Cloudflare Workers | `@tanstack/react-start`, `@tanstack/react-router`, `@cloudflare/vite-plugin`, `wrangler` | Vite 8, React 19 |
 | Language | TypeScript 6 strict | | `noUncheckedIndexedAccess` on |
 | Styling (app chrome) | Tailwind v4 + shadcn on Base UI | `@workspace/ui` (existing) | Never used inside templates |
@@ -238,7 +238,7 @@ fonts/SourceSerif4-Variable.ttf (SIL OFL)
 ### 6.4 The three templates
 
 | ID | Layout | Distinguishing traits |
-|---|---|---|
+| --- | --- | --- |
 | `modern` | single column | accent color on name and section rules; 10.5pt body |
 | `classic` | single column | serif headings, centered header, hairline section rules; 11pt body |
 | `compact` | two columns (68/32) | skills, education, links in the narrow right column; 9.5pt body; tuned for one page |
@@ -259,7 +259,7 @@ Runs under Vitest in Node. The browser path is covered by the Playwright test in
 
 ### 7.1 Panel layout
 
-Header: skill picker (segmented control, one skill required before sending), page-target input (only when `condense_to_pages` is selected), and the scoped-node chip when `selectedNodeId` is set (with a clear button). Body: message list. Footer: textarea, JD paste area (only when `jd_match` or `ats_keyword` is selected; stored in component state for the request), Send button, Stop button while streaming.
+Header: the scoped-node chip when `selectedNodeId` is set (with a clear button), or the hinted playbook's name and when-to-use line. A clear control sits with the maximize and close buttons: it confirms first, then deletes the conversation's transcript and the memory summary behind it, and is disabled while a turn is running, since a stream cannot be cleared mid-flight. Body: message list. Footer: playbook chips (each writes its starter into the box and becomes the turn's hint), the structural toggle, then the textarea, Send button and Stop button while streaming. The structural toggle is off by default and travels with every send; it is the only way a turn may propose adding or removing a whole entry (see `back-end.md` section 8.5). There is no job-description box and no page-target box: a posting is pasted into the message, and the page count is measured only when the turn asks about length.
 
 ### 7.2 Transport
 
@@ -271,18 +271,18 @@ const chat = useChat({
     api: '/api/chat',
     body: { conversationId, resumeId },      // static for the life of the panel
   }),
-  sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+  sendAutomaticallyWhen: checkFitAnswered,   // section 7.3
   onToolCall: handleClientTool,              // section 7.3
 })
 
 // Per-request values are passed at send time, never at hook level, to avoid stale values.
 chat.sendMessage(
   { text },
-  { body: { skillId: selectedSkill, selectedNodeId: store.state.selectedNodeId, jobDescription: jdText || undefined, targetPages: targetPages || undefined } },
+  { body: { hintSkillId, selectedNodeId: store.state.selectedNodeId, structural } },
 )
 ```
 
-The client-tool continuation triggered by `sendAutomaticallyWhen` reuses the transport-level body only. The server therefore reads `skillId` and the other per-request fields from the running `agent_runs` row on continuation, not from the request (see `back-end.md` section 8.2 step 5).
+The client-tool continuation triggered by `sendAutomaticallyWhen` reuses the transport-level body only. The server therefore reads `hintSkillId`, `structural` and the other per-request fields from the running `agent_runs` row on continuation, not from the request (see `back-end.md` section 8.2 step 5). `checkFitAnswered` is a local predicate rather than the SDK's `lastAssistantMessageIsCompleteWithToolCalls`, which fires on any tool result and would resubmit the turn that `propose_patches` just ended.
 
 The full UI message list is sent on every request (default transport behavior). The server treats only the last message as new and rebuilds history from Postgres; see `back-end.md` section 8.3.
 
@@ -307,17 +307,20 @@ Do not `await` inside `onToolCall` before calling `addToolOutput`; call it from 
 Each assistant message's parts are rendered in order:
 
 - `text` parts: markdown (headings and code disabled), streamed.
+- `tool-plan` parts: the turn's opening line, rendered as "Plan." followed by its summary, with the playbooks the turn actually loaded (`tool-load_skill` results, `loaded` plus `alreadyLoaded`) as small chips beside it. A chip asks for that one playbook alone.
 - `tool-check_fit` parts: a small inline chip "Checked fit: 2 pages".
-- `tool-propose_patches` parts with `state: 'output-available'`: a **suggestion group** rendered from `output.suggestions` (each already validated and persisted by the server, with a `suggestionId`). Rejected-by-validation items in `output.rejected` render as a collapsed "N suggestions were discarded" line with reasons on expand.
+- `tool-propose_patches` parts with `state: 'output-available'`: the turn's `summary` as a bubble, then a **suggestion group** rendered from `output.suggestions` (each already validated and persisted by the server, with a `suggestionId`), then `gaps`, then `followUpQuestion`. Rejected-by-validation items in `output.rejected` render as a collapsed "N suggestions were discarded" line with reasons on expand; when a rejection is `STRUCTURAL_NOT_REQUESTED` the panel also offers a button that turns the structural toggle on and re-sends the same turn.
 
 Suggestion card:
 
 ```text
-[ skill badge ] [ node breadcrumb: Experience > Acme > bullet 2 ]
+[ attribution: playbook name ] [ node breadcrumb: Experience > Acme > bullet 2 ]
 before / after   (word diff for replace_text; field table for update_fields; full node for insert/delete; from-to for move)
 reason
 [ Accept ] [ Reject ]        group footer: [ Accept all ] [ Reject all ]
 ```
+
+The attribution is the patch's optional `skillId` resolved through the catalog in `@workspace/agent/skills`; a patch the model left untagged has no playbook named on it. A **structural** card, decided by `structuralReason(resume, patch)`, uses the destructive token and leads with a verb that names its target ("Remove Experience > Acme", "Move bullet 2 to Other role") instead of the breadcrumb line, and is excluded from "Accept all".
 
 Hovering a card sets `store.previewPatches = [patch]` so the preview shows the effect; leaving clears it. Cards for suggestions whose status is no longer `pending` render read-only with a status badge.
 
@@ -361,7 +364,7 @@ List of versions (`version_no`, label, `created_by`, time). Selecting a version 
 ## 10. Testing
 
 | Layer | Tool | What |
-|---|---|---|
+| --- | --- | --- |
 | Store and actions | Vitest | patches produce the expected doc; inverse patches restore it |
 | Forms | Vitest + Testing Library | validation messages; date field writes `YYYY-MM`; bullets add/remove |
 | Templates | Vitest (Node) | section 6.5 |

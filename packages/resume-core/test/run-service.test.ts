@@ -10,7 +10,7 @@ async function seeded() {
   const input = {
     conversationId,
     resumeId,
-    skillId: "bullet_rewrite",
+    hintSkillId: "bullet_rewrite",
     model: "test-model",
     input: {},
   }
@@ -42,16 +42,16 @@ describe("RunService.start", () => {
     expect(second.resumeVersionId).toBe(first.resumeVersionId)
   })
 
-  it("keeps the job description on the run until it finishes", async () => {
+  it("keeps the tailor ids on the run until it finishes", async () => {
     const h = await seeded()
 
     const run = await h.runService.start({
       ...h.input,
-      input: { jobDescription: "Senior engineer", targetPages: 1 },
+      input: { jobTargetId: "job-1", sourceResumeId: h.resumeId },
     })
     expect(run.input).toEqual({
-      jobDescription: "Senior engineer",
-      targetPages: 1,
+      jobTargetId: "job-1",
+      sourceResumeId: h.resumeId,
     })
 
     await h.runService.finish(run.id, { status: "completed" })
@@ -102,6 +102,63 @@ describe("RunService.finish", () => {
     expect(stored?.inputTokens).toBe(120)
     expect(stored?.outputTokens).toBe(40)
     expect(stored?.latencyMs).toBe(900)
+  })
+
+  it("records that the step budget ran out with nothing proposed", async () => {
+    const h = await seeded()
+    const run = await h.runService.start(h.input)
+
+    await h.runService.finish(run.id, {
+      status: "completed",
+      budgetExhausted: true,
+    })
+
+    expect((await h.runs.findById(run.id))?.budgetExhausted).toBe(true)
+  })
+})
+
+describe("RunService.cancelRunning", () => {
+  it("closes the open run so the next turn is not refused", async () => {
+    const h = await seeded()
+    const run = await h.runService.start(h.input)
+
+    await h.runService.cancelRunning(h.conversationId, "cleared")
+
+    const stored = await h.runs.findById(run.id)
+    expect(stored?.status).toBe("cancelled")
+    expect(stored?.errorClass).toBe("cleared")
+    expect(await h.runService.findRunning(h.conversationId)).toBeNull()
+  })
+
+  it("leaves a finished run alone", async () => {
+    const h = await seeded()
+    const run = await h.runService.start(h.input)
+    await h.runService.finish(run.id, { status: "completed" })
+
+    await h.runService.cancelRunning(h.conversationId, "cleared")
+
+    expect((await h.runs.findById(run.id))?.status).toBe("completed")
+  })
+})
+
+describe("RunService record", () => {
+  it("keeps the plan and the loaded playbooks on the run", async () => {
+    const h = await seeded()
+    const run = await h.runService.start(h.input)
+
+    await h.runService.recordPlan(run.id, {
+      summary: "Tightening the Acme bullets.",
+    })
+    await h.runService.addSkill(run.id, "bullet_rewrite")
+    await h.runService.addSkill(run.id, "bullet_rewrite")
+    await h.runService.addSkill(run.id, "grammar_clarity")
+
+    const stored = await h.runs.findById(run.id)
+    expect(stored?.plan).toEqual({
+      summary: "Tightening the Acme bullets.",
+    })
+    // Both halves of a continuation may load the same playbook; it is one row.
+    expect(stored?.skillIds).toEqual(["bullet_rewrite", "grammar_clarity"])
   })
 })
 

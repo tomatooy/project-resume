@@ -53,7 +53,7 @@ insert into memory_summaries
   ('66666666-0000-4000-8000-000000000001', '44444444-0000-4000-8000-000000000001',
    '{}', 'private summary', 1, 2, 'demo');
 
-insert into agent_runs (id, conversation_id, resume_id, skill_id, model) values
+insert into agent_runs (id, conversation_id, resume_id, hint_skill_id, model) values
   ('77777777-0000-4000-8000-000000000001', '44444444-0000-4000-8000-000000000001',
    '22222222-0000-4000-8000-000000000001', 'tighten-bullets', 'demo');
 
@@ -158,7 +158,7 @@ with d as (delete from agent_runs where id = '77777777-0000-4000-8000-0000000000
 insert into probe select 'runs_delete', count(*) from d;
 select is((select n from probe where step = 'runs_delete'), 0::bigint, 'B cannot delete A''s agent runs');
 select throws_ok(
-  $$ insert into agent_runs (conversation_id, resume_id, skill_id, model)
+  $$ insert into agent_runs (conversation_id, resume_id, hint_skill_id, model)
      values ('44444444-0000-4000-8000-000000000001', '22222222-0000-4000-8000-000000000001', 'planted', 'demo') $$,
   '42501', null, 'B cannot start a run against A''s resume');
 

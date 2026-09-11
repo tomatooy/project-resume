@@ -1,28 +1,37 @@
 import {
   type MessageMetadata,
   CheckFitOutputSchema,
+  type TurnPlan,
 } from "@workspace/resume-core"
+import type { Resume } from "@workspace/resume-schema"
 import {
   convertToModelMessages,
+  createUIMessageStreamResponse,
   isToolUIPart,
   type LanguageModelUsage,
   type ModelMessage,
   type StopCondition,
   stepCountIs,
   streamText,
+  toUIMessageStream,
   type UIMessage,
   validateUIMessages,
 } from "ai"
 
 import type { Models } from "./models"
-import { resumeContextBlock, summaryBlock } from "./prompts/base"
-import type { ResumeSkill, SkillContext } from "./skills/types"
-import { type PersistProposal, checkFitTool, proposePatchesTool } from "./tools"
+import { buildSystemPrompt } from "./prompts/base"
+import { hideToolStepText } from "./visible"
+import {
+  type AgentTools,
+  TOOL_NAMES,
+  type PersistProposal,
+  type TurnState,
+  buildTools,
+  checkFitTool,
+} from "./tools"
 
-export type AgentTools = {
-  check_fit: typeof checkFitTool
-  propose_patches: ReturnType<typeof proposePatchesTool>
-}
+/** Re-exported so a caller can build what `startTurn` takes from one import. */
+export type { AgentTools, TurnState } from "./tools"
 
 export type TurnMemory = {
   summaryText: string | null
@@ -50,6 +59,8 @@ export type TurnOutcome = {
   usage: TurnUsage
   /** The assistant message as the transcript will hold it. */
   message: UIMessage
+  /** The step budget ran out with nothing proposed. */
+  budgetExhausted: boolean
   /** Present when the turn failed; the caller classifies and logs it. */
   error?: unknown
 }
@@ -57,13 +68,27 @@ export type TurnOutcome = {
 /** What the user sees in place of an answer when the turn breaks. */
 export const TURN_ERROR_TEXT = "The assistant hit a problem. Please try again."
 
-export type StartTurnInput = {
-  skill: ResumeSkill
-  ctx: SkillContext
+export type RunTurnInput = {
+  /** What this turn knows: the selection, the hint, the flag. */
+  state: TurnState
+  resume: Resume
   models: Models
   runId: string
   persist: PersistProposal
+  /** Records the plan line on the run. */
+  recordPlan: (plan: TurnPlan) => Promise<void>
+  /** Appends a playbook the turn loaded to the run row. */
+  addSkill: (id: string) => Promise<void>
   memory: TurnMemory
+  abortSignal?: AbortSignal
+  /**
+   * Fired per completed model turn. Callers sum usage here rather than await
+   * the result's totals, which never settle when the stream is aborted.
+   */
+  onStepEnd?: (step: { usage: LanguageModelUsage }) => void
+}
+
+export type StartTurnInput = RunTurnInput & {
   /** The transcript the browser sent, which the response extends. */
   originalMessages: UIMessage[]
   /** Stamped on the assistant message as it starts. */
@@ -74,22 +99,6 @@ export type StartTurnInput = {
    * had ended, which on Workers means after the isolate may be gone.
    */
   onSettled: (outcome: TurnOutcome) => Promise<void>
-  abortSignal?: AbortSignal
-}
-
-export type RunSkillInput = {
-  skill: ResumeSkill
-  ctx: SkillContext
-  models: Models
-  runId: string
-  persist: PersistProposal
-  memory: TurnMemory
-  abortSignal?: AbortSignal
-  /**
-   * Fired per completed model turn. Callers sum usage here rather than await
-   * the result's totals, which never settle when the stream is aborted.
-   */
-  onStepEnd?: (step: { usage: LanguageModelUsage }) => void
 }
 
 /** Model turns per run. A proposal normally lands in one or two. */
@@ -111,53 +120,54 @@ const proposalAccepted: StopCondition<AgentTools> = ({ steps }) => {
 }
 
 /**
- * The model loop for one skill: the prompt from the skill and what it was
- * shown, the tools bound to this run, and the stop rule.
+ * The model loop for one turn.
+ *
+ * One `streamText` call, one tool set, and nothing that rewrites the request
+ * mid-turn: `activeTools` is the same array on every step, so the provider's
+ * prompt prefix stays cacheable (the SDK rewrites the tools block whenever
+ * `activeTools` changes, which is what missed the cache every step when the
+ * tool set was gated per stage). `plan`, `load_skill` and `propose_patches`
+ * may all run in the same step, so a short turn is one round trip.
+ *
+ * The tool set is handed back beside the result because `toUIMessageStream`
+ * takes it separately: it looks each call's name up there to tell a static
+ * tool from a dynamic one, and without it every tool chunk goes out carrying a
+ * `dynamic: false` the browser never had to see.
  *
  * Exported for this package's own tests, which read the steps back; the app
  * only ever sees `startTurn`.
  */
-export function runSkill(input: RunSkillInput) {
-  const { skill, ctx, models } = input
+export function runTurn(input: RunTurnInput) {
+  const { state, resume, models } = input
 
-  const tools: AgentTools = {
-    check_fit: checkFitTool,
-    propose_patches: proposePatchesTool({
-      runId: input.runId,
-      resume: ctx.resume,
-      persist: input.persist,
-      // Op and field whitelists and the scope anchor are all derived from the
-      // skill id and the selection. What the model was shown (`skill.show`) is
-      // a separate decision from what it is allowed to change, and only the
-      // latter is enforced.
-      validation: {
-        mode: "propose",
-        skillId: skill.id,
-        selectedNodeId: ctx.selectedNodeId,
-        userMessage: ctx.userMessage,
-      },
-    }),
-  }
+  const tools = buildTools({
+    runId: input.runId,
+    resume,
+    state,
+    persist: input.persist,
+    recordPlan: input.recordPlan,
+    addSkill: input.addSkill,
+  })
 
-  const system = [
-    skill.systemPrompt(ctx),
-    input.memory.summaryText ? summaryBlock(input.memory.summaryText) : null,
-    resumeContextBlock(skill.show(ctx)),
-  ]
-    .filter((block): block is string => block !== null)
-    .join("\n\n")
+  const system = buildSystemPrompt({
+    state,
+    resume,
+    summaryText: input.memory.summaryText,
+  })
 
-  return streamText({
+  const result = streamText({
     model: models.smart,
     system,
     messages: input.memory.messages,
     tools,
-    activeTools: skill.tools,
+    activeTools: [...TOOL_NAMES],
     stopWhen: [stepCountIs(MAX_STEPS), proposalAccepted],
-    providerOptions: models.providerOptions,
+    providerOptions: models.providerOptions.smart,
     abortSignal: input.abortSignal,
     onStepEnd: (step) => input.onStepEnd?.({ usage: step.usage }),
   })
+
+  return { result, tools }
 }
 
 /**
@@ -169,23 +179,18 @@ export function runSkill(input: RunSkillInput) {
  * services, the transcript) and is handed a `Response` plus one callback that
  * says how the turn ended.
  *
- * Those rules used to sit in the route, spread across `onStepEnd`, `onError`
- * and `onFinish` closures, which is why they could only be exercised through
- * an HTTP request. They also made the app import the AI SDK directly, against
- * the split this package exists to keep.
+ * The UI stream is piped through the visibility rule, which drops the text of
+ * any step that called a tool and never passes reasoning through. The message
+ * handed to `onSettled` is the unfiltered one: it is only read for the fit
+ * state and the outcome, and the store applies the same rule, so what is
+ * persisted matches what was streamed.
  */
 export function startTurn(input: StartTurnInput): Response {
   const usage: TurnUsage = { inputTokens: 0, outputTokens: 0, steps: 0 }
   let streamError: unknown
 
-  const result = runSkill({
-    skill: input.skill,
-    ctx: input.ctx,
-    models: input.models,
-    runId: input.runId,
-    persist: input.persist,
-    memory: input.memory,
-    abortSignal: input.abortSignal,
+  const { result, tools } = runTurn({
+    ...input,
     // Summed per step rather than read off the result's totals, which never
     // settle when the stream is aborted.
     onStepEnd: (step) => {
@@ -195,15 +200,20 @@ export function startTurn(input: StartTurnInput): Response {
     },
   })
 
-  return result.toUIMessageStreamResponse({
+  const uiStream = toUIMessageStream({
+    stream: result.stream,
+    tools,
     originalMessages: input.originalMessages,
+    // Thinking is the model's own. `models.ts` turns it on for the smart tier,
+    // and nothing downstream should see it.
+    sendReasoning: false,
     messageMetadata: ({ part }) =>
       part.type === "start" ? input.metadata : undefined,
     onError: (error) => {
       streamError = error
       return TURN_ERROR_TEXT
     },
-    onFinish: async ({ responseMessage, isAborted, outcome }) => {
+    onEnd: async ({ responseMessage, isAborted, outcome }) => {
       const failed = outcome.status === "failed"
       const paused =
         !isAborted && !failed && checkFitState(responseMessage) === "awaiting"
@@ -218,10 +228,26 @@ export function startTurn(input: StartTurnInput): Response {
               : "completed",
         usage,
         message: responseMessage,
+        budgetExhausted:
+          !proposedPatches(responseMessage) && usage.steps >= MAX_STEPS,
         error: failed ? (outcome.error ?? streamError) : undefined,
       })
     },
   })
+
+  return createUIMessageStreamResponse({
+    stream: uiStream.pipeThrough(hideToolStepText()),
+  })
+}
+
+/** Whether the turn ever landed a proposal, which is what lets it speak. */
+function proposedPatches(message: UIMessage): boolean {
+  return message.parts.some(
+    (part) =>
+      isToolUIPart(part) &&
+      part.type === "tool-propose_patches" &&
+      part.state === "output-available"
+  )
 }
 
 /**

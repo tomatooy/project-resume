@@ -98,4 +98,12 @@ export class SupabaseMessageRepository implements MessageRepository {
     if (error) throw error
     return count ?? 0
   }
+
+  async clearForConversation(conversationId: string): Promise<void> {
+    const { error } = await this.db
+      .from("messages")
+      .delete()
+      .eq("conversation_id", conversationId)
+    if (error) throw error
+  }
 }

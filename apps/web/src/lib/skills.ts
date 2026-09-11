@@ -1,27 +1,14 @@
-import type {
-  SkillId,
-  SkillRequirement,
-  SkillSpec,
-} from "@workspace/resume-core"
-
 /**
- * The picker reads the registry the route enforces: the same row says what
- * a skill is called, whether it has shipped, and what it needs from the
- * user, so the picker cannot offer a request the server would refuse.
+ * The panel's view of the playbook library.
+ *
+ * It reads the catalog subpath rather than the library, so the playbook bodies
+ * never reach the browser bundle: a chip label, a tooltip and a card's
+ * attribution all need the index, and none of them need the prompt text. The
+ * hint travels to the server as a plain string, because the server answers an
+ * id it does not hold rather than refusing the request.
  */
-export { SKILLS, type SkillSpec, skillOf } from "@workspace/resume-core"
-
-export const DEFAULT_SKILL: SkillId = "bullet_rewrite"
-
-/** Selectable now; a `phase2` skill is listed but disabled. */
-export function available(skill: SkillSpec): boolean {
-  return skill.status === "mvp"
-}
-
-/** Whether the composer must show and send this input for the skill. */
-export function needs(
-  skill: SkillSpec | undefined,
-  input: SkillRequirement
-): boolean {
-  return skill?.requires.includes(input) ?? false
-}
+export {
+  SKILL_META,
+  type SkillId,
+  skillMetaOf,
+} from "@workspace/agent/skills"

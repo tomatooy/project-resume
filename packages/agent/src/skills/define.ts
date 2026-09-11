@@ -1,29 +1,33 @@
-import { SKILL, type SkillId } from "@workspace/resume-core"
-
-import { buildSystemPrompt } from "../prompts/base"
-import { nodeScope, wholeDocument } from "../scope"
-import type { ResumeSkill, SkillContext } from "./types"
+import type { Skill, SkillMeta } from "./types"
 
 /**
- * A skill file adds the one thing the registry cannot hold: what the model
- * is told. Its label, status, whitelists, required inputs, tools and scope
- * all come from the registry row in `resume-core`, which is what the server
- * enforces, so nothing here can disagree with it.
+ * Validates a playbook record.
+ *
+ * There is nothing to enforce beyond the record itself: a playbook carries no
+ * ops, no fields, no scope and no status, so the only way one can be wrong is
+ * by being empty or by claiming an id twice, and the second is the library's
+ * job to check.
  */
-export function defineSkill(definition: {
-  id: SkillId
-  /** The skill's own instructions, appended after the base prompt and contract. */
-  fragment: (ctx: SkillContext) => string
-}): ResumeSkill {
-  const spec = SKILL[definition.id]
-  return {
-    ...spec,
-    show: spec.scope === "node" ? nodeScope : wholeDocument,
-    systemPrompt: (ctx) =>
-      buildSystemPrompt({
-        fragment: definition.fragment(ctx),
-        allowedOps: spec.allowedOps,
-        allowedFields: spec.allowedFields,
-      }),
+export function defineSkill(record: Skill): Skill {
+  for (const [field, value] of Object.entries(record)) {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new Error(`Playbook ${record.id || "(no id)"} has no ${field}`)
+    }
   }
+  return record
+}
+
+/** A playbook paired with its body, which is what `load_skill` hands back. */
+export function skillOf(
+  metas: readonly SkillMeta[],
+  bodies: Record<string, string>
+): Skill[] {
+  const seen = new Set<string>()
+  return metas.map((meta) => {
+    if (seen.has(meta.id)) throw new Error(`Duplicate playbook id ${meta.id}`)
+    seen.add(meta.id)
+    const body = bodies[meta.id]
+    if (body === undefined) throw new Error(`Playbook ${meta.id} has no body`)
+    return defineSkill({ ...meta, body })
+  })
 }

@@ -26,8 +26,10 @@ export const JOB_PARSE_PROMPT = [
 /**
  * The one prompt in this codebase that is allowed to write. Import forbids it
  * and the chat skills propose patches a user accepts one at a time; this call
- * produces a whole document nobody reviews line by line, so the honesty rules
- * are stated here rather than assumed.
+ * produces a whole document, so the honesty rules are stated here rather than
+ * assumed. Identity is closed and figures are open: a bullet that shows scale
+ * the resume never states may gain an estimate, shaped so the candidate can
+ * defend it.
  */
 export const TAILOR_PROMPT = [
   "You rewrite a resume so that it speaks to one specific job posting. You are given the resume and what the posting asks for. Return the whole resume, rewritten.",
@@ -37,7 +39,6 @@ export const TAILOR_PROMPT = [
     "- Never invent an employer, a job title, a school, a qualification, a date, or a project the resume does not already contain.",
     "- Never claim a skill the resume gives no evidence for, however well it would match the posting.",
     "- Never change a company name, a role title, a school, a degree, or any date.",
-    "- Never state a number, a percentage, a headcount, or a currency amount that the resume does not already state. If a bullet has no number, the rewritten bullet has no number.",
   ].join("\n"),
 
   [
@@ -47,6 +48,7 @@ export const TAILOR_PROMPT = [
     "- Drop bullets and items that have nothing to do with this posting, except that every job in the experience section stays. An old or unrelated role may come down to a single line, but removing it would leave a gap in the person's history that is not yours to create.",
     "- Write a summary and a headline aimed at this posting, built only from what the resume already says.",
     "- Group and name skills the way the posting groups and names them, keeping only skills the resume supports. Every group keeps a name of its own; a section heading is not a group name.",
+    "- Add an estimate where a bullet does work the resume never sized: a range, a minimum, an approximation, or a figure derived from a cadence the resume states. Estimate low, and keep the shape one the candidate could defend in an interview.",
   ].join("\n"),
 
   [

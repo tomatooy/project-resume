@@ -34,7 +34,7 @@ async function harness() {
   const run = await services.runs.start({
     conversationId: conversation.id,
     resumeId: summary.id,
-    skillId: "bullet_rewrite",
+    hintSkillId: "bullet_rewrite",
     model: "smart-test",
     selectedNodeId: null,
     input: {},
@@ -45,7 +45,7 @@ async function harness() {
   const open: OpenRun = {
     run,
     model: "smart-test",
-    metadata: { skillId: "bullet_rewrite" },
+    metadata: { hintSkillId: "bullet_rewrite", structural: false },
     startedAt,
   }
   const deps = { services, background, log, now: () => db.now() }
@@ -63,6 +63,7 @@ function outcome(status: TurnOutcome["status"], error?: unknown): TurnOutcome {
     status,
     usage: { inputTokens: 120, outputTokens: 30, steps: 2 },
     message: reply,
+    budgetExhausted: false,
     error,
   }
 }
@@ -83,7 +84,10 @@ describe("settleRun", () => {
     expect(stored).toHaveLength(1)
     expect(stored[0]?.role).toBe("assistant")
     expect(stored[0]?.agentRunId).toBe(run?.id)
-    expect(stored[0]?.metadata).toEqual({ skillId: "bullet_rewrite" })
+    expect(stored[0]?.metadata).toEqual({
+      hintSkillId: "bullet_rewrite",
+      structural: false,
+    })
 
     await h.background.flush()
     expect(h.background.tasks).toHaveLength(1)
@@ -107,7 +111,8 @@ describe("settleRun", () => {
     expect(h.db.runs[0]?.status).toBe("cancelled")
     expect(h.db.runs[0]?.errorClass).toBe("aborted")
     expect(h.db.messages[0]?.metadata).toEqual({
-      skillId: "bullet_rewrite",
+      hintSkillId: "bullet_rewrite",
+      structural: false,
       stopped: true,
     })
   })

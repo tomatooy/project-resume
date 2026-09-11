@@ -4,10 +4,8 @@ import {
   fromUIMessage,
   type Models,
   parseUIMessages,
-  type ResumeSkill,
-  type SkillContext,
-  skills,
   startTurn as startModelTurn,
+  type TurnState,
   toModelMessages,
 } from "@workspace/agent"
 import {
@@ -15,10 +13,9 @@ import {
   AppError,
   type Background,
   type ChatMessage,
-  isSkillId,
   type MessageMetadata,
-  SKILL,
 } from "@workspace/resume-core"
+import type { Resume } from "@workspace/resume-schema"
 import type { ModelMessage, UIMessage } from "ai"
 
 import type { Services } from "../container"
@@ -60,12 +57,12 @@ export async function handleChat(
 
     const turn =
       last.role === "user"
-        ? await startTurn(deps, body, messages, last)
-        : await continueTurn(deps, body, messages, last)
+        ? await openTurn(deps, body, messages, last)
+        : await continueTurn(deps, body, last)
 
     return stream(deps, request, {
       ...turn,
-      ctx: { ...turn.ctx, resume: record.data },
+      resume: record.data,
       originalMessages: messages,
     })
   } catch (error) {
@@ -75,21 +72,22 @@ export async function handleChat(
 
 type Turn = {
   run: AgentRun
-  skill: ResumeSkill
-  ctx: Omit<SkillContext, "resume">
+  /** What the tools agree on for this turn. */
+  state: TurnState
+  /** Stamped on the user message and on the assistant message it opens. */
+  metadata: MessageMetadata
   summaryText: string | null
   modelMessages: ModelMessage[]
 }
 
-/** A user message: check the skill, open a run, store the message. */
-async function startTurn(
+/** A user message: open a run, store the message, build the prompt window. */
+async function openTurn(
   deps: ChatDeps,
   body: ChatRequest,
   messages: UIMessage[],
   last: UIMessage
 ): Promise<Turn> {
   const { services, models } = deps
-  const skill = resolveSkill(body)
   const userMessage = textOf(last)
   if (userMessage.length === 0) {
     throw new AppError("VALIDATION", "The message is empty")
@@ -98,22 +96,22 @@ async function startTurn(
   await services.runs.assertWithinHourlyLimit()
   await supersedeStalledRun(deps, body.conversationId, messages)
 
-  const input = {
-    jobDescription: body.jobDescription || undefined,
-    targetPages: body.targetPages,
-  }
+  const structural = body.structural ?? false
   const run = await services.runs.start({
     conversationId: body.conversationId,
     resumeId: body.resumeId,
-    skillId: skill.id,
+    hintSkillId: body.hintSkillId ?? null,
     model: models.ids.smart,
     selectedNodeId: body.selectedNodeId ?? null,
-    input,
+    structural,
+    input: {},
   })
 
-  const metadata: MessageMetadata = { skillId: skill.id }
-  if (body.selectedNodeId) metadata.selectedNodeId = body.selectedNodeId
-  if (input.targetPages !== undefined) metadata.targetPages = input.targetPages
+  const metadata = metadataFor({
+    hintSkillId: body.hintSkillId,
+    selectedNodeId: body.selectedNodeId,
+    structural,
+  })
 
   const memory = await services.memory.buildContext(body.conversationId)
   const replay =
@@ -141,13 +139,13 @@ async function startTurn(
 
   return {
     run,
-    skill,
-    ctx: {
-      userMessage,
+    state: {
+      loadedSkillIds: [],
       selectedNodeId: body.selectedNodeId ?? undefined,
-      jobDescription: input.jobDescription,
-      targetPages: input.targetPages,
+      hintSkillId: body.hintSkillId ?? undefined,
+      allowStructural: structural,
     },
+    metadata,
     summaryText: memory.summaryText,
     modelMessages,
   }
@@ -176,13 +174,18 @@ function windowEndingAt(
 }
 
 /**
- * The browser answered a `check_fit` call. The run is still open, so the
- * model gets its own turn back with the result attached and carries on.
+ * The browser answered a `check_fit` call. The run is still open, so the model
+ * gets its own turn back with the result attached and carries on.
+ *
+ * The state is rebuilt from the run row and the request, not carried over:
+ * nothing about the first half is remembered except what the row holds, so a
+ * continuation cannot be left in a half-primed stage. `loadedSkillIds` starts
+ * empty on purpose: the loaded bodies were never part of the compacted
+ * transcript, so a playbook has to be loadable again to be usable again.
  */
 async function continueTurn(
   deps: ChatDeps,
   body: ChatRequest,
-  messages: UIMessage[],
   last: UIMessage
 ): Promise<Turn> {
   const { services } = deps
@@ -197,27 +200,34 @@ async function continueTurn(
       "That request has already ended. Send your message again."
     )
   }
-  if (!isSkillId(run.skillId)) {
-    throw new AppError(
-      "CONFLICT",
-      "That request used a skill this release lacks"
-    )
-  }
 
   const memory = await services.memory.buildContext(body.conversationId)
   const tail = await checkFitAnswer(last)
   return {
     run,
-    skill: skills[run.skillId],
-    ctx: {
-      userMessage: lastUserText(messages),
+    state: {
+      loadedSkillIds: [],
       selectedNodeId: run.selectedNodeId ?? undefined,
-      jobDescription: run.input.jobDescription,
-      targetPages: run.input.targetPages,
+      hintSkillId: run.hintSkillId ?? undefined,
+      allowStructural: run.structural,
     },
+    metadata: metadataFor(run),
     summaryText: memory.summaryText,
     modelMessages: [...toModelMessages(memory.messages), ...tail],
   }
+}
+
+/** What the message rows and the panel read back about the request. */
+function metadataFor(facts: {
+  hintSkillId?: string | null
+  selectedNodeId?: string | null
+  structural: boolean
+}): MessageMetadata {
+  const metadata: MessageMetadata = {}
+  if (facts.hintSkillId) metadata.hintSkillId = facts.hintSkillId
+  if (facts.selectedNodeId) metadata.selectedNodeId = facts.selectedNodeId
+  if (facts.structural) metadata.structural = true
+  return metadata
 }
 
 /**
@@ -227,21 +237,15 @@ async function continueTurn(
 function stream(
   deps: ChatDeps,
   request: Request,
-  turn: Turn & { ctx: SkillContext; originalMessages: UIMessage[] }
+  turn: Turn & { resume: Resume; originalMessages: UIMessage[] }
 ): Response {
   const { services, models, now } = deps
-  const { run, skill } = turn
+  const { run, state, metadata } = turn
   const startedAt = now().getTime()
 
-  const metadata: MessageMetadata = { skillId: skill.id }
-  if (turn.ctx.selectedNodeId) metadata.selectedNodeId = turn.ctx.selectedNodeId
-  if (turn.ctx.targetPages !== undefined) {
-    metadata.targetPages = turn.ctx.targetPages
-  }
-
   return startModelTurn({
-    skill,
-    ctx: turn.ctx,
+    state,
+    resume: turn.resume,
     models,
     runId: run.id,
     memory: { summaryText: turn.summaryText, messages: turn.modelMessages },
@@ -249,6 +253,8 @@ function stream(
       const saved = await services.suggestions.persistProposal(run.id, valid)
       return saved.map(({ id, ordinal, patch }) => ({ id, ordinal, patch }))
     },
+    recordPlan: (plan) => services.runs.recordPlan(run.id, plan),
+    addSkill: (id) => services.runs.addSkill(run.id, id),
     originalMessages: turn.originalMessages,
     metadata,
     abortSignal: AbortSignal.any([
@@ -262,26 +268,6 @@ function stream(
         outcome
       ),
   })
-}
-
-/** Registered, shipped, and given what it needs; anything else is a 400. */
-function resolveSkill(body: ChatRequest): ResumeSkill {
-  if (!isSkillId(body.skillId)) {
-    throw new AppError("VALIDATION", "Unknown skill")
-  }
-  const spec = SKILL[body.skillId]
-  if (spec.status !== "mvp") {
-    throw new AppError("VALIDATION", "This skill is not available yet")
-  }
-  for (const requirement of spec.requires) {
-    if (requirement === "jobDescription" && !body.jobDescription) {
-      throw new AppError("VALIDATION", "This skill needs a job description")
-    }
-    if (requirement === "targetPages" && body.targetPages === undefined) {
-      throw new AppError("VALIDATION", "This skill needs a page target")
-    }
-  }
-  return skills[spec.id]
 }
 
 /**
@@ -324,12 +310,4 @@ function textOf(message: UIMessage): string {
     .map((part) => part.text)
     .join("\n")
     .trim()
-}
-
-function lastUserText(messages: UIMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i]
-    if (message?.role === "user") return textOf(message)
-  }
-  return ""
 }

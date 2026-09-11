@@ -239,17 +239,44 @@ describe("applyStrict", () => {
 })
 
 describe("validatePatches", () => {
-  const base = {
-    allowedOps: ["replace_text"] as const,
-  }
+  const base = { allowStructural: false }
 
-  it("rejects an op the skill is not allowed to use", () => {
+  it("refuses a structural patch when the request did not ask for one", () => {
+    const section = onePage.sections[0]
+    if (!section) throw new Error("bad fixture")
     const { rejected } = validatePatches(
       onePage,
-      [{ ...meta, op: "delete", targetNodeId: firstBulletId(), before: {} }],
-      { ...base, allowedOps: [...base.allowedOps] }
+      [
+        {
+          ...meta,
+          op: "delete",
+          targetNodeId: section.id,
+          before: section,
+        },
+      ],
+      base
     )
-    expect(rejected[0]?.code).toBe("OP_NOT_ALLOWED")
+    expect(rejected[0]?.code).toBe("STRUCTURAL_NOT_REQUESTED")
+    expect(rejected[0]?.message).toBe("delete a section")
+  })
+
+  it("allows a structural patch once the flag is set", () => {
+    const section = onePage.sections[0]
+    if (!section) throw new Error("bad fixture")
+    const { valid, rejected } = validatePatches(
+      onePage,
+      [
+        {
+          ...meta,
+          op: "delete",
+          targetNodeId: section.id,
+          before: section,
+        },
+      ],
+      { allowStructural: true }
+    )
+    expect(rejected).toEqual([])
+    expect(valid).toHaveLength(1)
   })
 
   it("keeps patches inside the requested scope", () => {
@@ -270,7 +297,6 @@ describe("validatePatches", () => {
       ],
       {
         ...base,
-        allowedOps: [...base.allowedOps],
         scopeNodeId: onePage.sections[0]?.items[0]?.id,
       }
     )
@@ -289,7 +315,7 @@ describe("validatePatches", () => {
           after: { bullets: [] },
         },
       ],
-      { ...base, allowedOps: ["update_fields"] }
+      base
     )
     expect(rejected[0]?.code).toBe("FIELD_NOT_ALLOWED")
   })

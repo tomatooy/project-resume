@@ -49,6 +49,30 @@ describe("MessagePartSchema", () => {
     ).toBe(true)
   })
 
+  it("fills the playbook limit on a row stored before the limit existed", () => {
+    // The transcript read path drops a part it cannot parse, so a stored
+    // `load_skill` row written before `overCap` existed has to keep parsing.
+    // A required key here would silently erase the chips of every old turn.
+    const parsed = MessagePartSchema.safeParse({
+      type: "tool-load_skill",
+      toolCallId: "call_2",
+      state: "output-available",
+      output: {
+        loaded: [],
+        unknown: [],
+        alreadyLoaded: ["bullet_rewrite"],
+        validIds: ["bullet_rewrite"],
+      },
+    })
+
+    expect(parsed.success).toBe(true)
+    expect(
+      parsed.success && parsed.data.type === "tool-load_skill"
+        ? parsed.data.output?.overCap
+        : undefined
+    ).toEqual([])
+  })
+
   it("rejects parts the app does not know how to render", () => {
     expect(
       MessagePartSchema.safeParse({ type: "reasoning", text: "..." }).success

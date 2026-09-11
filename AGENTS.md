@@ -208,11 +208,14 @@ Server state (TanStack Query):
   (`replace_text`, `update_fields`, `insert_after`, `delete`, `move`), each
   addressed by node id and carrying `before` for grounding. `applyPatches` is
   pure, applies in order on a structural copy, and reports inverses.
-  `validatePatches` is the deterministic gate: shape, op allowed for the skill,
-  target exists, scope, field allowed, `before` matches, move bounds, non-empty
-  text, and the grounding rule (every number in `after` must appear in
-  `before` or the grounding text; this stops invented metrics). It runs on the
-  server before persisting and again at accept time against the current head.
+  `validatePatches` is the deterministic gate: shape, tier, target exists,
+  scope, field allowed, `before` matches, move bounds, non-empty text, and the
+  whole-set dry run. It runs on the server before persisting and again at
+  accept time against the current head. It does not read numbers: a figure the
+  model adds is a proposal the user confirms, not something the validator
+  refuses. `structuralReason` and `addedFigures` are the two pure helpers the
+  panel recomputes on, so a card's destructive treatment and its estimate note
+  come from the same code the server gates with.
 - `packages/resume-schema/src/{format,diff,hash,migrate}.ts`: `formatRange`,
   `diffDocuments` (History compare), `contentHash` / `canonicalJson` (Web
   Crypto, used for version dedupe), `migrateResume` (schema upgrades).
@@ -265,14 +268,15 @@ Server state (TanStack Query):
 
 ## Chat / assistant (`features/chat`)
 
-- The skill registry is one table, `SKILLS` in
-  `resume-core/src/domain/skill.ts`: seven rows, four with status `mvp`
-  (`bullet_rewrite`, `jd_match`, `grammar_clarity`, `condense_to_pages`); the
-  rest render disabled. A row holds the label, status, scope, op and field
-  whitelists, required inputs and tools. `validatePatches`, the chat route,
-  the agent's `defineSkill`, and the picker (`lib/skills.ts`) all read the
-  same row, so none of them can disagree. A skill file in `packages/agent`
-  adds only its prompt fragment.
+- The playbook library lives in `packages/agent/src/skills`. `catalog.ts`
+  holds the client-safe rows (`SKILL_META`: `bullet_rewrite`, `jd_match`,
+  `grammar_clarity`, `condense_to_pages`, `resume_quantifier`,
+  `tech_resume_optimizer`) and is the only part the browser reaches, through
+  the `./skills` subpath export; `playbooks/*.ts` hold the bodies, which no
+  client component loads. A playbook is prompt text only: no ops, no field
+  whitelists, no authority. `skills/index.ts` attaches the bodies and backs
+  `load_skill`, `find_skills` and the prompt index; the picker
+  (`lib/skills.ts`) reads the catalog, so none of them can disagree.
 - `use-assistant.ts` wraps `useChat`: sends skill inputs in the request body,
   answers `check_fit` from `onToolCall` (never awaited inside it), keeps the
   suggestion status map beside the transcript, and maps route errors (401 to
@@ -282,7 +286,9 @@ Server state (TanStack Query):
   assistant message part by part: text as it streams, `tool-check_fit` as a
   fit chip, `tool-propose_patches` output as `SuggestionCard`s. A card shows a word
   diff (`replace_text`), a field table (`update_fields`), a summary
-  (insert/delete/move), and the patch's reason. Hovering a card sets
+  (insert/delete/move), and the patch's reason. A pending card also names any
+  figure the patch adds that the resume does not state (`addedFigures`), so an
+  estimate is confirmed before it lands. Hovering a card sets
   `session.previewPatches` so the preview shows the effect.
 - Accept/reject calls `decideSuggestions`, which applies accepted patches,
   snapshots a version (`created_by: "agent"`), and returns the new head;

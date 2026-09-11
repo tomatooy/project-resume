@@ -4,17 +4,20 @@
 // controls, and the focus handlers mirror hover for keyboard users.
 
 import {
+  addedFigures,
   breadcrumb,
   nodeSummary,
+  ROOT_PARENT,
   type Resume,
   type ResumePatch,
+  structuralReason,
 } from "@workspace/resume-schema"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { MessageMarkdown } from "./MessageMarkdown"
 
-import { skillOf } from "@/lib/skills"
+import { skillMetaOf } from "@/lib/skills"
 import type { Suggestion, SuggestionStatus } from "@/lib/types"
 import { WordDiff } from "@/lib/word-diff"
 
@@ -41,7 +44,17 @@ export function SuggestionCard({
 }) {
   const { patch, status } = suggestion
   const pending = status === "pending"
-  const skill = skillOf(patch.skillId)
+  // Attribution only: a patch the model left untagged, or one the editor built
+  // by hand, simply has no playbook named on it.
+  const skill = patch.skillId ? skillMetaOf(patch.skillId) : undefined
+  // Recomputed here from the same function the server gates on, so a card is
+  // never dressed as ordinary while the server would refuse it as structural.
+  const structural = structuralReason(resume, patch)
+  // The figures this patch writes that the resume does not already state. No
+  // count is sent to the model and nothing is refused for it: the note is the
+  // user's, and it exists because a number they cannot defend in an interview
+  // costs more than the bullet gains.
+  const estimates = addedFigures(resume, patch)
   const target = "targetNodeId" in patch ? patch.targetNodeId : patch.parentId
 
   return (
@@ -53,20 +66,32 @@ export function SuggestionCard({
       className={cn(
         "rounded-lg border p-3 transition-colors",
         pending
-          ? "border-primary/28 bg-primary/5"
+          ? structural
+            ? "border-destructive/30 bg-destructive/5"
+            : "border-primary/28 bg-primary/5"
           : "border-border bg-canvas opacity-80"
       )}
     >
       <div className="mb-2 flex items-center gap-1.5">
         {pending ? (
-          <span className="size-[5px] animate-soft-pulse rounded-full bg-primary" />
+          <span
+            className={cn(
+              "size-[5px] animate-soft-pulse rounded-full",
+              structural ? "bg-destructive" : "bg-primary"
+            )}
+          />
         ) : null}
-        <span className="text-[10.5px] font-bold tracking-[0.05em] text-primary-strong uppercase">
-          {OP_LABEL[patch.op]}
+        <span
+          className={cn(
+            "text-[10.5px] font-bold tracking-[0.05em] uppercase",
+            structural ? "text-destructive" : "text-primary-strong"
+          )}
+        >
+          {structural ? structuralVerb(patch, resume) : OP_LABEL[patch.op]}
         </span>
         {skill ? (
           <span className="text-[10.5px] text-muted-foreground">
-            {skill.label}
+            {skill.name}
           </span>
         ) : null}
         <div className="flex-1" />
@@ -77,15 +102,33 @@ export function SuggestionCard({
         ) : null}
       </div>
 
-      <p className="mb-2 truncate text-[10.5px] text-muted-foreground">
-        {breadcrumb(resume, target)}
-      </p>
+      {/* A structural verb already names where it lands, so the breadcrumb
+          under it would only repeat the words back. */}
+      {structural ? null : (
+        <p className="mb-2 truncate text-[10.5px] text-muted-foreground">
+          {breadcrumb(resume, target)}
+        </p>
+      )}
 
       <PatchBody patch={patch} resume={resume} />
 
       <div className="mt-2 text-[11.5px] leading-[1.5] text-muted-foreground">
         <MessageMarkdown>{patch.reason}</MessageMarkdown>
       </div>
+
+      {structural && pending ? (
+        <p className="mt-2 text-[11px] text-destructive/80">
+          This changes the shape of the resume, so it is left out of Accept all.
+        </p>
+      ) : null}
+
+      {estimates.length > 0 && pending ? (
+        <p className="mt-2 text-[11px] text-flag-foreground">
+          Not in the resume: {estimates.slice(0, 4).join(", ")}
+          {estimates.length > 4 ? ` and ${estimates.length - 4} more` : ""}.
+          Confirm before accepting.
+        </p>
+      ) : null}
 
       {pending ? (
         <div className="mt-3 flex gap-[7px]">
@@ -119,6 +162,33 @@ const OP_LABEL: Record<ResumePatch["op"], string> = {
   move: "Suggested reorder",
 }
 
+/**
+ * The verb a structural card leads with, naming what it acts on: "Remove
+ * Experience > University of Georgia". A content card can stay generic
+ * because the breadcrumb under it says where it lands; a structural one has
+ * to be unmistakable at a glance.
+ */
+function structuralVerb(patch: ResumePatch, resume: Resume): string {
+  if (patch.op === "delete") {
+    return `Remove ${breadcrumb(resume, patch.targetNodeId)}`
+  }
+  if (patch.op === "move") {
+    return `Move ${breadcrumb(resume, patch.targetNodeId)} to ${containerName(
+      resume,
+      patch.toParentId ?? ROOT_PARENT
+    )}`
+  }
+  if (patch.op === "insert_after") {
+    return `Add to ${containerName(resume, patch.parentId)}`
+  }
+  return OP_LABEL[patch.op]
+}
+
+function containerName(resume: Resume, parentId: string): string {
+  if (parentId === ROOT_PARENT) return "the top level"
+  return breadcrumb(resume, parentId).split(" > ").at(-1) ?? parentId
+}
+
 function PatchBody({ patch, resume }: { patch: ResumePatch; resume: Resume }) {
   if (patch.op === "replace_text") {
     return <WordDiff before={patch.before} after={patch.after} />
@@ -130,7 +200,9 @@ function PatchBody({ patch, resume }: { patch: ResumePatch; resume: Resume }) {
         {Object.entries(patch.after).map(([key, value]) => (
           <div key={key} className="contents">
             <dt className="text-muted-foreground">{key}</dt>
-            <dd className="min-w-0 truncate font-medium">{String(value)}</dd>
+            <dd className="min-w-0 truncate font-medium">
+              {value === null ? "cleared" : String(value)}
+            </dd>
           </div>
         ))}
       </dl>

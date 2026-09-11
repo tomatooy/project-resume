@@ -5,6 +5,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query"
 import {
+  clearConversation,
   createResume,
   createSnapshot,
   decideSuggestions,
@@ -19,6 +20,7 @@ import {
   renameResume,
   restoreVersion,
 } from "./api"
+import type { ChatHistory } from "./types"
 
 /**
  * The browser's server state, as one module.
@@ -154,5 +156,23 @@ export function useDecideSuggestions(resumeId: string) {
     onSuccess: async (result) => {
       if (result.version) await invalidateVersions(queryClient, resumeId)
     },
+  })
+}
+
+/**
+ * Clearing a conversation. The empty history is written to the cache rather
+ * than invalidated: the transcript query is `staleTime: Infinity` and is only
+ * read as `useChat`'s starting state, so the panel remounts onto the cache,
+ * and a refetch would land after that remount had already read it.
+ */
+export function useClearConversation(conversationId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => clearConversation({ conversationId }),
+    onSuccess: () =>
+      queryClient.setQueryData<ChatHistory>(
+        messagesQuery(conversationId).queryKey,
+        { messages: [], suggestions: {} }
+      ),
   })
 }
