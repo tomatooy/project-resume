@@ -160,6 +160,12 @@ try {
 }
 check("a stale revision is a CONFLICT", conflicted)
 
+const found = await a.resumes.search("Adapter Check")
+check(
+  "search finds the edited document",
+  found.groups.some((group) => group.resume.id === created.id)
+)
+
 await a.resumes.rename(created.id, "Renamed by check")
 const afterRename = await a.resumes.get(created.id)
 check("rename leaves revision alone", afterRename.revision === head.revision)
@@ -307,6 +313,10 @@ console.log("isolation")
 check(
   "B cannot list A's resume",
   !(await b.resumes.list()).some((r) => r.id === created.id)
+)
+check(
+  "B cannot search A's resume",
+  (await b.resumes.search("Adapter Check")).groups.length === 0
 )
 let notFound = false
 try {

@@ -10,10 +10,13 @@ export type {
   AgentRun,
   DecideResult,
   ResumeRecord,
+  ResumeSearch,
+  ResumeSearchGroup,
   ResumeSummary,
   Suggestion,
   SuggestionStatus,
   TailorFromJobResult,
+  TextRange,
   VersionSummary,
 } from "@workspace/resume-core"
 

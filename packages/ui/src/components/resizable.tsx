@@ -61,10 +61,12 @@ function ResizableHandle({
 }
 
 const useResizableGroupRef = ResizablePrimitive.useGroupRef
+const useResizablePanelRef = ResizablePrimitive.usePanelRef
 
 export {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
   useResizableGroupRef,
+  useResizablePanelRef,
 }

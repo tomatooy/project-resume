@@ -1,7 +1,10 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router"
 
+import { ResumeTree } from "@/features/resume/ResumeTree"
 import { PreviewProvider } from "@/features/resume/preview/preview-context"
 import { ResumeSessionProvider } from "@/features/resume/session-context"
+import { ResumeWorkspaceProvider } from "@/features/resume/workspace"
+import { RailSlotContent } from "@/features/shell/rail-slot"
 import { conversationQuery, resumeQuery } from "@/lib/queries"
 
 export const Route = createFileRoute("/_app/r/$resumeId")({
@@ -31,9 +34,16 @@ function ResumeShell() {
       conversationId={conversationId}
     >
       <PreviewProvider>
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <Outlet />
-        </div>
+        <ResumeWorkspaceProvider>
+          {/* Hangs the open resume's tree under its row in the rail, which
+              the shell drew above this route. */}
+          <RailSlotContent>
+            <ResumeTree />
+          </RailSlotContent>
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <Outlet />
+          </div>
+        </ResumeWorkspaceProvider>
       </PreviewProvider>
     </ResumeSessionProvider>
   )

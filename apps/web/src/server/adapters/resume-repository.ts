@@ -72,6 +72,16 @@ export class SupabaseResumeRepository implements ResumeRepository {
     return data.map(toSummary)
   }
 
+  async listRecords(): Promise<ResumeRecord[]> {
+    const { data, error } = await this.db
+      .from("resumes")
+      .select("*")
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: false })
+    if (error) throw error
+    return data.map(toRecord)
+  }
+
   async findById(id: string): Promise<ResumeRecord | null> {
     const { data, error } = await this.db
       .from("resumes")

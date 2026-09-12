@@ -1,7 +1,21 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router"
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@workspace/ui/components/resizable"
 
 import { AppHeader } from "@/features/shell/AppHeader"
+import { RailSlotProvider } from "@/features/shell/rail-slot"
 import { ResumeRail } from "@/features/shell/ResumeRail"
+import {
+  RAIL_MAX_WIDTH,
+  RAIL_MIN_WIDTH,
+  RAIL_WIDTH,
+  ShellLayoutProvider,
+  useShellLayoutState,
+} from "@/features/shell/shell-layout"
+import { StatusBar } from "@/features/shell/StatusBar"
 import { getSession } from "@/server/fns/session"
 
 export const Route = createFileRoute("/_app")({
@@ -21,14 +35,42 @@ export const Route = createFileRoute("/_app")({
 
 function AppLayout() {
   const session = Route.useLoaderData()
+  const shell = useShellLayoutState()
 
   return (
-    <div className="flex h-svh flex-col overflow-hidden bg-canvas">
-      <AppHeader email={session.email} />
-      <div className="relative flex min-h-0 flex-1">
-        <ResumeRail />
-        <Outlet />
-      </div>
-    </div>
+    <ShellLayoutProvider layout={shell.layout}>
+      {/* The rail and the route below it are siblings, so the slot that lets a
+          screen render into the open resume's row lives above both. */}
+      <RailSlotProvider>
+        <div className="flex h-svh flex-col overflow-hidden bg-canvas">
+          <AppHeader email={session.email} />
+          <div className="relative flex min-h-0 flex-1">
+            <ResizablePanelGroup orientation="horizontal" {...shell.group}>
+              <ResizablePanel
+                id="rail"
+                defaultSize={RAIL_WIDTH}
+                minSize={RAIL_MIN_WIDTH}
+                maxSize={RAIL_MAX_WIDTH}
+                collapsible
+                panelRef={shell.railRef}
+                onResize={shell.onRailResize}
+                className="overflow-hidden"
+              >
+                <ResumeRail />
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+              <ResizablePanel
+                id="content"
+                minSize={320}
+                className="overflow-hidden"
+              >
+                <Outlet />
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </div>
+          <StatusBar />
+        </div>
+      </RailSlotProvider>
+    </ShellLayoutProvider>
   )
 }

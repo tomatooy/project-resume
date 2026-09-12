@@ -1,4 +1,4 @@
-import { PlusIcon, TrashIcon } from "@phosphor-icons/react"
+import { PlusIcon } from "@phosphor-icons/react"
 import type { Section } from "@workspace/resume-schema"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -9,14 +9,13 @@ import {
 } from "@workspace/ui/components/empty"
 import { useState } from "react"
 
-import { addItem, moveNode, removeNode, setText } from "../actions"
+import { addItem, moveNode } from "../actions"
 import { sectionFlagCount } from "../flags"
 import { useSession } from "../session-context"
 import { ItemCard } from "./ItemCard"
 import { PaneHeader } from "./PaneHeader"
 import { SaveBar } from "./SaveBar"
 import { SortableList, SortableRow } from "./SortableRow"
-import { TextInput } from "./fields"
 
 const NOUN: Record<Section["type"], [one: string, many: string]> = {
   experience: ["role", "roles"],
@@ -39,7 +38,6 @@ export function SectionPane({ section }: { section: Section }) {
   const [openId, setOpenId] = useState<string | null>(
     section.items[0]?.id ?? null
   )
-  const [renaming, setRenaming] = useState(false)
 
   const flags = sectionFlagCount(section)
   const [one, many] = NOUN[section.type]
@@ -47,53 +45,16 @@ export function SectionPane({ section }: { section: Section }) {
 
   return (
     <>
-      {renaming ? (
-        <div className="mb-[18px] flex items-end gap-2">
-          <TextInput
-            label="Section title"
-            className="flex-1"
-            value={section.title}
-            onCommit={(value) => setText(session, section.id, "title", value)}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setRenaming(false)}
-          >
-            Done
-          </Button>
-        </div>
-      ) : (
-        <PaneHeader
-          title={section.title}
-          meta={`${count} ${count === 1 ? one : many}`}
-          hint={
-            flags > 0
-              ? "Bullets flagged in amber have no measurable outcome yet."
-              : "Recruiters scan this block first. Keep each line to one idea."
-          }
-          actions={<SaveBar />}
-        />
-      )}
-
-      <div className="mb-3 flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => setRenaming((r) => !r)}
-        >
-          Rename section
-        </Button>
-        <Button
-          variant="ghost"
-          size="xs"
-          className="text-muted-foreground hover:text-destructive"
-          onClick={() => removeNode(session, section.id)}
-        >
-          <TrashIcon />
-          Delete section
-        </Button>
-      </div>
+      <PaneHeader
+        title={section.title}
+        meta={`${count} ${count === 1 ? one : many}`}
+        hint={
+          flags > 0
+            ? "Bullets flagged in amber have no measurable outcome yet."
+            : "Recruiters scan this block first. Keep each line to one idea."
+        }
+        actions={<SaveBar />}
+      />
 
       {count === 0 ? (
         <Empty className="rounded-[10px] border border-dashed border-border py-10">

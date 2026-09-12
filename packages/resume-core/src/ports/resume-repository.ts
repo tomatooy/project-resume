@@ -32,6 +32,13 @@ export type UpdateDataInput = {
 export interface ResumeRepository {
   /** Newest first, excluding soft-deleted rows. */
   list(): Promise<ResumeSummary[]>
+  /**
+   * The same rows as `list()`, with their documents, for the rail search.
+   *
+   * Deliberately a thin read: the matching lives in the service, so both
+   * adapters stay dumb and the tests drive one copy of the walk.
+   */
+  listRecords(): Promise<ResumeRecord[]>
   findById(id: string): Promise<ResumeRecord | null>
   create(input: NewResume): Promise<ResumeRecord>
   updateData(input: UpdateDataInput): Promise<UpdateDataResult>

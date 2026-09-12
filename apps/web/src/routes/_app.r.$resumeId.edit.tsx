@@ -7,12 +7,13 @@ import {
 import { useEffect } from "react"
 
 import { AssistantPanel } from "@/features/chat/AssistantPanel"
+import { PreflightIndicator } from "@/features/export/PreflightIndicator"
 import { ConflictBanner } from "@/features/resume/ConflictBanner"
 import { EditorPane } from "@/features/resume/editor/EditorPane"
-import { SectionRail } from "@/features/resume/editor/SectionRail"
 import { useEditorLayout } from "@/features/resume/editor/use-editor-layout"
 import { PreviewPane } from "@/features/resume/preview/PreviewPane"
 import { useSession } from "@/features/resume/session-context"
+import { StatusBarExtra } from "@/features/shell/StatusBar"
 import { VersionsPanel } from "@/features/versions/VersionsPanel"
 
 export const Route = createFileRoute("/_app/r/$resumeId/edit")({
@@ -27,10 +28,18 @@ export const Route = createFileRoute("/_app/r/$resumeId/edit")({
 function EditorScreen() {
   const session = useSession()
   const { view } = Route.useSearch()
-  const navigate = Route.useNavigate()
   const versionsOpen = view === "versions"
   const layout = useEditorLayout({ versionsOpen })
-  const { panels, togglePanel, maximized, toggleMaximize } = layout
+  const { panels, maximized, toggleMaximize, togglePanel } = layout
+
+  // The status bar is rendered above this route, so the preflight control
+  // reaches it through the bar's portal host rather than being rendered here.
+  // Mounted in both layouts, since the bar outlives the maximize switch.
+  const statusExtra = (
+    <StatusBarExtra>
+      <PreflightIndicator />
+    </StatusBarExtra>
+  )
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -47,9 +56,6 @@ function EditorScreen() {
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [session])
-
-  const toggleVersions = () =>
-    navigate({ search: versionsOpen ? {} : { view: "versions" } })
 
   const editor = versionsOpen ? (
     <VersionsPanel />
@@ -97,7 +103,7 @@ function EditorScreen() {
   )
 
   // Maximizing hands the pane the whole row right of the resume rail: the
-  // section rail and the form column stand down until it is restored. The
+  // form column and the side panels stand down until it is restored. The
   // other pane is hidden rather than switched off, so restoring brings back
   // the arrangement that was there before.
   if (maximized) {
@@ -106,25 +112,13 @@ function EditorScreen() {
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-canvas">
           {maximized === "preview" ? preview(false) : assistant}
         </div>
+        {statusExtra}
       </div>
     )
   }
 
   return (
     <div ref={layout.ref} className="relative flex h-full min-h-0">
-      <SectionRail
-        active={layout.pane}
-        onSelect={(key) => {
-          if (versionsOpen) navigate({ search: {} })
-          layout.setPane(key)
-        }}
-        collapsed={layout.collapsed}
-        panels={panels}
-        onTogglePanel={togglePanel}
-        versionsOpen={versionsOpen}
-        onToggleVersions={toggleVersions}
-      />
-
       {layout.centerOpen && layout.rightOpen ? (
         <ResizablePanelGroup orientation="horizontal" {...layout.columns}>
           {/* Bare numbers are pixels: the editor keeps its old floor and the
@@ -156,6 +150,7 @@ function EditorScreen() {
           {side}
         </div>
       )}
+      {statusExtra}
     </div>
   )
 }

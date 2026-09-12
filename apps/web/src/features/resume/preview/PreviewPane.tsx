@@ -3,6 +3,7 @@ import {
   ArrowsOutSimpleIcon,
   CaretDownIcon,
   CaretUpIcon,
+  DownloadSimpleIcon,
   MinusIcon,
   PlusIcon,
   XIcon,
@@ -15,12 +16,22 @@ import {
   type TemplateOptions,
 } from "@workspace/resume-render"
 import { Button } from "@workspace/ui/components/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu"
 import { cn } from "@workspace/ui/lib/utils"
 import { lazy, Suspense, useCallback, useState } from "react"
+import { toast } from "sonner"
 
+import { PaneTitle } from "@/features/shell/PaneTitle"
 import { ClientOnly } from "@/lib/client-only"
 import { useThrottledValue } from "@/lib/use-throttled-value"
 import { useResumeState, useSession } from "../session-context"
+import { downloadPdf } from "./download"
 import { usePreview, usePreviewStore } from "./preview-context"
 import { clampZoom, ZOOM_MAX, ZOOM_MIN, ZOOM_STEPS } from "./preview-store"
 import { TemplateThumb } from "./TemplateThumb"
@@ -36,12 +47,33 @@ const PAGE_LABEL: Record<PageSize, string> = {
   A4: "A4 · 210 × 297 mm",
 }
 
+/** What the page size shrinks to when the toolbar has no room for the size. */
+const SHORT_PAGE_LABEL: Record<PageSize, string> = {
+  LETTER: "Letter",
+  A4: "A4",
+}
+
 /** The three scales every template is laid out to survive. */
-const FONT_SCALES: { value: FontScale; label: string }[] = [
-  { value: 0.9, label: "Compact" },
-  { value: 1, label: "Normal" },
-  { value: 1.1, label: "Large" },
-]
+const FONT_SCALES: FontScale[] = [0.9, 1, 1.1]
+
+const FONT_SCALE_LABEL: Record<FontScale, string> = {
+  0.9: "Compact",
+  1: "Normal",
+  1.1: "Large",
+}
+
+/**
+ * The font and template pickers wear the same button. Both are text on the
+ * toolbar's paper, with the hover and open states carrying the affordance: a
+ * bordered button here would compete with the resume the pane is showing. The
+ * dropdown's trigger marks itself `data-popup-open` and the panel button sets
+ * `aria-expanded`, so the open treatment is spelled once per marker.
+ */
+const PICKER_CLASS = cn(
+  "flex h-7 items-center gap-1.5 rounded-[7px] px-2 text-[11.5px] font-semibold text-foreground transition-colors hover:bg-muted",
+  "aria-expanded:bg-primary/8 aria-expanded:text-primary-strong",
+  "data-popup-open:bg-primary/8 data-popup-open:text-primary-strong"
+)
 
 export function PreviewPane({
   compact = false,
@@ -55,6 +87,7 @@ export function PreviewPane({
   onToggleMaximize?: () => void
 }) {
   const session = useSession()
+  const ownerName = useResumeState((s) => s.doc.basics.name)
   const templateId = useResumeState((s) => s.templateId)
   const options = useResumeState((s) => s.templateOptions)
   const store = usePreviewStore()
@@ -96,66 +129,53 @@ export function PreviewPane({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-canvas">
-      <div className="relative flex-none border-b border-border bg-paper">
+      <div className="@container relative flex-none border-b border-border bg-paper">
         {loading ? (
           <span className="absolute inset-x-0 top-0 h-[2px] overflow-hidden">
             <span className="block h-full w-1/3 animate-[preview-scan_1.1s_ease-in-out_infinite] bg-primary/70" />
           </span>
         ) : null}
 
+        {/* One 44px row cannot hold all of this at every pane width, so the
+            page-size words and the page count thin out as it narrows. The
+            controls themselves always stay. */}
         <div className="flex h-11 items-center gap-2 px-3.5">
-          <span className="text-[11.5px] font-semibold">Live preview</span>
+          <PaneTitle>Preview</PaneTitle>
           <button
             type="button"
             onClick={togglePageSize}
             className="rounded-md px-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Switch page size"
+            title={`Switch page size · ${PAGE_LABEL[options.pageSize]}`}
           >
-            {PAGE_LABEL[options.pageSize]}
+            <span className="@min-[42rem]:hidden">
+              {SHORT_PAGE_LABEL[options.pageSize]}
+            </span>
+            <span className="hidden @min-[42rem]:inline">
+              {PAGE_LABEL[options.pageSize]}
+            </span>
           </button>
 
           {pageCount ? (
-            <span className="rounded-[5px] bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+            <span className="hidden rounded-[5px] bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground @min-[32rem]:block">
               {pageCount} {pageCount === 1 ? "page" : "pages"}
             </span>
           ) : null}
 
           <div className="flex-1" />
 
-          <div className="flex items-center gap-0.5 text-muted-foreground">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Zoom out"
-              disabled={zoom <= ZOOM_MIN}
-              onClick={() => setZoom(previousStep(zoom))}
-            >
-              <MinusIcon />
-            </Button>
-            <span className="w-9 text-center text-[11px] tabular-nums">
-              {Math.round(zoom)}%
-            </span>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Zoom in"
-              disabled={zoom >= ZOOM_MAX}
-              onClick={() => setZoom(nextStep(zoom))}
-            >
-              <PlusIcon />
-            </Button>
-          </div>
+          <span className="text-[10px] font-semibold tracking-[0.07em] text-muted-foreground">
+            Font:
+          </span>
+          <FontPicker value={options.fontScale} onChange={setFontScale} />
 
+          <span className="text-[10px] font-semibold tracking-[0.07em] text-muted-foreground">
+            Template:
+          </span>
           <button
             type="button"
             onClick={() => setMenuOpen((open) => !open)}
             aria-expanded={menuOpen}
-            className={cn(
-              "flex h-7 items-center gap-1.5 rounded-[7px] border px-2.5 text-[11.5px] font-semibold transition-colors",
-              menuOpen
-                ? "border-primary bg-primary/8 text-primary-strong"
-                : "border-border bg-paper text-foreground hover:bg-muted"
-            )}
+            className={PICKER_CLASS}
           >
             {picked.name}
             {menuOpen ? (
@@ -164,6 +184,23 @@ export function PreviewPane({
               <CaretDownIcon className="size-2.5 opacity-60" />
             )}
           </button>
+
+          {/* The download is one more control in the row's right-hand run,
+              not a labelled action of its own: the pane is showing a
+              document, and everything else here touches that document. */}
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Download the PDF"
+            title="Download the PDF"
+            disabled={!blob}
+            onClick={() =>
+              blob &&
+              toast.success(`Downloaded ${downloadPdf(blob, ownerName)}`)
+            }
+          >
+            <DownloadSimpleIcon />
+          </Button>
 
           {onToggleMaximize ? (
             <Button
@@ -201,30 +238,101 @@ export function PreviewPane({
               void session.setTemplate(id)
               setMenuOpen(false)
             }}
-            onFontScale={setFontScale}
           />
         ) : null}
       </div>
 
-      <div
-        ref={pinchRef}
-        className={cn(
-          "flex min-h-0 flex-1 justify-center overflow-auto",
-          compact ? "px-5 pt-5 pb-[22px]" : "px-5 pt-[22px] pb-[76px]"
-        )}
-      >
-        <ClientOnly>
-          <Suspense fallback={null}>
-            <PdfViewer
-              blob={blob}
-              baseWidth={420}
-              zoom={renderedZoom}
-              onPageCount={onPageCount}
-            />
-          </Suspense>
-        </ClientOnly>
+      {/* The viewer, with the zoom that drives it floating at the foot of the
+          pane. Zoom is a view setting rather than a document one, and the
+          toolbar is for the document. */}
+      <div className="relative flex min-h-0 flex-1">
+        <div
+          ref={pinchRef}
+          className={cn(
+            "flex min-h-0 flex-1 justify-center overflow-auto",
+            compact ? "px-5 pt-5 pb-[64px]" : "px-5 pt-[22px] pb-[76px]"
+          )}
+        >
+          <ClientOnly>
+            <Suspense fallback={null}>
+              <PdfViewer
+                blob={blob}
+                baseWidth={420}
+                zoom={renderedZoom}
+                onPageCount={onPageCount}
+              />
+            </Suspense>
+          </ClientOnly>
+        </div>
+
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
+          <div className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-border bg-paper px-1.5 py-1 text-muted-foreground shadow-sm">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="rounded-full"
+              aria-label="Zoom out"
+              disabled={zoom <= ZOOM_MIN}
+              onClick={() => setZoom(previousStep(zoom))}
+            >
+              <MinusIcon />
+            </Button>
+            <span className="w-9 text-center text-[11px] tabular-nums">
+              {Math.round(zoom)}%
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="rounded-full"
+              aria-label="Zoom in"
+              disabled={zoom >= ZOOM_MAX}
+              onClick={() => setZoom(nextStep(zoom))}
+            >
+              <PlusIcon />
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
+  )
+}
+
+function FontPicker({
+  value,
+  onChange,
+}: {
+  value: FontScale
+  onChange: (scale: FontScale) => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            aria-label={`Font: ${FONT_SCALE_LABEL[value]}`}
+            className={PICKER_CLASS}
+          />
+        }
+      >
+        {FONT_SCALE_LABEL[value]}
+        <CaretDownIcon className="size-2.5 opacity-60" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
+          {FONT_SCALES.map((scale) => (
+            <DropdownMenuRadioItem
+              key={scale}
+              value={scale}
+              closeOnClick
+              className="text-[12.5px]"
+            >
+              {FONT_SCALE_LABEL[scale]}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -232,12 +340,10 @@ function TemplateMenu({
   selected,
   options,
   onSelect,
-  onFontScale,
 }: {
   selected: TemplateId
   options: TemplateOptions
   onSelect: (id: TemplateId) => void
-  onFontScale: (scale: FontScale) => void
 }) {
   const session = useSession()
   const thumbs = useTemplateThumbs({
@@ -281,31 +387,6 @@ function TemplateMenu({
               >
                 {template.name}
               </span>
-            </button>
-          )
-        })}
-      </div>
-
-      <span className="mt-3.5 block text-[10px] font-semibold tracking-[0.07em] text-muted-foreground uppercase">
-        Text size
-      </span>
-      <div className="mt-2 flex gap-[7px]">
-        {FONT_SCALES.map((scale) => {
-          const active = scale.value === options.fontScale
-          return (
-            <button
-              key={scale.value}
-              type="button"
-              onClick={() => onFontScale(scale.value)}
-              title={`Scale every size in the document to ${Math.round(scale.value * 100)} percent`}
-              className={cn(
-                "h-[26px] rounded-full border px-2.5 text-[11.5px] transition-colors",
-                active
-                  ? "border-transparent bg-ink font-medium text-background"
-                  : "border-border bg-paper text-foreground hover:bg-muted"
-              )}
-            >
-              {scale.label}
             </button>
           )
         })}

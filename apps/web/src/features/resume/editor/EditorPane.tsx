@@ -5,11 +5,11 @@ import { NO_ERRORS } from "@workspace/resume-schema"
 
 import { addLink, removeNode, setFields, setText } from "../actions"
 import { useResumeState, useSession } from "../session-context"
+import type { PaneKey } from "../workspace"
 import { PaneHeader } from "./PaneHeader"
 import { SaveBar } from "./SaveBar"
 import { SectionPane } from "./SectionPane"
 import { TextAreaInput, TextInput } from "./fields"
-import type { PaneKey } from "./SectionRail"
 
 export function EditorPane({ pane }: { pane: PaneKey }) {
   const doc = useResumeState((s) => s.doc)
@@ -36,43 +36,47 @@ function ContactPane() {
         actions={<SaveBar />}
       />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <TextInput
-          label="Full name"
-          value={basics.name}
-          error={errors.name}
-          onCommit={(v) => setText(session, "basics", "name", v)}
-        />
-        <TextInput
-          label="Headline"
-          value={basics.headline ?? ""}
-          error={errors.headline}
-          placeholder="Senior Product Designer"
-          onCommit={(v) => setText(session, "basics", "headline", v)}
-        />
-        <TextInput
-          label="Email"
-          value={basics.email ?? ""}
-          error={errors.email}
-          placeholder="you@example.com"
-          onCommit={(v) =>
-            setFields(session, "basics", { email: v || undefined })
-          }
-        />
-        <TextInput
-          label="Phone"
-          value={basics.phone ?? ""}
-          error={errors.phone}
-          onCommit={(v) => setText(session, "basics", "phone", v)}
-        />
-        <TextInput
-          label="Location"
-          className="sm:col-span-2"
-          value={basics.location ?? ""}
-          error={errors.location}
-          placeholder="City, Country"
-          onCommit={(v) => setText(session, "basics", "location", v)}
-        />
+      {/* The pane, not the window, decides when two columns fit: this column
+          is resizable and the side panels eat into it. */}
+      <div className="@container">
+        <div className="grid grid-cols-1 gap-3 @min-[24rem]:grid-cols-2">
+          <TextInput
+            label="Full name"
+            value={basics.name}
+            error={errors.name}
+            onCommit={(v) => setText(session, "basics", "name", v)}
+          />
+          <TextInput
+            label="Headline"
+            value={basics.headline ?? ""}
+            error={errors.headline}
+            placeholder="Senior Product Designer"
+            onCommit={(v) => setText(session, "basics", "headline", v)}
+          />
+          <TextInput
+            label="Email"
+            value={basics.email ?? ""}
+            error={errors.email}
+            placeholder="you@example.com"
+            onCommit={(v) =>
+              setFields(session, "basics", { email: v || undefined })
+            }
+          />
+          <TextInput
+            label="Phone"
+            value={basics.phone ?? ""}
+            error={errors.phone}
+            onCommit={(v) => setText(session, "basics", "phone", v)}
+          />
+          <TextInput
+            label="Location"
+            className="@min-[24rem]:col-span-2"
+            value={basics.location ?? ""}
+            error={errors.location}
+            placeholder="City, Country"
+            onCommit={(v) => setText(session, "basics", "location", v)}
+          />
+        </div>
       </div>
 
       <div className="mt-6">

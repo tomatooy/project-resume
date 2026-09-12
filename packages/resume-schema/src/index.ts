@@ -7,6 +7,10 @@
  * per-item schemas, the id plumbing and `ValidationContext` stay inside;
  * the last one on purpose, since a caller holding it could validate a patch
  * against limits the skill registry never granted.
+ *
+ * `textFields` is here because reading and writing now share it: the rail
+ * search walks the same field table a patch may rewrite, so the two cannot
+ * drift on what counts as a node's text.
  */
 export {
   type Basics,
@@ -48,6 +52,7 @@ export {
   nodeSummary,
   readField,
   scopeAnchor,
+  textFields,
 } from "./nodes"
 export { type DocumentValidity, NO_ERRORS, documentErrors } from "./validity"
 /**

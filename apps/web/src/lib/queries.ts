@@ -1,4 +1,5 @@
 import {
+  keepPreviousData,
   queryOptions,
   useMutation,
   useQueryClient,
@@ -19,6 +20,7 @@ import {
   listVersions,
   renameResume,
   restoreVersion,
+  searchResumes,
 } from "./api"
 import type { ChatHistory } from "./types"
 
@@ -40,6 +42,25 @@ export const resumesQuery = () =>
   queryOptions({
     queryKey: ["resumes"] as const,
     queryFn: listResumes,
+  })
+
+/** The rail waits for a real word before it asks the server. */
+export const SEARCH_MIN_QUERY = 2
+
+/**
+ * Rail search. The key sits under `["resumes"]` on purpose: every mutation here
+ * invalidates that prefix, so a resume deleted or renamed while a query is up
+ * drops out of the results without a second invalidation rule.
+ */
+export const searchResumesQuery = (query: string) =>
+  queryOptions({
+    queryKey: ["resumes", "search", query] as const,
+    queryFn: () => searchResumes({ q: query }),
+    enabled: query.length >= SEARCH_MIN_QUERY,
+    // Keep the last results up while the next query runs: the rail is narrow
+    // and a flash of skeleton on every keystroke reads as a broken list.
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
   })
 
 export const resumeQuery = (id: string) =>

@@ -10,6 +10,7 @@ import { Spinner } from "@workspace/ui/components/spinner"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
+import { PaneTitle } from "@/features/shell/PaneTitle"
 import { messagesQuery, useClearConversation } from "@/lib/queries"
 import { skillMetaOf } from "@/lib/skills"
 import type { ChatHistory, SkillId } from "@/lib/types"
@@ -56,10 +57,7 @@ export function AssistantPanel({
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col bg-paper">
       <header className="flex h-11 flex-none items-center gap-2.25 border-b border-border px-3.5">
-        <span className="size-1.5 rounded-full bg-chart-2" />
-        <span className="font-heading text-[12.5px] font-semibold">
-          Assistant
-        </span>
+        <PaneTitle>Assistant</PaneTitle>
         {selectedNodeId ? (
           <button
             type="button"

@@ -8,6 +8,7 @@ import {
   getResume as getResumeFn,
   listResumes as listResumesFn,
   renameResume as renameResumeFn,
+  searchResumes as searchResumesFn,
   setTemplate as setTemplateFn,
   updateResume as updateResumeFn,
 } from "@/server/fns/resumes"
@@ -109,6 +110,7 @@ function guardNullary<TOut>(fn: () => Promise<TOut>): () => Promise<TOut> {
 /* -------------------------------------------------------------- resumes */
 
 export const listResumes = guardNullary(listResumesFn)
+export const searchResumes = guard(searchResumesFn)
 export const getResume = guard(getResumeFn)
 export const createResume = guard(createResumeFn)
 export const duplicateResume = guard(duplicateResumeFn)

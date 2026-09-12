@@ -24,6 +24,13 @@ export class InMemoryResumeRepository implements ResumeRepository {
       .map(toSummary)
   }
 
+  async listRecords(): Promise<ResumeRecord[]> {
+    return this.db.resumes
+      .filter((r) => !r.deletedAt)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map(toRecord)
+  }
+
   async findById(id: string): Promise<ResumeRecord | null> {
     const row = this.db.resumes.find((r) => r.id === id && !r.deletedAt)
     return row ? toRecord(row) : null

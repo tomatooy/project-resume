@@ -24,7 +24,7 @@ export function UserMenu({ email }: { email: string }) {
           <button
             type="button"
             aria-label="Account"
-            className="flex size-[29px] items-center justify-center rounded-full border border-border bg-secondary text-[11.5px] font-semibold text-secondary-foreground transition-colors hover:bg-muted"
+            className="flex size-[26px] items-center justify-center rounded-full border border-border bg-secondary text-[11px] font-semibold text-secondary-foreground transition-colors hover:bg-muted"
           >
             {initials(email)}
           </button>

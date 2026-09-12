@@ -14,6 +14,20 @@ export const listResumes = createServerFn({ method: "GET" }).handler(
   serve(({ services }) => services.resumes.list())
 )
 
+/**
+ * Rail search. The query is the user's own text, so it never reaches a log
+ * line: only how many resumes matched does.
+ */
+export const searchResumes = createServerFn({ method: "POST" })
+  .validator(z.object({ q: z.string().trim().min(2).max(120) }))
+  .handler(
+    serve(async ({ services, log, data }) => {
+      const result = await services.resumes.search(data.q)
+      log.info("resumes.search", { count: result.groups.length })
+      return result
+    })
+  )
+
 export const getResume = createServerFn({ method: "GET" })
   .validator(idInput)
   .handler(serve(({ services, data }) => services.resumes.get(data.id)))

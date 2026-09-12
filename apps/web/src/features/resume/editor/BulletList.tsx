@@ -1,7 +1,7 @@
 import { TrashIcon } from "@phosphor-icons/react"
 import type { Bullet } from "@workspace/resume-schema"
 import { cn } from "@workspace/ui/lib/utils"
-import { useRef } from "react"
+import { useLayoutEffect, useRef } from "react"
 
 import { addBullet, moveNode, removeNode, setText } from "../actions"
 import { bulletNeedsMetric } from "../flags"
@@ -21,6 +21,16 @@ export function BulletList({
 }) {
   const session = useSession()
   const refs = useRef(new Map<string, HTMLTextAreaElement>())
+
+  // Mount (a saved bullet is already long), typing, and text that arrives from
+  // outside the field (undo, an accepted patch) all refit the box. Without
+  // this the field keeps its one-row height and scrolls its own text.
+  useLayoutEffect(() => {
+    for (const bullet of bullets) {
+      const el = refs.current.get(bullet.id)
+      if (el) fitToContent(el)
+    }
+  }, [bullets])
 
   const focusBullet = (id: string) => {
     requestAnimationFrame(() => {
@@ -66,12 +76,6 @@ export function BulletList({
                       onChange={(event) =>
                         setText(session, bullet.id, "text", event.target.value)
                       }
-                      onInput={(event) => {
-                        // Grow to fit, so a long bullet is fully readable.
-                        const el = event.currentTarget
-                        el.style.height = "auto"
-                        el.style.height = `${el.scrollHeight}px`
-                      }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" && !event.shiftKey) {
                           event.preventDefault()
@@ -95,7 +99,7 @@ export function BulletList({
                           if (previous) focusBullet(previous.id)
                         }
                       }}
-                      className="min-h-[20px] flex-1 resize-none bg-transparent text-[12.5px] leading-[1.55] outline-none"
+                      className="field-sizing-content min-h-[20px] w-full flex-1 resize-none overflow-hidden bg-transparent text-[12.5px] leading-[1.55] outline-none"
                     />
                     <button
                       type="button"
@@ -139,4 +143,10 @@ export function BulletList({
       </button>
     </div>
   )
+}
+
+/** Grows the field to its content, so a bullet is read whole, never scrolled. */
+function fitToContent(el: HTMLTextAreaElement): void {
+  el.style.height = "auto"
+  el.style.height = `${el.scrollHeight}px`
 }

@@ -22,6 +22,11 @@ export function relativeTime(iso: string, now = Date.now()): string {
   return "a long time ago"
 }
 
+/** The wall-clock moment a timestamp names, for a title tooltip. */
+export function absoluteTime(iso: string): string {
+  return new Date(iso).toLocaleString()
+}
+
 /** Filename-safe slug for downloads. */
 export function slug(value: string): string {
   return (

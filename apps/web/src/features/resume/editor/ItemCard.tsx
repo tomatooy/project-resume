@@ -49,6 +49,17 @@ function headline(item: Item): { title: string; subtitle: string } {
   }
 }
 
+/** Start and End share a row only when the cell fits both controls: the End
+ *  picker carries a checkbox beside it, so a narrow cell overflows. */
+const DATE_PAIR = "grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] gap-2.5"
+
+/** Two field columns need this much room, and the card, not the window, is
+ *  what has it (the form pane is resizable and the side panels take width). */
+const TWO_UP = "@min-[24rem]:grid-cols-2"
+
+/** An entry that spans both columns, which exist only above `TWO_UP`. */
+const FULL_WIDTH = "@min-[24rem]:col-span-2"
+
 export function ItemCard({
   item,
   open,
@@ -70,7 +81,7 @@ export function ItemCard({
   return (
     <div
       className={cn(
-        "rounded-[10px] border bg-paper transition-shadow",
+        "@container rounded-[10px] border bg-paper transition-shadow",
         open
           ? "border-primary/35 shadow-[0_6px_20px_-14px_oklch(0.145_0_0/25%)]"
           : "border-border",
@@ -125,7 +136,12 @@ export function ItemCard({
 
       {open ? (
         <div className="px-4 pb-4">
-          <div className="grid grid-cols-1 gap-2.5 border-t border-border py-3.5 sm:grid-cols-2">
+          <div
+            className={cn(
+              "grid grid-cols-1 gap-2.5 border-t border-border py-3.5",
+              TWO_UP
+            )}
+          >
             <ItemFields item={item} errors={errors} />
           </div>
 
@@ -185,7 +201,7 @@ function ItemFields({
             error={errors.location}
             onCommit={(v) => text("location", v)}
           />
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className={DATE_PAIR}>
             <MonthInput
               label="Start"
               value={item.start}
@@ -221,7 +237,7 @@ function ItemFields({
             error={errors.field}
             onCommit={(v) => text("field", v)}
           />
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className={cn(DATE_PAIR, FULL_WIDTH)}>
             <MonthInput
               label="Start"
               value={item.start ?? ""}
@@ -252,7 +268,7 @@ function ItemFields({
             placeholder="https://"
             onCommit={(v) => fields({ url: v || undefined })}
           />
-          <div className="grid grid-cols-2 gap-2.5 sm:col-span-2">
+          <div className={cn(DATE_PAIR, FULL_WIDTH)}>
             <MonthInput
               label="Start"
               value={item.start ?? ""}
@@ -271,7 +287,7 @@ function ItemFields({
       return (
         <TextInput
           label="Group name"
-          className="sm:col-span-2"
+          className={FULL_WIDTH}
           value={item.label}
           error={errors.label}
           onCommit={(v) => text("label", v)}
@@ -292,7 +308,7 @@ function ItemFields({
             error={errors.subtitle}
             onCommit={(v) => text("subtitle", v)}
           />
-          <div className="grid grid-cols-2 gap-2.5 sm:col-span-2">
+          <div className={cn(DATE_PAIR, FULL_WIDTH)}>
             <MonthInput
               label="Start"
               value={item.start ?? ""}
