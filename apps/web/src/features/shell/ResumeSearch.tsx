@@ -15,6 +15,11 @@ import {
   InputGroupInput,
 } from "@workspace/ui/components/input-group"
 import { Skeleton } from "@workspace/ui/components/skeleton"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
 import { useEffect, useRef, type ReactNode } from "react"
 
@@ -77,17 +82,23 @@ export function SearchField({
       />
       {value.length > 0 && (
         <InputGroupAddon align="inline-end" className="py-0">
-          <InputGroupButton
-            size="icon-xs"
-            aria-label="Clear search"
-            title="Clear search"
-            onClick={() => {
-              onValueChange("")
-              inputRef.current?.focus()
-            }}
-          >
-            <XIcon weight="bold" />
-          </InputGroupButton>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <InputGroupButton
+                  size="icon-xs"
+                  aria-label="Clear search"
+                  onClick={() => {
+                    onValueChange("")
+                    inputRef.current?.focus()
+                  }}
+                >
+                  <XIcon weight="bold" />
+                </InputGroupButton>
+              }
+            />
+            <TooltipContent side="top">Clear search</TooltipContent>
+          </Tooltip>
         </InputGroupAddon>
       )}
     </InputGroup>

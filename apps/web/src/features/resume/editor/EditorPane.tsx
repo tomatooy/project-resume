@@ -5,14 +5,15 @@ import { NO_ERRORS } from "@workspace/resume-schema"
 
 import { addLink, removeNode, setFields, setText } from "../actions"
 import { useResumeState, useSession } from "../session-context"
-import type { PaneKey } from "../workspace"
+import { useResumeWorkspace } from "../workspace"
 import { PaneHeader } from "./PaneHeader"
 import { SaveBar } from "./SaveBar"
 import { SectionPane } from "./SectionPane"
 import { TextAreaInput, TextInput } from "./fields"
 
-export function EditorPane({ pane }: { pane: PaneKey }) {
+export function EditorPane() {
   const doc = useResumeState((s) => s.doc)
+  const { pane } = useResumeWorkspace()
 
   if (pane === "contact") return <ContactPane />
   if (pane === "summary") return <SummaryPane />

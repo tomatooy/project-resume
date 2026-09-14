@@ -72,17 +72,11 @@ export function ResumeTree() {
     title: string
   } | null>(null)
 
-  // The state lives in search params, so every entry point has to read the URL
-  // to know whether the form column is showing at all.
+  // Versions is a route of its own now, and the tree has to know it is up so
+  // a section click can leave it for the editor.
   const versionsOpen =
     resumeId !== undefined &&
-    Boolean(
-      matchRoute({
-        to: "/r/$resumeId/edit",
-        params: { resumeId },
-        search: { view: "versions" },
-      })
-    )
+    Boolean(matchRoute({ to: "/r/$resumeId/versions", params: { resumeId } }))
   const onEditor =
     resumeId !== undefined &&
     Boolean(matchRoute({ to: "/r/$resumeId/edit", params: { resumeId } }))
@@ -112,15 +106,11 @@ export function ResumeTree() {
   ]
 
   // Open a pane, reaching the editor if the tree is showing beside another
-  // screen, and clearing the versions view, which owns the form column.
+  // screen.
   function open(key: PaneKey) {
     setPane(key)
-    if (resumeId && (!onEditor || versionsOpen)) {
-      void navigate({
-        to: "/r/$resumeId/edit",
-        params: { resumeId },
-        search: {},
-      })
+    if (resumeId && !onEditor) {
+      void navigate({ to: "/r/$resumeId/edit", params: { resumeId } })
     }
   }
 
@@ -219,10 +209,10 @@ function TreeRow({
         onClick={onSelect}
         title={entry.label}
         className={cn(
-          "flex h-[26px] w-full items-center gap-1.5 rounded-[6px] pr-1.5 text-[12.5px] transition-colors",
+          "flex h-[26px] w-full items-center gap-1.5 rounded-sm px-1 text-[12.5px] transition-colors",
           active
-            ? "bg-primary/9 font-medium text-primary-deep"
-            : "text-foreground/80 hover:bg-muted"
+            ? "bg-primary/10 text-primary-deep"
+            : "text-foreground/70 hover:bg-muted"
         )}
       >
         <Glyph className="size-3.5 flex-none opacity-70" />

@@ -10,6 +10,7 @@ import { Spinner } from "@workspace/ui/components/spinner"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
+import { IconButton } from "@/features/shell/IconButton"
 import { PaneTitle } from "@/features/shell/PaneTitle"
 import { messagesQuery, useClearConversation } from "@/lib/queries"
 import { skillMetaOf } from "@/lib/skills"
@@ -79,41 +80,26 @@ export function AssistantPanel({
         )}
         <div className="flex-1" />
         {chatEmpty ? null : (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Clear conversation"
-            title="Clear the conversation"
+          <IconButton
+            label="Clear conversation"
             disabled={chatBusy || clear.isPending}
             onClick={() => setConfirmingClear(true)}
           >
             <TrashIcon />
-          </Button>
+          </IconButton>
         )}
         {onToggleMaximize ? (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={maximized ? "Restore assistant" : "Maximize assistant"}
-            title={
-              maximized
-                ? "Restore the editor beside the assistant"
-                : "Give the assistant the whole screen"
-            }
+          <IconButton
+            label={maximized ? "Restore assistant" : "Maximize assistant"}
             onClick={onToggleMaximize}
           >
             {maximized ? <ArrowsInSimpleIcon /> : <ArrowsOutSimpleIcon />}
-          </Button>
+          </IconButton>
         ) : null}
         {onClose ? (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Close assistant"
-            onClick={onClose}
-          >
+          <IconButton label="Close assistant" onClick={onClose}>
             <XIcon />
-          </Button>
+          </IconButton>
         ) : null}
       </header>
 
