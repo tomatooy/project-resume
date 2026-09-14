@@ -4,7 +4,7 @@ import {
   SidebarSimpleIcon,
   SparkleIcon,
 } from "@phosphor-icons/react"
-import { useMatchRoute, useNavigate, useParams } from "@tanstack/react-router"
+import { useNavigate, useParams } from "@tanstack/react-router"
 import {
   Tooltip,
   TooltipContent,
@@ -15,7 +15,7 @@ import { useEffect, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 
 import { useShellLayout } from "./shell-layout"
-import { ModeSwitcher } from "./ModeSwitcher"
+import { useResumeTab } from "./resume-tabs"
 
 /**
  * Where a screen puts a control of its own in the bar, next to the rail
@@ -41,30 +41,18 @@ export function StatusBarExtra({ children }: { children: ReactNode }) {
 
 /**
  * The bar across the bottom of the shell. It holds what is true of every
- * screen below it: the resume rail's switch on the left, the open resume's
- * screen in the middle, and that screen's panels on the right, all as icons in
- * a 28px strip.
+ * screen below it: the resume rail's switch on the left, the side panels'
+ * switches on the right, all as icons in a 28px strip. The screens themselves
+ * switch with the tab strip at the top of the middle column.
  */
 export function StatusBar() {
   const { panels, togglePanel, railCollapsed, toggleRail } = useShellLayout()
   const { resumeId } = useParams({ strict: false })
-  const matchRoute = useMatchRoute()
   const navigate = useNavigate()
 
-  // The three toggles drive the editor's columns, so they only appear where
-  // those columns exist.
-  const editing = resumeId
-    ? Boolean(matchRoute({ to: "/r/$resumeId/edit", params: { resumeId } }))
-    : false
-  const versionsOpen = resumeId
-    ? Boolean(
-        matchRoute({
-          to: "/r/$resumeId/edit",
-          params: { resumeId },
-          search: { view: "versions" },
-        })
-      )
-    : false
+  // The tab strip and this shortcut highlight Versions from one value, so the
+  // two cannot drift apart.
+  const tab = useResumeTab(resumeId)
 
   return (
     <footer className="grid h-7 flex-none grid-cols-[1fr_auto_1fr] items-center border-t border-border bg-canvas px-3">
@@ -78,20 +66,22 @@ export function StatusBar() {
         <div id={STATUS_BAR_EXTRA_ID} className="flex items-center gap-0.5" />
       </div>
 
-      {resumeId ? <ModeSwitcher resumeId={resumeId} /> : null}
+      {/* The middle cell is empty until the save status moves here from the
+          form's own header. It stays a cell so the right-hand run keeps its
+          place in the grid. */}
+      <div />
 
       <div className="flex items-center justify-end gap-0.5">
-        {editing && resumeId ? (
+        {resumeId ? (
           <>
             <BarButton
               icon={<ClockCounterClockwiseIcon />}
               label="Versions"
-              pressed={versionsOpen}
+              pressed={tab.id === "versions"}
               onClick={() =>
                 navigate({
-                  to: "/r/$resumeId/edit",
+                  to: "/r/$resumeId/versions",
                   params: { resumeId },
-                  search: versionsOpen ? {} : { view: "versions" },
                 })
               }
             />

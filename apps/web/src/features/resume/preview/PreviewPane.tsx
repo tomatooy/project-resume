@@ -15,7 +15,6 @@ import {
   type TemplateId,
   type TemplateOptions,
 } from "@workspace/resume-render"
-import { Button } from "@workspace/ui/components/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +26,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import { lazy, Suspense, useCallback, useState } from "react"
 import { toast } from "sonner"
 
+import { IconButton } from "@/features/shell/IconButton"
 import { PaneTitle } from "@/features/shell/PaneTitle"
 import { ClientOnly } from "@/lib/client-only"
 import { useThrottledValue } from "@/lib/use-throttled-value"
@@ -188,11 +188,8 @@ export function PreviewPane({
           {/* The download is one more control in the row's right-hand run,
               not a labelled action of its own: the pane is showing a
               document, and everything else here touches that document. */}
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Download the PDF"
-            title="Download the PDF"
+          <IconButton
+            label="Download the PDF"
             disabled={!blob}
             onClick={() =>
               blob &&
@@ -200,33 +197,21 @@ export function PreviewPane({
             }
           >
             <DownloadSimpleIcon />
-          </Button>
+          </IconButton>
 
           {onToggleMaximize ? (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label={maximized ? "Restore preview" : "Maximize preview"}
-              title={
-                maximized
-                  ? "Restore the editor beside the preview"
-                  : "Give the preview the whole screen"
-              }
+            <IconButton
+              label={maximized ? "Restore preview" : "Maximize preview"}
               onClick={onToggleMaximize}
             >
               {maximized ? <ArrowsInSimpleIcon /> : <ArrowsOutSimpleIcon />}
-            </Button>
+            </IconButton>
           ) : null}
 
           {onClose ? (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Close preview"
-              onClick={onClose}
-            >
+            <IconButton label="Close preview" onClick={onClose}>
               <XIcon />
-            </Button>
+            </IconButton>
           ) : null}
         </div>
 
@@ -267,29 +252,25 @@ export function PreviewPane({
 
         <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
           <div className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-border bg-paper px-1.5 py-1 text-muted-foreground shadow-sm">
-            <Button
-              variant="ghost"
-              size="icon-xs"
+            <IconButton
+              label="Zoom out"
               className="rounded-full"
-              aria-label="Zoom out"
               disabled={zoom <= ZOOM_MIN}
               onClick={() => setZoom(previousStep(zoom))}
             >
               <MinusIcon />
-            </Button>
+            </IconButton>
             <span className="w-9 text-center text-[11px] tabular-nums">
               {Math.round(zoom)}%
             </span>
-            <Button
-              variant="ghost"
-              size="icon-xs"
+            <IconButton
+              label="Zoom in"
               className="rounded-full"
-              aria-label="Zoom in"
               disabled={zoom >= ZOOM_MAX}
               onClick={() => setZoom(nextStep(zoom))}
             >
               <PlusIcon />
-            </Button>
+            </IconButton>
           </div>
         </div>
       </div>

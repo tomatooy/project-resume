@@ -6,7 +6,6 @@ import {
 } from "@phosphor-icons/react"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
-import { Button } from "@workspace/ui/components/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,8 +29,10 @@ import {
 } from "@/lib/queries"
 import { useDebouncedValue } from "@/lib/use-debounced-value"
 import { DeleteResumeDialog } from "./DeleteResumeDialog"
+import { IconButton } from "./IconButton"
 import { RenameDialog } from "./RenameDialog"
 import { RailSlotHost } from "./rail-slot"
+import { useResumeTab } from "./resume-tabs"
 import { SearchField, SearchResults } from "./ResumeSearch"
 
 /** The rail of the user's resumes, beside every screen. Its width is the
@@ -40,6 +41,10 @@ export function ResumeRail() {
   const { data, isPending } = useQuery(resumesQuery())
   const params = useParams({ strict: false })
   const activeId = "resumeId" in params ? params.resumeId : undefined
+
+  // A row opens the tab the user is already on, so switching resumes from
+  // Export does not throw them back to the editor.
+  const tab = useResumeTab(activeId)
 
   const navigate = useNavigate()
   const [renaming, setRenaming] = useState<{
@@ -107,12 +112,9 @@ export function ResumeRail() {
             />
           </div>
         </div>
-        <Button
+        <IconButton
           ref={searchButtonRef}
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Search resumes"
-          title="Search resumes"
+          label="Search resumes"
           aria-expanded={searchOpen}
           onClick={() => {
             if (searchOpen) closeSearch()
@@ -120,16 +122,13 @@ export function ResumeRail() {
           }}
         >
           <MagnifyingGlassIcon weight="bold" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Create a new resume"
-          title="Create a new resume"
+        </IconButton>
+        <IconButton
+          label="Create a new resume"
           onClick={() => setImporting(true)}
         >
           <PlusIcon weight="bold" />
-        </Button>
+        </IconButton>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-1.5 pb-3">
@@ -157,7 +156,7 @@ export function ResumeRail() {
                     their own rows, not part of this one's target. */}
                 <div className="group/row relative">
                   <Link
-                    to="/r/$resumeId/edit"
+                    to={tab.to}
                     params={{ resumeId: resume.id }}
                     title={resume.title}
                     className={cn(
@@ -166,8 +165,8 @@ export function ResumeRail() {
                       // band belongs to the section it has open, and two of
                       // them stacked read as one double highlight.
                       selected
-                        ? "font-medium text-primary-deep"
-                        : "text-foreground/80 hover:bg-muted"
+                        ? "text-primary-deep"
+                        : "text-foreground/60 hover:bg-muted"
                     )}
                   >
                     <FileTextIcon className="size-3.5 flex-none opacity-70" />

@@ -47,14 +47,15 @@ Résumé Studio 是一款 AI 简历编辑器。用户手里有一份结构化简
 /                        → 重定向到 /dashboard
 /login                   → 登录
 /dashboard               → 简历列表
-/r/:resumeId/edit        → 主编辑屏（本文档重点）
-/r/:resumeId/edit?view=versions  → 同一屏，中列换成版本历史
-/r/:resumeId/export      → 导出
-/r/:resumeId/interview   → 面试准备（目前是静态演示内容）
-/r/:resumeId/history     → 重定向到 edit?view=versions
+/r/:resumeId/edit        → 编辑器（默认标签页）
+/r/:resumeId/versions    → 版本历史标签页
+/r/:resumeId/export      → 导出标签页
+/r/:resumeId/interview   → 面试准备标签页（目前是静态演示内容）
+/r/:resumeId/edit?view=versions  → 旧链接，重定向到 /r/:resumeId/versions
+/r/:resumeId/history     → 旧链接，重定向到 /r/:resumeId/versions
 ```
 
-所有 `/r/:resumeId/*` 屏幕共享同一层：`ResumeSessionProvider` + `PreviewProvider`，所以在这三个屏之间切换时，编辑状态与已渲染的 PDF 都不重建。
+所有 `/r/:resumeId/*` 屏幕共享同一层：`ResumeSessionProvider` + `PreviewProvider`，也共用同一条视图标签页。切换标签只换中列内容：左栏的简历树、右列的 Preview / Assistant 面板，以及编辑状态与已渲染的 PDF 都不重建。
 
 ## 4. 当前视觉语言
 
@@ -129,25 +130,27 @@ alert-dialog、avatar、badge、button、calendar、card、checkbox、collapsibl
 
 ```text
 ┌───────────────────────────────────────────────────────────────────────────────┐
-│ [R] Résumé Studio            ( Editor │ Export │ Interview )        [ avatar ] │ 56px, bg-paper
+│ [R] Résumé Studio                                                   [ avatar ] │ 56px, bg-paper
 ├──────────────────┬────────────────────────────────────────────────────────────┤
-│ MY RESUMES   12  │                                                            │
-│ ┌──────────────┐ │                                                            │
-│ │ resume card  │ │                     <Outlet />                             │
-│ └──────────────┘ │                                                            │
+│ MY RESUMES   12  │ Editor │ Versions │ Export │ Interview                    │ 44px, bg-canvas
+│ ┌──────────────┐ ├────────────────────────────────────────────────────────────┤
+│ │ resume card  │ │                                                            │
+│ └──────────────┘ │                     <Outlet />                             │
 │ ┌──────────────┐ │                                                            │
 │ │ resume card  │ │                                                            │
 │ └──────────────┘ │                                                            │
 │ ┌ ─ ─ ─ ─ ─ ─ ┐  │                                                            │
 │    + Create new  │                                                            │
 │ └ ─ ─ ─ ─ ─ ─ ┘  │                                                            │
-│ 252px, bg-canvas │                        剩余宽度, bg-canvas                 │
+│ 可拖拽, bg-canvas │                        剩余宽度, bg-paper                  │
 └──────────────────┴────────────────────────────────────────────────────────────┘
 ```
 
-**顶栏（56px，`bg-paper`，底部 1px 描边）**：左侧是 26×26 的圆角方块 logo（底色 primary，白字 `R`）加产品名（14.5px，Inter，semibold）；中间偏右是模式切换；右侧是用户头像菜单。左内边距 18px。
+**顶栏（56px，`bg-paper`，底部 1px 描边）**：左侧是 26×26 的圆角方块 logo（底色 primary，白字 `R`）加产品名（14.5px，Inter，semibold）；右侧是用户头像菜单。左内边距 18px。顶栏中央目前是空的，留给后续的搜索/命令入口与常驻保存状态（见 8.1）。
 
-**模式切换**：一个 `rounded-full bg-paper p-1` 的胶囊容器，里面三个 30px 高的胶囊按钮（Editor / Export / Interview），12.5px semibold。选中项是 primary 实底加白字，未选中是灰字加 hover 底。只有打开某份简历时出现。
+**视图标签页（`ResumeTabs`）**：中列顶部的 44px 横条（`bg-canvas`，底部 1px 描边），四个固定标签：Editor / Versions / Export / Interview，12px semibold，无图标，不可关闭，不可排序。选中项 `bg-paper` 并压过那条描边，与下方白纸中列连成一片；未选中是灰字，hover 时加深。标签条右端是中列自己的 full / restore 开关：按下后中列占满整行，侧栏收起但不关闭，再按一次原样回来。中列被压到整行宽时（窄窗口），标签条仍然在，单独占满一行。
+
+**状态栏（`StatusBar`）**：底部 28px 的 `bg-canvas` 条。左侧是简历导航栏开关与 preflight 指示器（三角加计数，点击就地展开同一份检查列表）；右侧是 Versions 快捷入口与 Preview / Assistant 两个面板开关，打开任一份简历时出现，四个标签页下都在。中栏状态栏目前是空的，留给保存状态。
 
 **简历导航栏（`ResumeRail`，252px，`bg-canvas`，右侧 1px 描边）**：顶部是 `MY RESUMES` 全大写小标签加一个数量角标；下面是可滚动的卡片列表，每张卡有彩色缩略图（按模板主题色）、标题（12.5px Inter semibold）、副标题（11px 灰）、时间元信息（10.5px 灰）；hover 时右上角浮出一个 20×20 的 `⋯` 菜单（Rename / Duplicate / Tailor for a job / Delete）。列表末尾是虚线描边的 `Create new` 卡片。加载时是三张 76px 高的骨架卡。
 
@@ -303,8 +306,8 @@ AI 一次可能返回 5 条建议，散落在消息流里。用户容易漏掉�
 **P5 面板开关的权重过高。**
 左栏底部有三个开关行（Preview / Assistant / Versions），占据约 96px 高度，与真正的内容导航争夺注意力。专业软件通常把面板开关放在面板自身或工具栏里。
 
-**P6 视图切换分散在两处。**
-Editor / Export / Interview 在顶栏的胶囊里，Versions 在左栏的开关区。它们都是「看这份简历的不同方式」，却被分到两个位置、两种控件形态。
+**P6 视图切换分散在两处。已解决（2026-09-12）。**
+当初 Editor / Export / Interview 在顶栏的胶囊里，Versions 在左栏的开关区，四个「看这份简历的不同方式」被分到两个位置、两种控件形态。现在的解法是中列顶部的一排标签页（Editor / Versions / Export / Interview，见 5.1），四个视图完全对等，切换只换中列。落地方式与本节当初设想的左栏 `Views` 分组不同：标签贴着它们切换的内容，而不是挤在导航栏里。
 
 **P7 视图切换也用了胶囊，但它是全局导航。**
 模式胶囊是顶栏唯一的强视觉元素，用的是 primary 实底，比「保存状态」「当前简历名」都更抢眼，而实际使用频率很低。
@@ -371,7 +374,7 @@ Editor / Export / Interview 在顶栏的胶囊里，Versions 在左栏的开关�
 
 ### 8.1 全局壳
 
-- 模式切换从顶栏中央移到「当前简历」的旁边，形态从彩色胶囊改为一行低调的文本标签加下划线指示，或改为分段控件。它不再使用 primary 实底。
+- 模式切换已从顶栏移除（2026-09-12 落地）：四个视图改为中列顶部的标签页 `ResumeTabs`（Editor / Versions / Export / Interview，44px，无图标，无关闭/排序），切标签只换中列，左栏与右列不动。因此下面几条里，顶栏只剩 logo、命令入口、保存状态与头像。
 - 顶栏腾出的中央位置给两样东西：一个搜索/命令入口（`Cmd+K`，形态参考 Linear，含一行 placeholder 与右侧 kbd 提示），以及常驻的保存状态（把现在藏在表单标题行里的状态提升到全局可见）。
 - 顶栏信息层级建议：左为 logo 与当前简历名（可点击展开切换），中为命令入口，右为保存状态、模式切换、头像。
 - `ResumeRail` 的卡片去掉常驻描边，只在 hover 与选中时出现；选中项加一条左侧 2px 指示条。列表顶部加一个筛选/搜索输入。
@@ -387,27 +390,27 @@ Editor / Export / Interview 在顶栏的胶囊里，Versions 在左栏的开关�
 
 ```text
 ┌──────────────────┬────────────────────────────────────────────┬──────────────────────────┐
-│ MY RESUME        │ Contact     12 roles   ✓ Saved   ⟲ ⟳  ⛭   │ ▤ Preview  1p  [fit][100%]│
-│ ──────────────── │ ────────────────────────────────────────── │ ────────────────────────  │
-│ ● Contact        │                                            │  ┌────────────────────┐  │
-│   Summary        │  FULL NAME                                 │  │   PDF page         │  │
-│ ● Experience  3  │  [___________________________________]     │  │   ← 选中态描边      │  │
-│   Education      │                                            │  │   ┌──────────────┐ │  │
-│   Projects       │  HEADLINE                                  │  │   │ 高亮的条目   │ │  │
-│   Skills      2  │  [___________________________________]     │  │   └──────────────┘ │  │
-│                  │                                            │  └────────────────────┘  │
-│ + Add section    │  LINKS                                     │                          │
-│ ──────────────── │  [Label__________] [https://________]  🗑  │  ┌────────────────────┐  │
-│ Views            │  + Add link                                │  │ Assistant          │  │
-│  Editor          │                                            │  │  待审 3 条         │  │
-│  Versions        │                                            │  │  ┌──────────────┐  │  │
-│  Export          │                                            │  │  │ suggestion   │  │  │
-│  Interview       │                                            │  │  └──────────────┘  │  │
+│ MY RESUME        │ Editor │ Versions │ Export │ Interview      │ ▤ Preview  1p  [fit][100%]│
+│ ──────────────── ├────────────────────────────────────────────┼──────────────────────────┤
+│ ● Contact        │ Contact     12 roles   ✓ Saved   ⟲ ⟳  ⛭   │  ┌────────────────────┐  │
+│   Summary        │ ────────────────────────────────────────── │  │   PDF page         │  │
+│ ● Experience  3  │                                            │  │   ← 选中态描边      │  │
+│   Education      │  FULL NAME                                 │  │   ┌──────────────┐ │  │
+│   Projects       │  [___________________________________]     │  │   │ 高亮的条目   │ │  │
+│   Skills      2  │                                            │  │   └──────────────┘ │  │
+│                  │  HEADLINE                                  │  └────────────────────┘  │
+│ + Add section    │  [___________________________________]     │                          │
+│                  │                                            │  ┌────────────────────┐  │
+│                  │  LINKS                                     │  │ Assistant          │  │
+│ ──────────────── │  [Label__________] [https://________]  🗑  │  │  待审 3 条         │  │
+│ 面板开关          │  + Add link                                │  │  ┌──────────────┐  │  │
+│  Preview         │                                            │  │  │ suggestion   │  │  │
+│  Assistant       │                                            │  │  └──────────────┘  │  │
 │                  │                                            │  │ [ Ask about ...  ↑]│  │
 └──────────────────┴────────────────────────────────────────────┴──────────────────────────┘
 ```
 
-- 左栏改为 `bg-canvas`，与中列的白纸形成明确分区。栏内改为三段：`Sections`（导航）、`Views`（Editor / Versions / Export / Interview，即把顶栏模式与 Versions 合并到一处）、以及各面板自己在标题栏里的开关。栏底部只留 `Add section`。
+- 左栏改为 `bg-canvas`，与中列的白纸形成明确分区。栏内改为两段：`Sections`（导航）与各面板自己的开关；视图切换不在这里，它是中列顶部的标签页（已落地，见 8.1）。栏底部只留 `Add section`。
 - 激活项从纯色底改为「2px 左侧指示条加淡底」，与预览的高亮用同一种颜色语义。
 - 中列保留白纸。首屏的标题行建议压缩为两行：第一行标题加元信息加操作，第二行是一句场景化提示（例如当前栏目的填写建议）。
 - 字段改为 Notion 式：无边框输入，聚焦时底部出现 2px primary 线与一层极淡的 focus 底；错误态用 destructive 色描边加下方说明；网格改用统一的基线网格，所有字段行高一致。

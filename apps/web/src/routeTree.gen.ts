@@ -22,6 +22,7 @@ import { Route as AppRResumeIdEditRouteImport } from './routes/_app.r.$resumeId.
 import { Route as AppRResumeIdExportRouteImport } from './routes/_app.r.$resumeId.export'
 import { Route as AppRResumeIdHistoryRouteImport } from './routes/_app.r.$resumeId.history'
 import { Route as AppRResumeIdInterviewRouteImport } from './routes/_app.r.$resumeId.interview'
+import { Route as AppRResumeIdVersionsRouteImport } from './routes/_app.r.$resumeId.versions'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -87,6 +88,11 @@ const AppRResumeIdInterviewRoute = AppRResumeIdInterviewRouteImport.update({
   path: '/interview',
   getParentRoute: () => AppRResumeIdRoute,
 } as any)
+const AppRResumeIdVersionsRoute = AppRResumeIdVersionsRouteImport.update({
+  id: '/versions',
+  path: '/versions',
+  getParentRoute: () => AppRResumeIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -100,6 +106,7 @@ export interface FileRoutesByFullPath {
   '/r/$resumeId/export': typeof AppRResumeIdExportRoute
   '/r/$resumeId/history': typeof AppRResumeIdHistoryRoute
   '/r/$resumeId/interview': typeof AppRResumeIdInterviewRoute
+  '/r/$resumeId/versions': typeof AppRResumeIdVersionsRoute
   '/r/$resumeId/': typeof AppRResumeIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -113,6 +120,7 @@ export interface FileRoutesByTo {
   '/r/$resumeId/export': typeof AppRResumeIdExportRoute
   '/r/$resumeId/history': typeof AppRResumeIdHistoryRoute
   '/r/$resumeId/interview': typeof AppRResumeIdInterviewRoute
+  '/r/$resumeId/versions': typeof AppRResumeIdVersionsRoute
   '/r/$resumeId': typeof AppRResumeIdIndexRoute
 }
 export interface FileRoutesById {
@@ -129,6 +137,7 @@ export interface FileRoutesById {
   '/_app/r/$resumeId/export': typeof AppRResumeIdExportRoute
   '/_app/r/$resumeId/history': typeof AppRResumeIdHistoryRoute
   '/_app/r/$resumeId/interview': typeof AppRResumeIdInterviewRoute
+  '/_app/r/$resumeId/versions': typeof AppRResumeIdVersionsRoute
   '/_app/r/$resumeId/': typeof AppRResumeIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -145,6 +154,7 @@ export interface FileRouteTypes {
     | '/r/$resumeId/export'
     | '/r/$resumeId/history'
     | '/r/$resumeId/interview'
+    | '/r/$resumeId/versions'
     | '/r/$resumeId/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -158,6 +168,7 @@ export interface FileRouteTypes {
     | '/r/$resumeId/export'
     | '/r/$resumeId/history'
     | '/r/$resumeId/interview'
+    | '/r/$resumeId/versions'
     | '/r/$resumeId'
   id:
     | '__root__'
@@ -173,6 +184,7 @@ export interface FileRouteTypes {
     | '/_app/r/$resumeId/export'
     | '/_app/r/$resumeId/history'
     | '/_app/r/$resumeId/interview'
+    | '/_app/r/$resumeId/versions'
     | '/_app/r/$resumeId/'
   fileRoutesById: FileRoutesById
 }
@@ -278,6 +290,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRResumeIdInterviewRouteImport
       parentRoute: typeof AppRResumeIdRoute
     }
+    '/_app/r/$resumeId/versions': {
+      id: '/_app/r/$resumeId/versions'
+      path: '/versions'
+      fullPath: '/r/$resumeId/versions'
+      preLoaderRoute: typeof AppRResumeIdVersionsRouteImport
+      parentRoute: typeof AppRResumeIdRoute
+    }
   }
 }
 
@@ -286,6 +305,7 @@ interface AppRResumeIdRouteChildren {
   AppRResumeIdExportRoute: typeof AppRResumeIdExportRoute
   AppRResumeIdHistoryRoute: typeof AppRResumeIdHistoryRoute
   AppRResumeIdInterviewRoute: typeof AppRResumeIdInterviewRoute
+  AppRResumeIdVersionsRoute: typeof AppRResumeIdVersionsRoute
   AppRResumeIdIndexRoute: typeof AppRResumeIdIndexRoute
 }
 
@@ -294,6 +314,7 @@ const AppRResumeIdRouteChildren: AppRResumeIdRouteChildren = {
   AppRResumeIdExportRoute: AppRResumeIdExportRoute,
   AppRResumeIdHistoryRoute: AppRResumeIdHistoryRoute,
   AppRResumeIdInterviewRoute: AppRResumeIdInterviewRoute,
+  AppRResumeIdVersionsRoute: AppRResumeIdVersionsRoute,
   AppRResumeIdIndexRoute: AppRResumeIdIndexRoute,
 }
 
