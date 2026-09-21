@@ -485,6 +485,66 @@ export type Database = {
           },
         ]
       }
+      user_disabled_skills: {
+        Row: {
+          created_at: string
+          skill_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          skill_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          skill_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_skills: {
+        Row: {
+          body: string
+          category: string
+          created_at: string
+          deleted_at: string | null
+          id: string
+          name: string
+          not_for: string | null
+          starter: string | null
+          updated_at: string
+          user_id: string
+          when_to_use: string
+        }
+        Insert: {
+          body: string
+          category?: string
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          name: string
+          not_for?: string | null
+          starter?: string | null
+          updated_at?: string
+          user_id: string
+          when_to_use: string
+        }
+        Update: {
+          body?: string
+          category?: string
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          name?: string
+          not_for?: string | null
+          starter?: string | null
+          updated_at?: string
+          user_id?: string
+          when_to_use?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

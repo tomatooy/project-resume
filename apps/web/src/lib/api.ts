@@ -23,6 +23,15 @@ import {
 } from "@/server/fns/jobs"
 import { decideSuggestions as decideSuggestionsFn } from "@/server/fns/suggestions"
 import {
+  createUserSkill as createUserSkillFn,
+  deleteUserSkill as deleteUserSkillFn,
+  getUserSkill as getUserSkillFn,
+  importSkillMarkdown as importSkillMarkdownFn,
+  listSkills as listSkillsFn,
+  setSkillEnabled as setSkillEnabledFn,
+  updateUserSkill as updateUserSkillFn,
+} from "@/server/fns/skills"
+import {
   createSnapshot as createSnapshotFn,
   getVersion as getVersionFn,
   listVersions as listVersionsFn,
@@ -246,5 +255,16 @@ export async function listMessages(
  * whatever the user typed in the meantime.
  */
 export const decideSuggestions = guard(decideSuggestionsFn)
+
+/* --------------------------------------------------------------- skills */
+
+/** The whole library: built-ins plus the user's overlay, no bodies. */
+export const listSkills = guardNullary(listSkillsFn)
+export const getUserSkill = guard(getUserSkillFn)
+export const createUserSkill = guard(createUserSkillFn)
+export const updateUserSkill = guard(updateUserSkillFn)
+export const deleteUserSkill = guard(deleteUserSkillFn)
+export const setSkillEnabled = guard(setSkillEnabledFn)
+export const importSkillMarkdown = guard(importSkillMarkdownFn)
 
 export type { Resume }

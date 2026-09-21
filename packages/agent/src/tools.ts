@@ -14,7 +14,7 @@ import type { Resume, ResumePatch } from "@workspace/resume-schema"
 import { tool } from "ai"
 import { z } from "zod"
 
-import { SKILL_IDS, findSkills, skillOfId } from "./skills/index"
+import { findSkills, type Skill } from "./skills/index"
 
 /** Stores the valid patches for the run and returns them with their ids. */
 export type PersistProposal = (
@@ -63,33 +63,50 @@ export const checkFitTool = tool({
  * query that matches nothing returns the index instead of an empty list, so a
  * model that guessed the wrong words still finds its way.
  */
-const findSkillsTool = tool({
-  description:
-    "Search the playbook library when you are not sure which playbook fits. Returns ids, names and when-to-use lines, never the playbook text.",
-  inputSchema: z.object({
-    query: z.string().max(200),
-    limit: z.number().int().min(1).max(8).optional(),
-  }),
-  outputSchema: z.object({
-    skills: z.array(
-      z.object({ id: z.string(), name: z.string(), whenToUse: z.string() })
-    ),
-    total: z.number().int(),
-  }),
-  execute: async ({ query, limit }) => {
-    const hits = findSkills(query, limit ?? 4)
-    return {
-      skills: hits.map(({ id, name, whenToUse }) => ({ id, name, whenToUse })),
-      total: hits.length,
-    }
-  },
-})
+const findSkillsTool = (deps: ToolDeps) =>
+  tool({
+    description:
+      "Search the playbook library when you are not sure which playbook fits. Returns ids, names and when-to-use lines, never the playbook text.",
+    inputSchema: z.object({
+      query: z.string().max(200),
+      limit: z.number().int().min(1).max(8).optional(),
+    }),
+    outputSchema: z.object({
+      skills: z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          whenToUse: z.string(),
+          notFor: z.string().optional(),
+        })
+      ),
+      total: z.number().int(),
+    }),
+    execute: async ({ query, limit }) => {
+      const hits = findSkills(deps.skills, query, limit ?? 4)
+      return {
+        skills: hits.map(({ id, name, whenToUse, notFor }) => ({
+          id,
+          name,
+          whenToUse,
+          notFor,
+        })),
+        total: hits.length,
+      }
+    },
+  })
 
 /** The tools that need this run: its state, its document and its record. */
 export type ToolDeps = {
   runId: string
   resume: Resume
   state: TurnState
+  /**
+   * The library this turn may load from: built-ins plus the user's overlay,
+   * with the disabled and deleted already gone. What the model may load and
+   * what the prompt indexes are the same list.
+   */
+  skills: readonly Skill[]
   persist: PersistProposal
   /** Records the line the turn planned with. */
   recordPlan: (plan: TurnPlan) => Promise<void>
@@ -143,6 +160,11 @@ function planTool(deps: ToolDeps) {
  * come back under `overCap` unwritten, the same way an unknown id is answered
  * instead of refused. Loading is what costs tokens, so this is where the
  * ceiling has to be real.
+ *
+ * The bodies leave through `toModelOutput`, never through `execute`'s result:
+ * the stream, the transcript row and the browser see ids and names only. A
+ * disabled or deleted id is simply absent from `deps.skills`, which is the
+ * existing unknown path.
  */
 function loadSkillTool(deps: ToolDeps) {
   return tool({
@@ -158,7 +180,7 @@ function loadSkillTool(deps: ToolDeps) {
       const alreadyLoaded: string[] = []
       const overCap: string[] = []
       for (const id of ids) {
-        const skill = skillOfId(id)
+        const skill = deps.skills.find((candidate) => candidate.id === id)
         if (!skill) {
           unknown.push(id)
           continue
@@ -176,16 +198,28 @@ function loadSkillTool(deps: ToolDeps) {
         }
         deps.state.loadedSkillIds.push(id)
         await deps.addSkill(id)
-        loaded.push({ id: skill.id, name: skill.name, body: skill.body })
+        loaded.push({ id: skill.id, name: skill.name })
       }
       return {
         loaded,
         unknown,
         alreadyLoaded,
         overCap,
-        validIds: [...SKILL_IDS],
+        validIds: deps.skills.map((skill) => skill.id),
       }
     },
+    // Only the model gets text. The browser and the stored transcript keep the
+    // ids and names the result carries.
+    toModelOutput: ({ output }) => ({
+      type: "json" as const,
+      value: {
+        ...output,
+        loaded: output.loaded.flatMap(({ id, name }) => {
+          const skill = deps.skills.find((candidate) => candidate.id === id)
+          return skill ? [{ id, name, body: skill.body }] : []
+        }),
+      },
+    }),
   })
 }
 
@@ -232,7 +266,7 @@ function proposePatchesTool(deps: ToolDeps) {
 /** Everything the model may call, built once per run and never re-gated. */
 export type AgentTools = {
   plan: ReturnType<typeof planTool>
-  find_skills: typeof findSkillsTool
+  find_skills: ReturnType<typeof findSkillsTool>
   load_skill: ReturnType<typeof loadSkillTool>
   check_fit: typeof checkFitTool
   propose_patches: ReturnType<typeof proposePatchesTool>
@@ -241,7 +275,7 @@ export type AgentTools = {
 export function buildTools(deps: ToolDeps): AgentTools {
   return {
     plan: planTool(deps),
-    find_skills: findSkillsTool,
+    find_skills: findSkillsTool(deps),
     load_skill: loadSkillTool(deps),
     check_fit: checkFitTool,
     propose_patches: proposePatchesTool(deps),

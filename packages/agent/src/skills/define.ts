@@ -6,11 +6,12 @@ import type { Skill, SkillMeta } from "./types"
  * There is nothing to enforce beyond the record itself: a playbook carries no
  * ops, no fields, no scope and no status, so the only way one can be wrong is
  * by being empty or by claiming an id twice, and the second is the library's
- * job to check.
+ * job to check. `notFor` and `starter` are checked only when present: a
+ * user-written skill may legitimately omit either.
  */
 export function defineSkill(record: Skill): Skill {
-  for (const [field, value] of Object.entries(record)) {
-    if (typeof value !== "string" || value.trim().length === 0) {
+  for (const field of ["id", "name", "whenToUse", "body"] as const) {
+    if (record[field].trim().length === 0) {
       throw new Error(`Playbook ${record.id || "(no id)"} has no ${field}`)
     }
   }

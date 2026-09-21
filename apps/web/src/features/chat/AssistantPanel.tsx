@@ -12,9 +12,8 @@ import { toast } from "sonner"
 
 import { IconButton } from "@/features/shell/IconButton"
 import { PaneTitle } from "@/features/shell/PaneTitle"
-import { messagesQuery, useClearConversation } from "@/lib/queries"
-import { skillMetaOf } from "@/lib/skills"
-import type { ChatHistory, SkillId } from "@/lib/types"
+import { messagesQuery, skillsQuery, useClearConversation } from "@/lib/queries"
+import type { ChatHistory } from "@/lib/types"
 import { breadcrumbOf } from "../resume/breadcrumb"
 import { useResumeState, useSession } from "../resume/session-context"
 import { ClearConversationDialog } from "./ClearConversationDialog"
@@ -36,7 +35,7 @@ export function AssistantPanel({
   const resumeId = useResumeState((s) => s.resumeId)
   const conversationId = useResumeState((s) => s.conversationId)
   const selectedNodeId = useResumeState((s) => s.selectedNodeId)
-  const [hintSkillId, setHintSkillId] = useState<SkillId | undefined>(undefined)
+  const [hintSkillId, setHintSkillId] = useState<string | undefined>(undefined)
   // The draft lives here, not in the composer, because a turn's plan chips and
   // its playbook chips both put text in the box from outside it.
   const [draft, setDraft] = useState("")
@@ -51,7 +50,19 @@ export function AssistantPanel({
   // Bumped after a clear to remount the conversation onto the emptied cache.
   const [generation, setGeneration] = useState(0)
   const clear = useClearConversation(conversationId)
-  const hint = hintSkillId ? skillMetaOf(hintSkillId) : undefined
+  const { data: skills } = useQuery(skillsQuery())
+  // Deleted and disabled rows are still in the list so an old card can name
+  // its skill; the header only ever names one the turn could actually load.
+  const hint = hintSkillId
+    ? skills?.find((skill) => skill.id === hintSkillId && !skill.deleted)
+    : undefined
+
+  // What a transcript chip does: remember the skill and put its starter (when
+  // it has one) in the box.
+  const useSkill = (skillId: string) => {
+    setHintSkillId(skillId)
+    setDraft(skills?.find((skill) => skill.id === skillId)?.starter ?? "")
+  }
 
   const history = useQuery(messagesQuery(conversationId))
 
@@ -111,6 +122,7 @@ export function AssistantPanel({
           history={history.data}
           hintSkillId={hintSkillId}
           onHintChange={setHintSkillId}
+          onUseSkill={useSkill}
           structural={structural}
           onStructuralChange={setStructural}
           draft={draft}
@@ -163,14 +175,16 @@ function Conversation({
   onStructuralChange,
   draft,
   onDraftChange,
+  onUseSkill,
   onBusyChange,
   onEmptyChange,
 }: {
   conversationId: string
   resumeId: string
   history: ChatHistory
-  hintSkillId?: SkillId
-  onHintChange: (skillId: SkillId | undefined) => void
+  hintSkillId?: string
+  onHintChange: (skillId: string | undefined) => void
+  onUseSkill: (skillId: string) => void
   structural: boolean
   onStructuralChange: (structural: boolean) => void
   draft: string
@@ -210,10 +224,7 @@ function Conversation({
           onStructuralChange(true)
           assistant.retry({ structural: true })
         }}
-        onUseSkill={(skillId) => {
-          onHintChange(skillId)
-          onDraftChange(skillMetaOf(skillId)?.starter ?? "")
-        }}
+        onUseSkill={onUseSkill}
       />
       <Composer
         draft={draft}

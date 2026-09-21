@@ -17,13 +17,16 @@ import { RailSlotContent } from "@/features/shell/rail-slot"
 import { ResumeTabs } from "@/features/shell/ResumeTabs"
 import { useResumeTab } from "@/features/shell/resume-tabs"
 import { StatusBarExtra } from "@/features/shell/StatusBar"
-import { conversationQuery, resumeQuery } from "@/lib/queries"
+import { conversationQuery, resumeQuery, skillsQuery } from "@/lib/queries"
 
 export const Route = createFileRoute("/_app/r/$resumeId")({
   loader: async ({ params, context }) => {
     const [record, conversation] = await Promise.all([
       context.queryClient.ensureQueryData(resumeQuery(params.resumeId)),
       context.queryClient.ensureQueryData(conversationQuery(params.resumeId)),
+      // The assistant's chips are one of the first things this screen paints;
+      // having them cached already is what stops a flash of an empty row.
+      context.queryClient.ensureQueryData(skillsQuery()),
     ])
     return { record, conversationId: conversation.id }
   },

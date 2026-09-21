@@ -8,6 +8,7 @@ import type {
 import type { ChatMessage } from "../domain/chat"
 import type { JobTarget } from "../domain/job-target"
 import type { SummaryRecord } from "../domain/memory"
+import type { CustomSkill } from "../domain/skill"
 import type { AgentRun, SuggestionStatus } from "../domain/suggestion"
 import type { CreatedByKind } from "../domain/version"
 
@@ -67,6 +68,9 @@ export class InMemoryDb {
     jobTargetId: string
     isOrigin: boolean
   }[] = []
+  userSkills: CustomSkill[] = []
+  /** The ids the user switched off, whichever tier they belong to. */
+  disabledSkills: string[] = []
   /** conversation id -> active summary id */
   activeSummaries = new Map<string, string>()
 

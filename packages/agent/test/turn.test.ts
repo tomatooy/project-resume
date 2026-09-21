@@ -2,6 +2,7 @@ import type { UIMessage } from "ai"
 import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it } from "vitest"
 
+import { SKILLS } from "../src/skills/library"
 import { checkFitState, startTurn } from "../src/turn"
 import {
   fixture,
@@ -160,6 +161,7 @@ describe("startTurn", () => {
         allowStructural: false,
       },
       resume,
+      skills: SKILLS,
       models: testModels(model),
       runId: "run-1",
       persist: async () => [],

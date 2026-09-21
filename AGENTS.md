@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Baseline guidance for Pi working in this repository. These instructions
+Baseline guidance for coding agents working in this repository. These instructions
 override default behavior. Follow them exactly.
 
 Résumé Studio is an AI resume builder. A user keeps structured (JSON) resumes,
@@ -268,15 +268,34 @@ Server state (TanStack Query):
 
 ## Chat / assistant (`features/chat`)
 
-- The playbook library lives in `packages/agent/src/skills`. `catalog.ts`
-  holds the client-safe rows (`SKILL_META`: `bullet_rewrite`, `jd_match`,
-  `grammar_clarity`, `condense_to_pages`, `resume_quantifier`,
-  `tech_resume_optimizer`) and is the only part the browser reaches, through
-  the `./skills` subpath export; `playbooks/*.ts` hold the bodies, which no
-  client component loads. A playbook is prompt text only: no ops, no field
-  whitelists, no authority. `skills/index.ts` attaches the bodies and backs
-  `load_skill`, `find_skills` and the prompt index; the picker
-  (`lib/skills.ts`) reads the catalog, so none of them can disagree.
+- The playbook library lives in `packages/agent/src/skills`: the built-in six
+  (`library.ts`, assembled from `catalog.ts` rows and `playbooks/*.ts` bodies)
+  plus a per-user overlay stored in `user_skills` / `user_disabled_skills`.
+  `merge.ts` is the one place the two meet: `mergeSkills(overlay)` returns
+  built-ins first then the user's own, `resolveSkills(overlay)` is the library
+  a turn and the prompt index read, and a custom body is wrapped there as
+  untrusted guidance. A playbook is prompt text only: no ops, no field
+  whitelists, no authority, whichever tier it came from. The client reads
+  `listSkills` (a server function) and never a catalog module; built-in bodies
+  reach the model through `load_skill`'s `toModelOutput` and never the browser.
+- The rail (`features/shell/ResumeRail.tsx`) carries two lists and the switch
+  between them at its foot. Resumes on every route, the playbook library on
+  `/skills`; the mode is the route, so the switch is a link rather than layout
+  state. `SkillsRail.tsx` is the library list: Editor (Default, then Custom)
+  and Interview, each row opening the skill's tab with a `Switch` beside it.
+- `/skills` (`features/skills/`) is that library. The route is a layout with
+  its own tab strip, like a resume's: an `All skills` tab in
+  `_app.skills.index.tsx`, plus a closable tab per skill in
+  `SkillTabs.tsx` / `_app.skills.$skillId.tsx`. A new skill is that same
+  `SkillForm` on an empty draft, with `Upload SKILL.md` in its header
+  (`ImportSkillDialog`) filling the form from a file without saving; a custom
+  skill can be deleted from the tab or from its library row, both through
+  `DeleteSkillDialog`. A built-in opens the
+  read-only `SkillDetail` because its body never leaves the server, and an id the library
+  no longer holds offers to close its tab. Which tabs are open is React state
+  in `features/skills/workspace.tsx`, so it is per-request on the server; the
+  tab itself is a URL. `useSkillNames()` in `lib/queries.ts` resolves
+  attribution for ids whose skill was removed.
 - `use-assistant.ts` wraps `useChat`: sends skill inputs in the request body,
   answers `check_fit` from `onToolCall` (never awaited inside it), keeps the
   suggestion status map beside the transcript, and maps route errors (401 to

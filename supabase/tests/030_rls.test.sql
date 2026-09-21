@@ -14,7 +14,7 @@
 -- one that does not exist.
 
 begin;
-select plan(36);
+select plan(46);
 
 set local role postgres;
 
@@ -60,6 +60,13 @@ insert into agent_runs (id, conversation_id, resume_id, hint_skill_id, model) va
 insert into suggestions (id, agent_run_id, resume_id, ordinal, patch, target_node_id, operation) values
   ('88888888-0000-4000-8000-000000000001', '77777777-0000-4000-8000-000000000001',
    '22222222-0000-4000-8000-000000000001', 0, '{}', 'n1', 'replace_text');
+
+insert into user_skills (id, user_id, name, when_to_use, body) values
+  ('usr_99999999-0000-4000-8000-000000000001', '11111111-0000-4000-8000-000000000001',
+   'A''s playbook', 'When A wants it.', 'A''s prose.');
+
+insert into user_disabled_skills (user_id, skill_id) values
+  ('11111111-0000-4000-8000-000000000001', 'bullet_rewrite');
 
 create temp table probe (step text primary key, n bigint);
 grant all on probe to authenticated;
@@ -178,6 +185,40 @@ select throws_ok(
              9, '{}', 'planted', 'replace_text') $$,
   '42501', null, 'B cannot plant a suggestion on A''s resume');
 
+-- user_skills and user_disabled_skills
+-- The two tables behind the user's own playbook library. Neither has a parent
+-- row to join back to, so the owner column is the whole boundary.
+select is((select count(*) from user_skills where id = 'usr_99999999-0000-4000-8000-000000000001'),
+          0::bigint, 'B cannot read A''s skills');
+with u as (update user_skills set name = 'owned' where id = 'usr_99999999-0000-4000-8000-000000000001' returning 1)
+insert into probe select 'user_skills_update', count(*) from u;
+select is((select n from probe where step = 'user_skills_update'), 0::bigint, 'B cannot update A''s skills');
+with d as (delete from user_skills where id = 'usr_99999999-0000-4000-8000-000000000001' returning 1)
+insert into probe select 'user_skills_delete', count(*) from d;
+select is((select n from probe where step = 'user_skills_delete'), 0::bigint, 'B cannot delete A''s skills');
+select throws_ok(
+  $$ insert into user_skills (user_id, name, when_to_use, body)
+     values ('11111111-0000-4000-8000-000000000001', 'planted', 'planted', 'planted') $$,
+  '42501', null, 'B cannot write a skill owned by A');
+
+select is((select count(*) from user_disabled_skills
+           where user_id = '11111111-0000-4000-8000-000000000001'),
+          0::bigint, 'B cannot read A''s disabled skills');
+with u as (update user_disabled_skills set skill_id = 'owned'
+           where user_id = '11111111-0000-4000-8000-000000000001' returning 1)
+insert into probe select 'disabled_update', count(*) from u;
+select is((select n from probe where step = 'disabled_update'), 0::bigint,
+          'B cannot update A''s disabled skills');
+with d as (delete from user_disabled_skills
+           where user_id = '11111111-0000-4000-8000-000000000001' returning 1)
+insert into probe select 'disabled_delete', count(*) from d;
+select is((select n from probe where step = 'disabled_delete'), 0::bigint,
+          'B cannot delete A''s disabled skills');
+select throws_ok(
+  $$ insert into user_disabled_skills (user_id, skill_id)
+     values ('11111111-0000-4000-8000-000000000001', 'planted') $$,
+  '42501', null, 'B cannot switch a skill off for A');
+
 -- ------------------------------------------------------------ as user A
 -- The positive control. Without it every assertion above would also pass if
 -- the policies simply denied everyone.
@@ -200,6 +241,11 @@ select is((select count(*) from agent_runs where id = '77777777-0000-4000-8000-0
           1::bigint, 'A can read A''s agent runs');
 select is((select count(*) from suggestions where id = '88888888-0000-4000-8000-000000000001'),
           1::bigint, 'A can read A''s suggestions');
+select is((select count(*) from user_skills where id = 'usr_99999999-0000-4000-8000-000000000001'),
+          1::bigint, 'A can read A''s skills');
+select is((select count(*) from user_disabled_skills
+           where user_id = '11111111-0000-4000-8000-000000000001'),
+          1::bigint, 'A can read A''s disabled skills');
 
 reset role;
 select * from finish();

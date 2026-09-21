@@ -1,3 +1,5 @@
+import type { SkillCategory } from "@workspace/resume-core"
+
 /**
  * A playbook: prompt text about how to do something well.
  *
@@ -13,14 +15,26 @@
 export type Skill = {
   /** Stable id; recorded on the run and on the patch as attribution. */
   id: string
+  /**
+   * Which group the rail files it under. A label the UI groups by, never a
+   * gate: a turn's tools and its patch contract do not depend on it.
+   */
+  category: SkillCategory
   /** Shown in the panel's chips and on the turn's opening line. */
   name: string
   /** One line for `find_skills` and the prompt index: when this playbook fits. */
   whenToUse: string
-  /** One line: when it does not, so a near-miss is not loaded by mistake. */
-  notFor: string
-  /** What tapping the chip puts in the composer. Editable, never sent as-is. */
-  starter: string
+  /**
+   * One line: when it does not, so a near-miss is not loaded by mistake.
+   * Optional: every built-in has one, a user-written skill need not.
+   */
+  notFor?: string
+  /**
+   * What tapping the chip puts in the composer. Editable, never sent as-is.
+   * Optional, for the same reason as `notFor`; absent means the chip sets the
+   * hint and leaves the box alone.
+   */
+  starter?: string
   /** The playbook itself. */
   body: string
 }

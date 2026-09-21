@@ -12,7 +12,7 @@ import {
 import { indexNodes, type ResumePatch } from "@workspace/resume-schema"
 import { simulateReadableStream, type UIMessage } from "ai"
 import { MockLanguageModelV3 } from "ai/test"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import type { Logger } from "../log"
@@ -103,7 +103,17 @@ async function harness(model: MockLanguageModelV3) {
       })
     )
 
-  return { db, services, background, summarizer, deps, record, bullet, post }
+  return {
+    db,
+    ports,
+    services,
+    background,
+    summarizer,
+    deps,
+    record,
+    bullet,
+    post,
+  }
 }
 
 function user(content: string, id = "u1"): UIMessage {
@@ -518,5 +528,39 @@ describe("handleChat", () => {
     }
     const response = await h.post({ messages: [user("One page"), assistant] })
     expect(response.status).toBe(409)
+  })
+
+  it("reads the overlay once for the whole request", async () => {
+    const model = new MockLanguageModelV3({ doStream: [text("Sure.")] })
+    const h = await harness(model)
+    const listOverlay = vi.spyOn(h.ports.skills, "listOverlay")
+
+    const response = await h.post({ messages: [user("Hello")] })
+    await response.text()
+
+    expect(listOverlay).toHaveBeenCalledTimes(1)
+    expect(model.doStreamCalls).toHaveLength(1)
+  })
+
+  it("keeps a disabled playbook out of the turn's library", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCall("load_skill", { ids: ["bullet_rewrite"] }),
+        text("Nothing to load."),
+      ],
+    })
+    const h = await harness(model)
+    await h.services.skills.setDisabled("bullet_rewrite", true)
+
+    const response = await h.post({ messages: [user("Tighten this")] })
+    const body = await response.text()
+
+    // The index the prompt carries has no line for it, and the tool answers
+    // unknown rather than loading a body the user switched off.
+    const system = model.doStreamCalls[0]?.prompt[0]
+    const prompt = system?.role === "system" ? system.content : ""
+    expect(prompt).not.toContain("- bullet_rewrite:")
+    expect(prompt).toContain("- jd_match:")
+    expect(body).toContain("unknown")
   })
 })

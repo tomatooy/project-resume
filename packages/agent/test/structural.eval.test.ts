@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import type { TurnState } from "../src/tools"
 import { runTurn } from "../src/turn"
+import { SKILLS } from "../src/skills/library"
 import { type CaseResult, liveEnabled, report, runCase } from "./evals/live"
 import { casesByCategory } from "./evals/fixtures"
 import { fixture, testModels, toolCallStream } from "./mock"
@@ -53,6 +54,7 @@ async function propose(patch: ResumePatch, allowStructural: boolean) {
   const { result } = runTurn({
     state: state(allowStructural),
     resume,
+    skills: SKILLS,
     models: testModels(model),
     runId: "eval-run",
     persist,

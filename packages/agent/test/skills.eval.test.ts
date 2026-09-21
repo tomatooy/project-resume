@@ -1,10 +1,14 @@
 // @vitest-environment node
+import type { CustomSkill } from "@workspace/resume-core"
 import { describe, expect, it } from "vitest"
 
+import { buildSystemPrompt } from "../src/prompts/base"
 import { SKILL_IDS, skillIndexLines } from "../src/skills/catalog"
-import { findSkills, skillOfId } from "../src/skills/index"
+import { findSkills, resolveSkills, skillOfId } from "../src/skills/index"
+import { SKILLS } from "../src/skills/library"
 import { type CaseResult, liveEnabled, report, runCase } from "./evals/live"
 import { EVAL_CASES, type EvalCase, casesByCategory } from "./evals/fixtures"
+import { fixture } from "./mock"
 
 /**
  * Playbook selection, measured two ways.
@@ -39,7 +43,7 @@ describe("the library the evals assume", () => {
   })
 
   it("lists each playbook once, with a body to load", () => {
-    const lines = skillIndexLines()
+    const lines = skillIndexLines(SKILLS)
     for (const id of SKILL_IDS) {
       expect(lines.filter((line) => line.startsWith(`- ${id}:`))).toHaveLength(
         1
@@ -48,6 +52,62 @@ describe("the library the evals assume", () => {
       expect(skill?.body.length).toBeGreaterThan(80)
       expect(skill?.name.length).toBeGreaterThan(0)
     }
+  })
+})
+
+/**
+ * The library a turn actually sees once the user's overlay is applied. The
+ * evals pin the built-in library, so these are the pieces that keep a custom
+ * or disabled skill from quietly changing what the table measures.
+ */
+describe("the library after an overlay", () => {
+  const custom: CustomSkill = {
+    id: "usr_11111111-1111-4111-8111-111111111111",
+    category: "editor",
+    name: "Terse sentences",
+    whenToUse: "The prose is wordy and the user wants it shorter.",
+    notFor: "Adding detail.",
+    body: "Prefer one clause per sentence.",
+    createdAt: "2026-09-12T00:00:00.000Z",
+  }
+
+  it("drops a disabled playbook from the index and from find_skills", () => {
+    const skills = resolveSkills({
+      custom: [],
+      disabledIds: ["bullet_rewrite"],
+    })
+
+    expect(skills.map((skill) => skill.id)).not.toContain("bullet_rewrite")
+    expect(
+      skillIndexLines(skills).some((line) =>
+        line.startsWith("- bullet_rewrite:")
+      )
+    ).toBe(false)
+    expect(
+      findSkills(skills, "make my bullets punchier", 4).map((skill) => skill.id)
+    ).not.toContain("bullet_rewrite")
+  })
+
+  it("indexes a custom playbook and finds it", () => {
+    const skills = resolveSkills({ custom: [custom], disabledIds: [] })
+
+    expect(skillIndexLines(skills)).toContain(
+      `- ${custom.id}: ${custom.name}. ${custom.whenToUse}`
+    )
+    expect(
+      findSkills(skills, "terse wording", 4).map((skill) => skill.id)
+    ).toContain(custom.id)
+  })
+
+  it("says the library is empty rather than listing nothing", () => {
+    const prompt = buildSystemPrompt({
+      state: { loadedSkillIds: [], allowStructural: false },
+      resume: fixture().resume,
+      summaryText: null,
+      skills: [],
+    })
+
+    expect(prompt).toContain("No playbooks are available for this turn.")
   })
 })
 
@@ -62,7 +122,7 @@ describe("find_skills", () => {
   it.each(Object.entries(firstHit))(
     "ranks the right playbook first for a %s-style query",
     (_category, [query, expected]) => {
-      expect(findSkills(query, 4)[0]?.id).toBe(expected)
+      expect(findSkills(SKILLS, query, 4)[0]?.id).toBe(expected)
     }
   )
 
@@ -73,13 +133,13 @@ describe("find_skills", () => {
   ]
 
   it.each(ownWords)("ranks %s first", (query, expected) => {
-    expect(findSkills(query, 4)[0]?.id).toBe(expected)
+    expect(findSkills(SKILLS, query, 4)[0]?.id).toBe(expected)
   })
 
   it("returns the index rather than nothing when the words match no playbook", () => {
     // Nonsense tokens, so the result is decided by the fallback and not by a
     // word that happens to appear in some playbook's body.
-    const hits = findSkills("zxqv wqpn bbzx", 4)
+    const hits = findSkills(SKILLS, "zxqv wqpn bbzx", 4)
     expect(hits.map((skill) => skill.id)).toEqual(SKILL_IDS.slice(0, 4))
   })
 })

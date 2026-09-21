@@ -1,4 +1,5 @@
-import { SignOutIcon } from "@phosphor-icons/react"
+import { BooksIcon, SignOutIcon } from "@phosphor-icons/react"
+import { Link } from "@tanstack/react-router"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,6 +35,11 @@ export function UserMenu({ email }: { email: string }) {
         <DropdownMenuLabel className="truncate font-normal text-muted-foreground">
           {email}
         </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem render={<Link to="/skills" />}>
+          <BooksIcon />
+          Skills
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         {/*
           A real form POST rather than a fetch. Signing out has to be a POST so

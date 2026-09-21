@@ -1,4 +1,5 @@
 import type { Resume, ResumePatch } from "@workspace/resume-schema"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
@@ -55,14 +56,22 @@ function show(patch: ResumePatch, status: SuggestionStatus = "pending") {
     status,
   }
   render(
-    <SuggestionCard
-      suggestion={suggestion}
-      resume={resume}
-      onAccept={vi.fn()}
-      onReject={vi.fn()}
-      onHover={vi.fn()}
-      busy={false}
-    />
+    // The card resolves its attribution from the skills query; the wrapper is
+    // here for that lookup, not for anything the estimate note needs.
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <SuggestionCard
+        suggestion={suggestion}
+        resume={resume}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onHover={vi.fn()}
+        busy={false}
+      />
+    </QueryClientProvider>
   )
 }
 

@@ -1,26 +1,26 @@
 import { ArrowUpIcon, StopIcon } from "@phosphor-icons/react"
+import { useQuery } from "@tanstack/react-query"
 import { Switch } from "@workspace/ui/components/switch"
 import { cn } from "@workspace/ui/lib/utils"
+import { useRef } from "react"
 
-import { SKILL_META } from "@/lib/skills"
-import type { SkillId } from "@/lib/types"
+import { skillsQuery } from "@/lib/queries"
 import { useResumeState } from "../resume/session-context"
 import type { SendOptions } from "./use-assistant"
 
 /**
- * Where a turn is put together: the message, the playbook chip that shortcut
- * it, and the flag that allows structural edits.
+ * Where a turn is put together: the message, the skill chip that shortcuts it,
+ * and the flag that allows structural edits.
  *
  * A chip is a shortcut, not a mode. Tapping one writes its starter into the
- * box and remembers the id as a hint; typing anything clears the hint, because
- * a hint the text no longer reflects is a lie. What the model may do comes
- * from the request (the structural toggle) and the user's per-patch accept,
- * never from a chip.
+ * box, remembers the id as a hint and puts the cursor back in the box; typing
+ * anything clears the hint, because a hint the text no longer reflects is a
+ * lie. What the model may do comes from the request (the structural toggle)
+ * and the user's per-patch accept, never from a chip.
  *
- * The job description and the page target used to sit in a context strip here.
- * Both are the message's job now: a posting is pasted into the turn, and the
- * page count is measured only when the turn asks about length, so neither has
- * a slot the request can preset.
+ * The chips are the user's live library: the six built-ins minus whatever they
+ * switched off, plus what they wrote. Disabled and deleted skills are not
+ * offered, which is what "disabled" means.
  */
 export function Composer({
   draft,
@@ -35,8 +35,8 @@ export function Composer({
 }: {
   draft: string
   onDraftChange: (text: string) => void
-  hintSkillId?: SkillId
-  onHintChange: (skillId: SkillId | undefined) => void
+  hintSkillId?: string
+  onHintChange: (skillId: string | undefined) => void
   structural: boolean
   onStructuralChange: (structural: boolean) => void
   busy: boolean
@@ -44,6 +44,12 @@ export function Composer({
   onStop: () => void
 }) {
   const selectedNodeId = useResumeState((s) => s.selectedNodeId)
+  const { data: skills } = useQuery(skillsQuery())
+  const input = useRef<HTMLInputElement | null>(null)
+
+  const options = (skills ?? []).filter(
+    (skill) => skill.enabled && !skill.deleted
+  )
 
   function send() {
     const trimmed = draft.trim()
@@ -56,19 +62,25 @@ export function Composer({
     })
   }
 
-  function applyStarter(skillId: SkillId, starter: string) {
-    onDraftChange(starter)
+  /** A skill with no starter is still a hint; the box is the user's to fill. */
+  function applyStarter(skillId: string, starter?: string) {
+    if (starter) onDraftChange(starter)
     onHintChange(skillId)
+    input.current?.focus()
   }
 
   return (
     <div className="flex-none border-t border-border p-3.5">
       <div className="mb-2.5 flex flex-wrap gap-[7px]">
-        {SKILL_META.map((option) => (
+        {options.map((option) => (
           <button
             key={option.id}
             type="button"
-            title={`${option.whenToUse} Not for: ${option.notFor}`}
+            title={
+              option.notFor
+                ? `${option.whenToUse} Not for: ${option.notFor}`
+                : option.whenToUse
+            }
             onClick={() => applyStarter(option.id, option.starter)}
             className={cn(
               "h-[26px] rounded-full border px-2.5 text-[11.5px] transition-colors",
@@ -104,6 +116,7 @@ export function Composer({
         className="flex items-center gap-2 rounded-[9px] border border-border px-2.5 py-2 focus-within:border-primary focus-within:ring-[3px] focus-within:ring-primary/20"
       >
         <input
+          ref={input}
           value={draft}
           onChange={(event) => {
             onDraftChange(event.target.value)

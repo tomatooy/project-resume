@@ -309,6 +309,79 @@ const memoryService = a.memory
 const consolidated = await memoryService.maybeConsolidate(conversation.id)
 check("below threshold is skipped", consolidated === "skipped")
 
+console.log("skills")
+const emptyOverlay = await a.skills.listOverlay()
+// Live rows, not all rows: a previous run of this script leaves soft-deleted
+// ones behind on purpose, and the overlay is meant to keep them.
+check(
+  "there is no live custom skill yet",
+  !emptyOverlay.custom.some((row) => !row.deletedAt)
+)
+
+const skillInput = {
+  // Deliberately not the column default: the round trip has to prove the
+  // value is written, not that the default filled it in.
+  category: "interview" as const,
+  name: "Adapter skill",
+  whenToUse: "When the adapter check runs.",
+  notFor: "Anything real.",
+  starter: "Run the check.",
+  body: "Confirm the column types line up with the domain.",
+}
+const written = await a.skills.create(skillInput)
+check("create returns a usr_ id", written.id.startsWith("usr_"))
+check("category round-trips", written.category === "interview")
+check("optional fields round-trip", written.notFor === skillInput.notFor)
+check("createdAt round-trips", written.createdAt.length > 0)
+check(
+  "get returns the body",
+  (await a.skills.get(written.id)).body === skillInput.body
+)
+
+const editedSkill = await a.skills.update(written.id, {
+  ...skillInput,
+  category: "editor",
+  name: "Renamed skill",
+  notFor: undefined,
+  starter: undefined,
+})
+check("update writes the record", editedSkill?.name === "Renamed skill")
+check("update moves the category", editedSkill?.category === "editor")
+// An omitted optional is null in the column and absent in the domain, which
+// is what tells the chip there is no starter to write.
+check("update clears an omitted optional", editedSkill?.notFor === undefined)
+check(
+  "the row counts as live",
+  (await a.skills.listOverlay()).custom.some(
+    (row) => row.id === written.id && !row.deletedAt
+  )
+)
+
+await a.skills.setDisabled("bullet_rewrite", true)
+check(
+  "a built-in id can be switched off",
+  (await a.skills.listOverlay()).disabledIds.includes("bullet_rewrite")
+)
+await a.skills.setDisabled("bullet_rewrite", false)
+check(
+  "switching it back on removes the row",
+  !(await a.skills.listOverlay()).disabledIds.includes("bullet_rewrite")
+)
+
+await a.skills.remove(written.id)
+const deletedRow = (await a.skills.listOverlay()).custom.find(
+  (row) => row.id === written.id
+)
+check("a removed skill keeps its row", deletedRow !== undefined)
+check("and carries a deletedAt", Boolean(deletedRow?.deletedAt))
+let removedGone = false
+try {
+  await a.skills.get(written.id)
+} catch (error) {
+  removedGone = error instanceof AppError && error.code === "NOT_FOUND"
+}
+check("a removed skill is gone from the editor", removedGone)
+
 console.log("isolation")
 check(
   "B cannot list A's resume",
@@ -325,6 +398,14 @@ try {
   notFound = error instanceof AppError && error.code === "NOT_FOUND"
 }
 check("B gets NOT_FOUND, not a 403", notFound)
+check(
+  "B cannot read a skill A wrote",
+  (await b.skills.listOverlay()).custom.every((row) => row.id !== written.id)
+)
+check(
+  "B's own disabled list does not see A's toggles",
+  !(await b.skills.listOverlay()).disabledIds.includes("bullet_rewrite")
+)
 
 await a.resumes.remove(created.id)
 let goneAfterDelete = false

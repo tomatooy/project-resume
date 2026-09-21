@@ -7,6 +7,7 @@ import type { MessageRepository } from "../ports/message-repository"
 import type { ResumeParser } from "../ports/resume-parser"
 import type { ResumeRepository } from "../ports/resume-repository"
 import type { ResumeTailor } from "../ports/resume-tailor"
+import type { SkillRepository } from "../ports/skill-repository"
 import type { SuggestionRepository } from "../ports/suggestion-repository"
 import type { Summarizer } from "../ports/summarizer"
 import type { SummaryRepository } from "../ports/summary-repository"
@@ -15,6 +16,7 @@ import { ImportService } from "./import-service"
 import { MemoryService } from "./memory-service"
 import { ResumeService } from "./resume-service"
 import { RunService } from "./run-service"
+import { SkillService } from "./skill-service"
 import { SuggestionService } from "./suggestion-service"
 import { TailorService } from "./tailor-service"
 import { VersionService } from "./version-service"
@@ -34,6 +36,7 @@ export type Ports = {
   jobParser: JobParser
   resumeTailor: ResumeTailor
   jobFetcher: JobFetcher
+  skills: SkillRepository
   /** Injected so a test can move time; wall clock otherwise. */
   clock?: () => Date
 }
@@ -47,6 +50,7 @@ export type Services = {
   runs: RunService
   memory: MemoryService
   tailor: TailorService
+  skills: SkillService
 }
 
 /**
@@ -85,5 +89,6 @@ export function createServices(ports: Ports): Services {
       memory,
       ports.jobFetcher
     ),
+    skills: new SkillService(ports.skills),
   }
 }

@@ -8,13 +8,8 @@ import {
 import { Spinner } from "@workspace/ui/components/spinner"
 import { useEffect, useRef } from "react"
 
-import { skillMetaOf } from "@/lib/skills"
-import type {
-  ChatUIMessage,
-  SkillId,
-  Suggestion,
-  SuggestionStatus,
-} from "@/lib/types"
+import { useSkillNames } from "@/lib/queries"
+import type { ChatUIMessage, Suggestion, SuggestionStatus } from "@/lib/types"
 import { useResumeState, useSession } from "../resume/session-context"
 import { MessageMarkdown } from "./MessageMarkdown"
 import { SuggestionCard } from "./SuggestionCard"
@@ -49,13 +44,16 @@ export function Transcript({
   status: Assistant["status"]
   statuses: Record<string, SuggestionStatus>
   deciding: boolean
-  hintSkillId?: SkillId
+  hintSkillId?: string
   onDecide: Decide
   onRetry: () => void
   onEnableStructural: () => void
-  onUseSkill: (skillId: SkillId) => void
+  onUseSkill: (skillId: string) => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Names for ids that came back without one (`alreadyLoaded`) or that belong
+  // to a skill the user has since removed; every row, deleted included.
+  const names = useSkillNames()
 
   // Scroll when anything new arrives, message or streamed part.
   const streamLength = messages.reduce((n, m) => n + m.parts.length, 0)
@@ -74,7 +72,7 @@ export function Transcript({
   // it. The hint comes off the message, not the composer's state: editing the
   // box while a turn runs must not relabel a turn already in flight.
   const hint = streaming?.metadata?.hintSkillId ?? hintSkillId
-  const hinted = hint ? skillMetaOf(hint) : undefined
+  const hinted = hint ? names[hint] : undefined
   const planLanded = streaming?.parts.some((part) => part.type === "tool-plan")
   const busy = status === "submitted" || status === "streaming"
 
@@ -102,6 +100,7 @@ export function Transcript({
           <AssistantTurn
             key={message.id}
             message={message}
+            names={names}
             statuses={statuses}
             busy={deciding}
             onDecide={onDecide}
@@ -114,7 +113,7 @@ export function Transcript({
       {busy && !planLanded ? (
         <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
           <Spinner className="size-3.5" />
-          {hinted ? hinted.name : "Working through the resume"}
+          {hinted ?? "Working through the resume"}
         </div>
       ) : null}
 
@@ -151,6 +150,7 @@ function UserBubble({ message }: { message: ChatUIMessage }) {
  */
 function AssistantTurn({
   message,
+  names,
   statuses,
   busy,
   onDecide,
@@ -158,11 +158,12 @@ function AssistantTurn({
   onUseSkill,
 }: {
   message: ChatUIMessage
+  names: Record<string, string>
   statuses: Record<string, SuggestionStatus>
   busy: boolean
   onDecide: Decide
   onEnableStructural: () => void
-  onUseSkill: (skillId: SkillId) => void
+  onUseSkill: (skillId: string) => void
 }) {
   // The chips are read off the load results rather than off the plan's intent:
   // a playbook the model said it would load and never did is not a chip, and
@@ -182,7 +183,7 @@ function AssistantTurn({
     }
     for (const skill of part.output.loaded) addSkill(skill.id, skill.name)
     for (const id of part.output.alreadyLoaded) {
-      addSkill(id, skillMetaOf(id)?.name ?? id)
+      addSkill(id, names[id] ?? id)
     }
   }
   // The chips cannot hang off the plan's part alone: a turn that skipped
@@ -199,6 +200,7 @@ function AssistantTurn({
               key={key}
               part={part}
               skills={planSkills}
+              names={names}
               onUseSkill={onUseSkill}
             />
           )
@@ -232,7 +234,11 @@ function AssistantTurn({
       })}
       {!hasPlanPart && planSkills.length > 0 ? (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-          <PlaybookChips skills={planSkills} onUseSkill={onUseSkill} />
+          <PlaybookChips
+            skills={planSkills}
+            names={names}
+            onUseSkill={onUseSkill}
+          />
         </div>
       ) : null}
       {message.metadata?.stopped ? (
@@ -248,14 +254,18 @@ function AssistantTurn({
  */
 function PlaybookChips({
   skills,
+  names,
   onUseSkill,
 }: {
   skills: { id: string; name: string }[]
-  onUseSkill: (skillId: SkillId) => void
+  names: Record<string, string>
+  onUseSkill: (skillId: string) => void
 }) {
   return skills.map((skill) => {
-    const meta = skillMetaOf(skill.id)
-    if (!meta) {
+    // A name that no longer resolves is a playbook from a library this user no
+    // longer has; the chip stays as a record of the turn, not as an action.
+    const name = names[skill.id]
+    if (!name) {
       return (
         <span
           key={skill.id}
@@ -269,8 +279,8 @@ function PlaybookChips({
       <button
         key={skill.id}
         type="button"
-        title={`Ask for just this: ${meta.whenToUse}`}
-        onClick={() => onUseSkill(meta.id)}
+        title={`Run just this playbook: ${name}`}
+        onClick={() => onUseSkill(skill.id)}
         className="rounded-full border border-border bg-paper px-2 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         {skill.name}
@@ -286,11 +296,13 @@ function PlaybookChips({
 function PlanLine({
   part,
   skills,
+  names,
   onUseSkill,
 }: {
   part: PlanPart
   skills: { id: string; name: string }[]
-  onUseSkill: (skillId: SkillId) => void
+  names: Record<string, string>
+  onUseSkill: (skillId: string) => void
 }) {
   if (part.state !== "output-available") return null
 
@@ -300,7 +312,7 @@ function PlanLine({
         <span className="font-medium text-foreground">Plan. </span>
         {part.output.summary}
       </span>
-      <PlaybookChips skills={skills} onUseSkill={onUseSkill} />
+      <PlaybookChips skills={skills} names={names} onUseSkill={onUseSkill} />
     </div>
   )
 }

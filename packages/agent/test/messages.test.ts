@@ -137,6 +137,40 @@ describe("fromUIMessage", () => {
     ])
   })
 
+  it("still parses a stored load_skill part that carries a body", () => {
+    // Rows written before bodies left the tool output hold one. Nothing reads
+    // it any more, but a required-key change here would erase the playbook
+    // chips of every turn stored before the change.
+    const ui: UIMessage = {
+      id: "m1",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-load_skill",
+          toolCallId: "c2",
+          state: "output-available",
+          input: { ids: ["bullet_rewrite"] },
+          output: {
+            loaded: [
+              { id: "bullet_rewrite", name: "Impact bullets", body: "old" },
+            ],
+            unknown: [],
+            alreadyLoaded: [],
+            overCap: [],
+            validIds: ["bullet_rewrite"],
+          },
+        },
+      ],
+    }
+
+    const stored = fromUIMessage(ui, { conversationId: "c", agentRunId: null })
+    const part = stored.parts[0]
+    expect(part?.type).toBe("tool-load_skill")
+    expect(part?.type === "tool-load_skill" && part.output?.loaded).toEqual([
+      { id: "bullet_rewrite", name: "Impact bullets", body: "old" },
+    ])
+  })
+
   it("keeps a failed tool call with its error text", () => {
     const ui: UIMessage = {
       id: "m1",

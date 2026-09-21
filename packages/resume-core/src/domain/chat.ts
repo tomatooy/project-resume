@@ -65,7 +65,12 @@ export type ProposedSuggestion = z.infer<typeof ProposedSuggestionSchema>
 export const LoadedSkillSchema = z.object({
   id: z.string(),
   name: z.string(),
-  body: z.string(),
+  /**
+   * Optional because new rows never carry it: the body reaches the model
+   * through `toModelOutput` and never the browser. Rows stored before that
+   * change still parse, and nothing reads the old copy.
+   */
+  body: z.string().optional(),
 })
 export type LoadedSkill = z.infer<typeof LoadedSkillSchema>
 

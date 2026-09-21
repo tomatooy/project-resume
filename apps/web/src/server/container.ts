@@ -19,6 +19,7 @@ import { WorkerJobFetcher } from "./adapters/job-fetcher"
 import { SupabaseJobTargetRepository } from "./adapters/job-target-repository"
 import { SupabaseMessageRepository } from "./adapters/message-repository"
 import { SupabaseResumeRepository } from "./adapters/resume-repository"
+import { SupabaseSkillRepository } from "./adapters/skill-repository"
 import { SupabaseSuggestionRepository } from "./adapters/suggestion-repository"
 import { SupabaseSummaryRepository } from "./adapters/summary-repository"
 import { SupabaseVersionRepository } from "./adapters/version-repository"
@@ -80,6 +81,7 @@ export function supabasePorts(
     jobParser: lazyJobParser,
     resumeTailor: lazyResumeTailor,
     jobFetcher,
+    skills: new SupabaseSkillRepository(db, userId),
     ...over,
   }
 }

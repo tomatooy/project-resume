@@ -1,6 +1,6 @@
 import {
   ClockCounterClockwiseIcon,
-  FileTextIcon,
+  EyeIcon,
   SidebarSimpleIcon,
   SparkleIcon,
 } from "@phosphor-icons/react"
@@ -86,7 +86,7 @@ export function StatusBar() {
               }
             />
             <BarButton
-              icon={<FileTextIcon />}
+              icon={<EyeIcon />}
               label="Preview"
               pressed={panels.preview}
               onClick={() => togglePanel("preview")}

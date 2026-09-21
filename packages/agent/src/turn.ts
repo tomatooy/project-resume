@@ -20,6 +20,7 @@ import {
 
 import type { Models } from "./models"
 import { buildSystemPrompt } from "./prompts/base"
+import type { Skill } from "./skills/index"
 import { hideToolStepText } from "./visible"
 import {
   type AgentTools,
@@ -72,6 +73,8 @@ export type RunTurnInput = {
   /** What this turn knows: the selection, the hint, the flag. */
   state: TurnState
   resume: Resume
+  /** The library this turn may load from, resolved from the user's overlay. */
+  skills: readonly Skill[]
   models: Models
   runId: string
   persist: PersistProposal
@@ -138,12 +141,13 @@ const proposalAccepted: StopCondition<AgentTools> = ({ steps }) => {
  * only ever sees `startTurn`.
  */
 export function runTurn(input: RunTurnInput) {
-  const { state, resume, models } = input
+  const { state, resume, models, skills } = input
 
   const tools = buildTools({
     runId: input.runId,
     resume,
     state,
+    skills,
     persist: input.persist,
     recordPlan: input.recordPlan,
     addSkill: input.addSkill,
@@ -153,6 +157,7 @@ export function runTurn(input: RunTurnInput) {
     state,
     resume,
     summaryText: input.memory.summaryText,
+    skills,
   })
 
   const result = streamText({

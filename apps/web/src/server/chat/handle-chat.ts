@@ -4,6 +4,8 @@ import {
   fromUIMessage,
   type Models,
   parseUIMessages,
+  resolveSkills,
+  type Skill,
   startTurn as startModelTurn,
   type TurnState,
   toModelMessages,
@@ -46,11 +48,16 @@ export async function handleChat(
     const last = messages[messages.length - 1]
     if (!last) throw new AppError("VALIDATION", "No message to answer")
 
-    // RLS makes both of these the ownership check: a resume that is not the
-    // caller's reads as missing, and a conversation id that does not belong
-    // to this resume is refused the same way.
-    const record = await services.resumes.get(body.resumeId)
-    const conversation = await services.memory.openConversation(body.resumeId)
+    // RLS makes all three of these the ownership check: a resume that is not
+    // the caller's reads as missing, a conversation id that does not belong
+    // to this resume is refused the same way, and the overlay is that user's
+    // own rows. The library is resolved once per request, from the same read
+    // the prompt and the tools share.
+    const [record, conversation, overlay] = await Promise.all([
+      services.resumes.get(body.resumeId),
+      services.memory.openConversation(body.resumeId),
+      services.skills.listOverlay(),
+    ])
     if (conversation.id !== body.conversationId) {
       throw new AppError("NOT_FOUND", "Not found")
     }
@@ -63,6 +70,10 @@ export async function handleChat(
     return stream(deps, request, {
       ...turn,
       resume: record.data,
+      // A `check_fit` continuation re-reads the library, so an edit made
+      // between the two halves shifts the index for the second half. Harmless:
+      // loaded bodies are not carried across the pause anyway.
+      skills: resolveSkills(overlay),
       originalMessages: messages,
     })
   } catch (error) {
@@ -237,7 +248,11 @@ function metadataFor(facts: {
 function stream(
   deps: ChatDeps,
   request: Request,
-  turn: Turn & { resume: Resume; originalMessages: UIMessage[] }
+  turn: Turn & {
+    resume: Resume
+    skills: readonly Skill[]
+    originalMessages: UIMessage[]
+  }
 ): Response {
   const { services, models, now } = deps
   const { run, state, metadata } = turn
@@ -246,6 +261,7 @@ function stream(
   return startModelTurn({
     state,
     resume: turn.resume,
+    skills: turn.skills,
     models,
     runId: run.id,
     memory: { summaryText: turn.summaryText, messages: turn.modelMessages },

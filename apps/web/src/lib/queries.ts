@@ -2,6 +2,7 @@ import {
   keepPreviousData,
   queryOptions,
   useMutation,
+  useQuery,
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query"
@@ -9,18 +10,25 @@ import {
   clearConversation,
   createResume,
   createSnapshot,
+  createUserSkill,
   decideSuggestions,
   deleteResume,
+  deleteUserSkill,
   duplicateResume,
   getOrCreateConversation,
   getResume,
+  getUserSkill,
   getVersion,
+  importSkillMarkdown,
   listMessages,
   listResumes,
+  listSkills,
   listVersions,
   renameResume,
   restoreVersion,
   searchResumes,
+  setSkillEnabled,
+  updateUserSkill,
 } from "./api"
 import type { ChatHistory } from "./types"
 
@@ -102,6 +110,47 @@ export const messagesQuery = (conversationId: string) =>
     queryKey: ["messages", conversationId] as const,
     queryFn: () => listMessages(conversationId),
     staleTime: Number.POSITIVE_INFINITY,
+  })
+
+/* --------------------------------------------------------------- skills */
+
+/** One row of the client's library view. Bodies are not on the wire. */
+export type SkillRow = Awaited<ReturnType<typeof listSkills>>[number]
+
+/**
+ * The whole library, built-ins first. One prefix covers the editor query too,
+ * so a create, an edit, a delete or a toggle invalidates both with one key.
+ */
+export const skillsQuery = () =>
+  queryOptions({
+    queryKey: ["skills"] as const,
+    queryFn: listSkills,
+  })
+
+/**
+ * The same rows as an id-to-name map, for the places that only label a stored
+ * id: a suggestion card's attribution and a turn's playbook chips. Deleted
+ * rows are in the map on purpose; that is the whole reason they stay in the
+ * list.
+ */
+export const skillNamesQuery = () =>
+  queryOptions({
+    queryKey: skillsQuery().queryKey,
+    queryFn: listSkills,
+    select: (rows: SkillRow[]): Record<string, string> =>
+      Object.fromEntries(rows.map((row) => [row.id, row.name])),
+  })
+
+/** Deleted rows included: an old card still names the skill it came from. */
+export function useSkillNames(): Record<string, string> {
+  return useQuery(skillNamesQuery()).data ?? {}
+}
+
+/** One live custom skill with its body, for the editor. */
+export const userSkillQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["skills", id] as const,
+    queryFn: () => getUserSkill({ id }),
   })
 
 /* ------------------------------------------------------------ cache ops */
@@ -196,4 +245,44 @@ export function useClearConversation(conversationId: string) {
         { messages: [], suggestions: {} }
       ),
   })
+}
+
+/* ------------------------------------------------------ skill mutations */
+
+/**
+ * The library prefix covers the rows and every skill detail query, so one
+ * invalidation keeps the list, the chips and the editor in step.
+ */
+function useSkillMutation<TVars, TOut>(
+  mutationFn: (vars: TVars) => Promise<TOut>
+) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: skillsQuery().queryKey }),
+  })
+}
+
+export function useCreateUserSkill() {
+  return useSkillMutation(createUserSkill)
+}
+
+export function useUpdateUserSkill() {
+  return useSkillMutation(updateUserSkill)
+}
+
+export function useDeleteUserSkill() {
+  return useSkillMutation((id: string) => deleteUserSkill({ id }))
+}
+
+export function useSetSkillEnabled() {
+  return useSkillMutation((input: { skillId: string; disabled: boolean }) =>
+    setSkillEnabled(input)
+  )
+}
+
+/** Only parses the file server-side; nothing to invalidate. */
+export function useImportSkillMarkdown() {
+  return useMutation({ mutationFn: importSkillMarkdown })
 }

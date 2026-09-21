@@ -1,8 +1,10 @@
-import type { ProposedSuggestion } from "@workspace/resume-core"
+import type { CustomSkill, ProposedSuggestion } from "@workspace/resume-core"
 import type { ResumePatch } from "@workspace/resume-schema"
 import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it, vi } from "vitest"
 
+import { resolveSkills } from "../src/skills/index"
+import { SKILLS } from "../src/skills/library"
 import { MAX_PLAYBOOKS_PER_TURN } from "../src/tools"
 import { type TurnState, runTurn } from "../src/turn"
 import {
@@ -50,9 +52,13 @@ describe("runTurn", () => {
     const persist = persistStub()
     const recordPlan = vi.fn(async () => undefined)
     const addSkill = vi.fn(async () => undefined)
+    // The turn's library is the built-in one unless a case supplies an
+    // overlay, which is what the chat route's `resolveSkills` would do.
+    const { skills = SKILLS, ...rest } = overrides
     const { result } = runTurn({
       state: turnState({ selectedNodeId: bullet.id }),
       resume,
+      skills,
       models: testModels(model),
       runId: "run-1",
       persist,
@@ -62,7 +68,7 @@ describe("runTurn", () => {
         summaryText: null,
         messages: [{ role: "user", content: "Tighten this" }],
       },
-      ...overrides,
+      ...rest,
     })
     return { result, persist, recordPlan, addSkill }
   }
@@ -296,6 +302,97 @@ describe("runTurn", () => {
     const output = steps[0]?.toolResults[0]?.output
     expect(output).toMatchObject({ skills: [{ id: "grammar_clarity" }] })
     expect(JSON.stringify(output)).not.toContain("past tense for past roles")
+  })
+
+  it("carries a playbook's not-for line through find_skills", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCallStream("find_skills", { query: "grammar" }),
+        propose([good], "Done.", "call-2"),
+      ],
+    })
+    const { result } = start(model)
+    await result.consumeStream()
+
+    const steps = await result.steps
+    const output = steps[0]?.toolResults[0]?.output as {
+      skills: { id: string; notFor?: string }[]
+    }
+    expect(output.skills[0]?.notFor).toContain("Rewriting for impact")
+  })
+
+  it("answers unknown for a playbook the user switched off", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCallStream("load_skill", { ids: ["bullet_rewrite"] }),
+        propose([good], "Done.", "call-2"),
+      ],
+    })
+    const { result, addSkill } = start(model, {
+      skills: resolveSkills({ custom: [], disabledIds: ["bullet_rewrite"] }),
+    })
+    await result.consumeStream()
+
+    const steps = await result.steps
+    expect(steps[0]?.toolResults[0]?.output).toMatchObject({
+      loaded: [],
+      unknown: ["bullet_rewrite"],
+    })
+    // Absent from `validIds` too, so the model learns the library it has.
+    const output = steps[0]?.toolResults[0]?.output as { validIds: string[] }
+    expect(output.validIds).not.toContain("bullet_rewrite")
+    expect(addSkill).not.toHaveBeenCalled()
+  })
+
+  it("keeps bodies out of the tool result while the model still receives them", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCallStream("load_skill", { ids: ["bullet_rewrite"] }),
+        propose([good], "Done.", "call-2"),
+      ],
+    })
+    const { result } = start(model)
+    await result.consumeStream()
+
+    const steps = await result.steps
+    // What the transcript, the panel and the browser see: ids and names only.
+    expect(JSON.stringify(steps[0]?.toolResults[0]?.output)).not.toContain(
+      "Responsible for"
+    )
+    // What the next step reads: the text, attached by `toModelOutput`.
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain(
+      "Responsible for"
+    )
+  })
+
+  it("wraps a user-written body as untrusted guidance", async () => {
+    const custom: CustomSkill = {
+      id: "usr_11111111-1111-4111-8111-111111111111",
+      category: "editor",
+      name: "Terse sentences",
+      whenToUse: "The prose is wordy and the user wants it shorter.",
+      notFor: "Adding detail.",
+      body: "Prefer one clause per sentence. SENTINEL_CUSTOM_BODY",
+      createdAt: "2026-09-12T00:00:00.000Z",
+    }
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCallStream("load_skill", { ids: [custom.id] }),
+        propose([good], "Done.", "call-2"),
+      ],
+    })
+    const { result } = start(model, {
+      skills: resolveSkills({ custom: [custom], disabledIds: [] }),
+    })
+    await result.consumeStream()
+
+    const steps = await result.steps
+    expect(JSON.stringify(steps[0]?.toolResults[0]?.output)).not.toContain(
+      "SENTINEL_CUSTOM_BODY"
+    )
+    const replay = JSON.stringify(model.doStreamCalls[1]?.prompt)
+    expect(replay).toContain("User-authored playbook")
+    expect(replay).toContain("SENTINEL_CUSTOM_BODY")
   })
 
   it("refuses a structural patch when the turn did not allow it", async () => {

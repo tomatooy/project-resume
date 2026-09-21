@@ -1,5 +1,6 @@
 import { structuralReason, type ResumePatch } from "@workspace/resume-schema"
 import { createModels } from "../../src/models"
+import { SKILLS } from "../../src/skills/library"
 import type { TurnState } from "../../src/tools"
 import { runTurn } from "../../src/turn"
 import { fixture } from "../mock"
@@ -82,6 +83,7 @@ export async function runCase(
   const { result } = runTurn({
     state,
     resume,
+    skills: SKILLS,
     models,
     runId: "eval-run",
     persist: async (valid) => {

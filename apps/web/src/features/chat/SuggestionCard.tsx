@@ -17,7 +17,7 @@ import { cn } from "@workspace/ui/lib/utils"
 
 import { MessageMarkdown } from "./MessageMarkdown"
 
-import { skillMetaOf } from "@/lib/skills"
+import { useSkillNames } from "@/lib/queries"
 import type { Suggestion, SuggestionStatus } from "@/lib/types"
 import { WordDiff } from "@/lib/word-diff"
 
@@ -44,9 +44,11 @@ export function SuggestionCard({
 }) {
   const { patch, status } = suggestion
   const pending = status === "pending"
+  const names = useSkillNames()
   // Attribution only: a patch the model left untagged, or one the editor built
-  // by hand, simply has no playbook named on it.
-  const skill = patch.skillId ? skillMetaOf(patch.skillId) : undefined
+  // by hand, simply has no playbook named on it. A removed skill keeps its
+  // name here, because that is the row the list kept it for.
+  const skillName = patch.skillId ? names[patch.skillId] : undefined
   // Recomputed here from the same function the server gates on, so a card is
   // never dressed as ordinary while the server would refuse it as structural.
   const structural = structuralReason(resume, patch)
@@ -89,9 +91,9 @@ export function SuggestionCard({
         >
           {structural ? structuralVerb(patch, resume) : OP_LABEL[patch.op]}
         </span>
-        {skill ? (
+        {skillName ? (
           <span className="text-[10.5px] text-muted-foreground">
-            {skill.name}
+            {skillName}
           </span>
         ) : null}
         <div className="flex-1" />

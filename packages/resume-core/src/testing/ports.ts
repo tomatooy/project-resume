@@ -5,6 +5,7 @@ import { InMemoryConversationRepository } from "./in-memory-conversation-reposit
 import { InMemoryJobTargetRepository } from "./in-memory-job-target-repository"
 import { InMemoryMessageRepository } from "./in-memory-message-repository"
 import { InMemoryResumeRepository } from "./in-memory-resume-repository"
+import { InMemorySkillRepository } from "./in-memory-skill-repository"
 import { InMemorySuggestionRepository } from "./in-memory-suggestion-repository"
 import { InMemorySummaryRepository } from "./in-memory-summary-repository"
 import { InMemoryVersionRepository } from "./in-memory-version-repository"
@@ -35,6 +36,7 @@ export function inMemoryPorts(db = new InMemoryDb()) {
     jobParser: new StubJobParser(),
     resumeTailor: new StubResumeTailor(),
     jobFetcher: new StubJobFetcher(),
+    skills: new InMemorySkillRepository(db),
     clock: () => db.now(),
   } satisfies Ports & { db: InMemoryDb }
 }

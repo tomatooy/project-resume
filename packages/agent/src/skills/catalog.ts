@@ -1,19 +1,18 @@
-import type { SkillMeta } from "./types"
+import type { Skill, SkillMeta } from "./types"
 
 export type { SkillMeta } from "./types"
 
 /**
- * The playbook index, and the only part of the library the browser loads.
+ * The playbook index: the rows without their bodies.
  *
- * This module deliberately imports nothing but the type: the app renders
- * chip labels, tooltips and starter prompts from here, and the bodies stay in
- * `./playbooks`, which no client component reaches. That is why
- * `packages/agent/package.json` maps `./skills` to this file, not to the
- * library.
+ * This module deliberately imports nothing but the type, and the bodies stay
+ * in `./playbooks`, which is what lets the library be assembled in `library.ts`
+ * (`skillOf` pairs the two) while nothing here can drag prompt text along.
  */
 export const SKILL_META: readonly SkillMeta[] = [
   {
     id: "bullet_rewrite",
+    category: "editor",
     name: "Impact bullets",
     whenToUse:
       "Bullets should be tighter, verb-first and outcome-led; the user says improve, punchier, stronger, or asks for a rewrite.",
@@ -23,6 +22,7 @@ export const SKILL_META: readonly SkillMeta[] = [
   },
   {
     id: "jd_match",
+    category: "editor",
     name: "Match a posting",
     whenToUse:
       "The user pasted a job description into the message and the resume should speak to that role.",
@@ -31,6 +31,7 @@ export const SKILL_META: readonly SkillMeta[] = [
   },
   {
     id: "grammar_clarity",
+    category: "editor",
     name: "Grammar and clarity",
     whenToUse:
       "The content is right but the grammar, tense, capitalization or phrasing needs work, or it reads like a duty list or AI filler rather than a resume.",
@@ -40,6 +41,7 @@ export const SKILL_META: readonly SkillMeta[] = [
   },
   {
     id: "condense_to_pages",
+    category: "editor",
     name: "Cut to length",
     whenToUse:
       "The user says the resume is too long, or asks what to cut to fit a length.",
@@ -48,6 +50,7 @@ export const SKILL_META: readonly SkillMeta[] = [
   },
   {
     id: "resume_quantifier",
+    category: "editor",
     name: "Quantify impact",
     whenToUse:
       "Bullets read as duties with no figures, or the user asks to quantify the work, add metrics or numbers, or says they have no data.",
@@ -57,6 +60,7 @@ export const SKILL_META: readonly SkillMeta[] = [
   },
   {
     id: "tech_resume_optimizer",
+    category: "editor",
     name: "Tech resume",
     whenToUse:
       "The target is a software, data, DevOps or technical PM role and the resume should read technical: the bullets, the skills groups, the projects and the links.",
@@ -68,23 +72,15 @@ export const SKILL_META: readonly SkillMeta[] = [
 ] as const satisfies readonly SkillMeta[]
 
 /**
- * The ids the catalog ships. A literal union for the panel's chips, so a chip
- * cannot name a playbook the library does not hold; the wire keeps `string`,
- * because a stored hint may come from an older release.
+ * The ids the catalog ships, for the evals and for `load_skill`'s `validIds`.
+ * A plain string list: the wire and the panel both carry `string`, because a
+ * stored hint may name a skill this release does not ship.
  */
-export type SkillId = (typeof SKILL_META)[number]["id"]
-
-/** Every playbook id, for `load_skill`'s `validIds` and the hint's validation. */
 export const SKILL_IDS: readonly string[] = SKILL_META.map((meta) => meta.id)
 
-/** The catalog row for an id, or undefined for a stored id from another shape. */
-export function skillMetaOf(id: string): SkillMeta | undefined {
-  return SKILL_META.find((meta) => meta.id === id)
-}
-
 /** One line per playbook, the index the prompt and `find_skills` both read. */
-export function skillIndexLines(): string[] {
-  return SKILL_META.map(
-    (meta) => `- ${meta.id}: ${meta.name}. ${meta.whenToUse}`
+export function skillIndexLines(skills: readonly Skill[]): string[] {
+  return skills.map(
+    (skill) => `- ${skill.id}: ${skill.name}. ${skill.whenToUse}`
   )
 }

@@ -22,6 +22,7 @@ export function harness() {
     runService: services.runs,
     memoryService: services.memory,
     tailorService: services.tailor,
+    skillService: services.skills,
   }
 }
 

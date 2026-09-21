@@ -1,11 +1,17 @@
 import {
+  BooksIcon,
   DotsThreeIcon,
   FileTextIcon,
   MagnifyingGlassIcon,
   PlusIcon,
 } from "@phosphor-icons/react"
 import { useQuery } from "@tanstack/react-query"
-import { Link, useNavigate, useParams } from "@tanstack/react-router"
+import {
+  Link,
+  useMatchRoute,
+  useNavigate,
+  useParams,
+} from "@tanstack/react-router"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,7 +21,7 @@ import {
 } from "@workspace/ui/components/dropdown-menu"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { ImportDialog } from "@/features/import/ImportDialog"
@@ -34,10 +40,75 @@ import { RenameDialog } from "./RenameDialog"
 import { RailSlotHost } from "./rail-slot"
 import { useResumeTab } from "./resume-tabs"
 import { SearchField, SearchResults } from "./ResumeSearch"
+import { SkillsRail } from "./SkillsRail"
 
-/** The rail of the user's resumes, beside every screen. Its width is the
- *  shell's rail panel, so the list fills whatever that panel is. */
+/**
+ * The rail, and the switch at its foot.
+ *
+ * One rail with two lists is the point: resumes and skills are both things
+ * the user keeps several of, and the mode is the route, so a link into the
+ * library is a link, not a piece of layout state that has to be kept in step
+ * with the URL.
+ */
 export function ResumeRail() {
+  const matchRoute = useMatchRoute()
+  const skillsMode = Boolean(matchRoute({ to: "/skills", fuzzy: true }))
+  const params = useParams({ strict: false })
+  const resumeId = "resumeId" in params ? params.resumeId : undefined
+
+  // Where the switch goes back to. Remembered while browsing, so leaving the
+  // library returns to the resume that was open rather than the dashboard;
+  // a page loaded straight into skills mode has nothing to remember.
+  const [lastResumeId, setLastResumeId] = useState<string>()
+  useEffect(() => {
+    if (resumeId) setLastResumeId(resumeId)
+  }, [resumeId])
+
+  return (
+    <nav className="flex min-h-0 flex-1 flex-col overflow-hidden bg-canvas">
+      {skillsMode ? <SkillsRail /> : <ResumeList />}
+      <RailSwitch skillsMode={skillsMode} resumeId={lastResumeId ?? resumeId} />
+    </nav>
+  )
+}
+
+/** The foot of the rail: one row, naming what the rail is not showing. */
+function RailSwitch({
+  skillsMode,
+  resumeId,
+}: {
+  skillsMode: boolean
+  resumeId?: string
+}) {
+  const row =
+    "flex h-[26px] w-full items-center gap-1.5 rounded-[6px] px-2 text-[12.5px] text-foreground/60 transition-colors hover:bg-muted"
+
+  return (
+    <div className="flex flex-none items-center border-t border-border p-1.5">
+      {skillsMode ? (
+        resumeId ? (
+          <Link to="/r/$resumeId/edit" params={{ resumeId }} className={row}>
+            <FileTextIcon className="size-3.5 flex-none opacity-70" />
+            <span className="truncate">My resumes</span>
+          </Link>
+        ) : (
+          <Link to="/dashboard" className={row}>
+            <FileTextIcon className="size-3.5 flex-none opacity-70" />
+            <span className="truncate">My resumes</span>
+          </Link>
+        )
+      ) : (
+        <Link to="/skills" className={row}>
+          <BooksIcon className="size-3.5 flex-none opacity-70" />
+          <span className="truncate">Skills</span>
+        </Link>
+      )}
+    </div>
+  )
+}
+
+/** The user's resumes, as the rail shows them when the library is not up. */
+function ResumeList() {
   const { data, isPending } = useQuery(resumesQuery())
   const params = useParams({ strict: false })
   const activeId = "resumeId" in params ? params.resumeId : undefined
@@ -78,7 +149,7 @@ export function ResumeRail() {
   }
 
   return (
-    <nav className="flex min-h-0 flex-1 flex-col overflow-hidden bg-canvas">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex h-[42px] flex-none items-center gap-1.5 px-2.5">
         {/* One row, two states: the label gives its width to the field. Both
             cells stay mounted, so the input has width to be focused into the
@@ -268,6 +339,6 @@ export function ResumeRail() {
           setDeleting(null)
         }}
       />
-    </nav>
+    </div>
   )
 }
