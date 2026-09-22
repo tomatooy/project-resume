@@ -81,9 +81,9 @@ export function ItemCard({
   return (
     <div
       className={cn(
-        "@container rounded-[10px] border bg-paper transition-shadow",
+        "@container rounded-[10px] border bg-card transition-shadow",
         open
-          ? "border-primary/35 shadow-[0_6px_20px_-14px_oklch(0.145_0_0/25%)]"
+          ? "border-primary/35 shadow-[0_6px_20px_-14px] shadow-foreground/25"
           : "border-border",
         selected && !open && "ring-2 ring-primary/25"
       )}
@@ -110,7 +110,7 @@ export function ItemCard({
           </span>
 
           {flags > 0 ? (
-            <span className="flex-none rounded-md bg-flag/14 px-2 py-[3px] text-[10.5px] font-semibold text-flag-foreground">
+            <span className="flex-none rounded-md bg-warning/14 px-2 py-[3px] text-[10.5px] font-semibold text-warning">
               {flags} to improve
             </span>
           ) : null}

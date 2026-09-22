@@ -65,7 +65,7 @@ export function ResumeRail() {
   }, [resumeId])
 
   return (
-    <nav className="flex min-h-0 flex-1 flex-col overflow-hidden bg-canvas">
+    <nav className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       {skillsMode ? <SkillsRail /> : <ResumeList />}
       <RailSwitch skillsMode={skillsMode} resumeId={lastResumeId ?? resumeId} />
     </nav>
@@ -81,7 +81,7 @@ function RailSwitch({
   resumeId?: string
 }) {
   const row =
-    "flex h-[26px] w-full items-center gap-1.5 rounded-[6px] px-2 text-[12.5px] text-foreground/60 transition-colors hover:bg-muted"
+    "flex h-[26px] w-full items-center gap-1.5 rounded-[6px] px-2 text-[12.5px] text-foreground/60 transition-colors hover:bg-accent"
 
   return (
     <div className="flex flex-none items-center border-t border-border p-1.5">
@@ -236,8 +236,8 @@ function ResumeList() {
                       // band belongs to the section it has open, and two of
                       // them stacked read as one double highlight.
                       selected
-                        ? "text-primary-deep"
-                        : "text-foreground/60 hover:bg-muted"
+                        ? "text-foreground text-semibold"
+                        : "text-foreground/60 hover:bg-accent"
                     )}
                   >
                     <FileTextIcon className="size-3.5 flex-none opacity-70" />
@@ -261,7 +261,7 @@ function ResumeList() {
                         <button
                           type="button"
                           aria-label={`Actions for ${resume.title}`}
-                          className="absolute top-1/2 right-1 flex size-5 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-has-[:focus-visible]/row:opacity-100 group-hover/row:opacity-100 hover:bg-muted focus-visible:opacity-100"
+                          className="absolute top-1/2 right-1 flex size-5 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-has-[:focus-visible]/row:opacity-100 group-hover/row:opacity-100 hover:bg-accent focus-visible:opacity-100"
                         >
                           <DotsThreeIcon weight="bold" />
                         </button>

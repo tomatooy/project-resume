@@ -38,9 +38,9 @@ export function PreflightIndicator() {
               aria-label={label}
               className={cn(
                 "flex h-6 items-center gap-1 rounded-[5px] px-1.5 transition-colors",
-                "hover:bg-muted data-popup-open:bg-primary/9 data-popup-open:text-primary-deep",
+                "hover:bg-muted data-popup-open:bg-primary/9 data-popup-open:text-primary-text",
                 warns > 0
-                  ? "text-flag-foreground"
+                  ? "text-warning"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >

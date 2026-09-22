@@ -509,39 +509,42 @@ export type Database = {
           category: string
           created_at: string
           deleted_at: string | null
+          description: string
           id: string
           name: string
           not_for: string | null
           starter: string | null
           updated_at: string
           user_id: string
-          when_to_use: string
+          when_to_use: string | null
         }
         Insert: {
           body: string
           category?: string
           created_at?: string
           deleted_at?: string | null
+          description: string
           id?: string
           name: string
           not_for?: string | null
           starter?: string | null
           updated_at?: string
           user_id: string
-          when_to_use: string
+          when_to_use?: string | null
         }
         Update: {
           body?: string
           category?: string
           created_at?: string
           deleted_at?: string | null
+          description?: string
           id?: string
           name?: string
           not_for?: string | null
           starter?: string | null
           updated_at?: string
           user_id?: string
-          when_to_use?: string
+          when_to_use?: string | null
         }
         Relationships: []
       }

@@ -43,6 +43,7 @@ type Row = Awaited<ReturnType<typeof listSkills>>[number]
 function row(overrides: Partial<Row> & Pick<Row, "id" | "name">): Row {
   return {
     category: "editor",
+    description: "Make sentences shorter.",
     whenToUse: "When it applies.",
     notFor: undefined,
     starter: undefined,

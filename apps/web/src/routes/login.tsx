@@ -84,8 +84,8 @@ function LoginScreen() {
   const message = failed ?? (error ? ERRORS[error] : undefined)
 
   return (
-    <main className="flex h-svh flex-col items-center justify-center bg-canvas px-6">
-      <div className="w-full max-w-[360px] rounded-xl border border-border bg-paper p-8 shadow-sm">
+    <main className="flex h-svh flex-col items-center justify-center bg-background px-6">
+      <div className="w-full max-w-[360px] rounded-xl border border-border bg-card p-8 shadow-sm">
         <div className="flex items-center gap-[9px]">
           <span className="flex size-[26px] items-center justify-center rounded-[7px] bg-primary font-heading text-[13px] font-bold text-primary-foreground">
             R

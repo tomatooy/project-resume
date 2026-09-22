@@ -52,7 +52,7 @@ export function FieldShell({
 }
 
 const CONTROL =
-  "w-full rounded-[7px] border bg-paper px-2.5 text-[12.5px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/20"
+  "w-full rounded-[7px] border bg-card px-2.5 text-[12.5px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/20"
 
 /**
  * Holds a field's error back while the user is part-way through typing it.
@@ -356,7 +356,7 @@ export function EndDateInput({
             editing ? gate.onEdit() : gate.onBlur()
           }
         />
-        <label className="flex h-[34px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-2.5 text-[12px] text-muted-foreground has-checked:border-primary has-checked:bg-primary/8 has-checked:text-primary-strong">
+        <label className="flex h-[34px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[7px] border border-border px-2.5 text-[12px] text-muted-foreground has-checked:border-primary has-checked:bg-primary/8 has-checked:text-primary-text">
           <input
             type="checkbox"
             checked={present}
@@ -404,14 +404,14 @@ export function ChipInput({
     <FieldShell label={label} error={error}>
       <div
         className={cn(
-          "flex min-h-[34px] flex-wrap items-center gap-1.5 rounded-[7px] border bg-paper p-1.5",
+          "flex min-h-[34px] flex-wrap items-center gap-1.5 rounded-[7px] border bg-card p-1.5",
           error ? "border-destructive" : "border-border"
         )}
       >
         {values.map((value) => (
           <span
             key={value}
-            className="flex items-center gap-1 rounded-full border border-border bg-canvas py-0.5 pr-1 pl-2.5 text-[11.5px]"
+            className="flex items-center gap-1 rounded-full border border-border bg-background py-0.5 pr-1 pl-2.5 text-[11.5px]"
           >
             {value}
             <button

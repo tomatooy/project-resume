@@ -19,8 +19,8 @@ export function ConflictBanner() {
   if (status !== "conflict") return null
 
   return (
-    <div className="mb-4 flex items-start gap-3 rounded-[9px] border border-flag/45 bg-flag/8 p-3.5">
-      <WarningIcon className="mt-0.5 size-4 flex-none text-flag-foreground" />
+    <div className="mb-4 flex items-start gap-3 rounded-[9px] border border-warning/45 bg-warning/8 p-3.5">
+      <WarningIcon className="mt-0.5 size-4 flex-none text-warning" />
       <div className="min-w-0 flex-1">
         <p className="text-[12.5px] font-semibold text-foreground">
           This resume changed somewhere else

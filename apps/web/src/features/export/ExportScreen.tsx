@@ -96,9 +96,9 @@ export function ExportScreen() {
             <div
               key={format.ext}
               className={cn(
-                "flex flex-col rounded-[10px] border bg-paper p-4",
+                "flex flex-col rounded-[10px] border bg-card p-4",
                 format.available
-                  ? "border-primary/40 shadow-[0_0_0_3px_oklch(0.5_0.134_242.749/10%)]"
+                  ? "border-primary/40 ring-3 ring-primary/10"
                   : "border-border"
               )}
             >
@@ -107,7 +107,7 @@ export function ExportScreen() {
                   className={cn(
                     "rounded-[5px] bg-muted px-[7px] py-[3px] text-[10px] font-bold tracking-[0.05em]",
                     format.available
-                      ? "text-primary-strong"
+                      ? "text-primary-text"
                       : "text-muted-foreground"
                   )}
                 >

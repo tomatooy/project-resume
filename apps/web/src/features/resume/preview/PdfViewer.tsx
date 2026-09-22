@@ -194,7 +194,7 @@ function PdfBuffer({
             renderTextLayer
             renderAnnotationLayer={false}
             onRenderSuccess={() => onPagePainted(pageNumber)}
-            className="overflow-hidden rounded-[3px] border border-border bg-paper shadow-[0_10px_30px_-18px_oklch(0.145_0_0/30%)]"
+            className="overflow-hidden rounded-[3px] border border-border bg-card shadow-[0_10px_30px_-18px] shadow-foreground/30"
           />
         ))}
       </Document>

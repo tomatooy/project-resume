@@ -370,6 +370,7 @@ describe("runTurn", () => {
       id: "usr_11111111-1111-4111-8111-111111111111",
       category: "editor",
       name: "Terse sentences",
+      description: "Make sentences shorter.",
       whenToUse: "The prose is wordy and the user wants it shorter.",
       notFor: "Adding detail.",
       body: "Prefer one clause per sentence. SENTINEL_CUSTOM_BODY",

@@ -45,8 +45,8 @@ export function InterviewScreen() {
               className={cn(
                 "h-[29px] rounded-full border px-3 text-[12px] font-medium transition-colors",
                 option === filter
-                  ? "border-transparent bg-ink text-background"
-                  : "border-border bg-paper text-foreground/80 hover:bg-muted"
+                  ? "border-transparent bg-foreground text-background"
+                  : "border-border bg-card text-foreground/80 hover:bg-muted"
               )}
             >
               {option}
@@ -83,9 +83,9 @@ function QuestionCard({
   return (
     <div
       className={cn(
-        "rounded-[10px] border bg-paper transition-shadow",
+        "rounded-[10px] border bg-card transition-shadow",
         open
-          ? "border-primary/35 shadow-[0_6px_20px_-14px_oklch(0.145_0_0/25%)]"
+          ? "border-primary/35 shadow-[0_6px_20px_-14px] shadow-foreground/25"
           : "border-border"
       )}
     >
@@ -95,7 +95,7 @@ function QuestionCard({
         aria-expanded={open}
         className="flex w-full items-start gap-[11px] px-4 py-3.5 text-left"
       >
-        <span className="mt-px flex-none rounded-[5px] bg-muted px-2 py-1 text-[10px] font-bold tracking-[0.04em] text-primary-strong uppercase">
+        <span className="mt-px flex-none rounded-[5px] bg-muted px-2 py-1 text-[10px] font-bold tracking-[0.04em] text-primary-text uppercase">
           {question.category}
         </span>
         <span className="flex-1 text-[13.5px] leading-[1.45] font-semibold tracking-[-0.01em] text-pretty">
@@ -117,7 +117,7 @@ function QuestionCard({
               key={beat.label}
               className="flex items-start gap-3 border-t border-border pt-[11px]"
             >
-              <span className="mt-0.5 w-[58px] flex-none text-[10.5px] font-bold tracking-[0.04em] text-primary-strong uppercase">
+              <span className="mt-0.5 w-[58px] flex-none text-[10.5px] font-bold tracking-[0.04em] text-primary-text uppercase">
                 {beat.label}
               </span>
               <span className="flex-1 text-[12.5px] leading-[1.55] text-pretty">

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { buildSystemPrompt } from "../src/prompts/base"
 import { SKILL_IDS, skillIndexLines } from "../src/skills/catalog"
 import { findSkills, resolveSkills, skillOfId } from "../src/skills/index"
+import { defineSkill } from "../src/skills/define"
 import { SKILLS } from "../src/skills/library"
 import { type CaseResult, liveEnabled, report, runCase } from "./evals/live"
 import { EVAL_CASES, type EvalCase, casesByCategory } from "./evals/fixtures"
@@ -51,6 +52,7 @@ describe("the library the evals assume", () => {
       const skill = skillOfId(id)
       expect(skill?.body.length).toBeGreaterThan(80)
       expect(skill?.name.length).toBeGreaterThan(0)
+      expect(skill?.description.length).toBeGreaterThan(0)
     }
   })
 })
@@ -65,11 +67,33 @@ describe("the library after an overlay", () => {
     id: "usr_11111111-1111-4111-8111-111111111111",
     category: "editor",
     name: "Terse sentences",
+    description: "Make sentences shorter.",
     whenToUse: "The prose is wordy and the user wants it shorter.",
     notFor: "Adding detail.",
     body: "Prefer one clause per sentence.",
     createdAt: "2026-09-12T00:00:00.000Z",
   }
+
+  it("discovers skills by description without when to use", () => {
+    const skills = resolveSkills({
+      custom: [
+        {
+          ...custom,
+          description: "Specialized zephyr phrasing.",
+          whenToUse: undefined,
+        },
+      ],
+      disabledIds: [],
+    })
+    const found = findSkills(skills, "zephyr", 1)[0]
+    expect(found?.id).toBe(custom.id)
+    expect(found?.whenToUse).toBeUndefined()
+    expect(skillIndexLines(skills)).toContain(
+      `- ${custom.id}: ${custom.name}. Specialized zephyr phrasing.`
+    )
+    if (!found) throw new Error("skill not found")
+    expect(() => defineSkill(found)).not.toThrow()
+  })
 
   it("drops a disabled playbook from the index and from find_skills", () => {
     const skills = resolveSkills({
@@ -92,7 +116,7 @@ describe("the library after an overlay", () => {
     const skills = resolveSkills({ custom: [custom], disabledIds: [] })
 
     expect(skillIndexLines(skills)).toContain(
-      `- ${custom.id}: ${custom.name}. ${custom.whenToUse}`
+      `- ${custom.id}: ${custom.name}. ${custom.description} When to use: ${custom.whenToUse}`
     )
     expect(
       findSkills(skills, "terse wording", 4).map((skill) => skill.id)

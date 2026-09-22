@@ -128,7 +128,7 @@ function SkillRowLink({
         title={row.name}
         className={cn(
           "flex h-[26px] w-full items-center gap-1.5 rounded-[6px] pr-8 pl-2 transition-colors",
-          selected ? "text-primary-deep" : "hover:bg-muted",
+          selected ? "text-primary-text" : "hover:bg-muted",
           // A switched-off skill stays readable but stops looking live, which
           // is the one thing the rail has to show about it.
           !selected &&

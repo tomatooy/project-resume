@@ -37,9 +37,11 @@ export function SaveBar() {
     <div className="flex items-center gap-1">
       <span className="mr-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {status === "saving" ? <Spinner className="size-3" /> : null}
-        {status === "saved" ? <CheckIcon className="size-3 text-ok" /> : null}
+        {status === "saved" ? (
+          <CheckIcon className="size-3 text-success" />
+        ) : null}
         {status === "error" || status === "conflict" ? (
-          <WarningIcon className="size-3 text-flag" />
+          <WarningIcon className="size-3 text-warning" />
         ) : null}
         {savable ? LABEL[status] : "Fix errors to save"}
       </span>

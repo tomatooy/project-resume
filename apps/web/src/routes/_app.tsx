@@ -42,7 +42,7 @@ function AppLayout() {
       {/* The rail and the route below it are siblings, so the slot that lets a
           screen render into the open resume's row lives above both. */}
       <RailSlotProvider>
-        <div className="flex h-svh flex-col overflow-hidden bg-canvas">
+        <div className="flex h-svh flex-col overflow-hidden bg-background">
           <AppHeader email={session.email} />
           <div className="relative flex min-h-0 flex-1">
             <ResizablePanelGroup orientation="horizontal" {...shell.group}>

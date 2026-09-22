@@ -46,7 +46,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body className="bg-canvas text-foreground antialiased">
+      <body className="bg-background text-foreground antialiased">
         <QueryClientProvider client={queryClient}>
           <TooltipProvider delay={400}>{children}</TooltipProvider>
         </QueryClientProvider>

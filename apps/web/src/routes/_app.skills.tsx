@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_app/skills")({
 function SkillsShell() {
   return (
     <SkillsWorkspaceProvider>
-      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-paper">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-card">
         <SkillTabs />
         <Outlet />
       </div>

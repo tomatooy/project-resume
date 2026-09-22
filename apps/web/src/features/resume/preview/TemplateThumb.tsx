@@ -36,7 +36,7 @@ export function TemplateThumb({
         // page whose foot is cut off still reads as a page, where a document
         // floating in slack space does not.
         className={cn(
-          "aspect-[1/1.3] w-full rounded-[2px] border border-border bg-paper object-cover object-top",
+          "aspect-[1/1.3] w-full rounded-[2px] border border-border bg-card object-cover object-top",
           className
         )}
       />
@@ -46,7 +46,7 @@ export function TemplateThumb({
   return (
     <div
       className={cn(
-        "flex aspect-[1/1.3] flex-col gap-[5px] rounded-[2px] border border-border bg-paper px-[6px] py-[7px]",
+        "flex aspect-[1/1.3] flex-col gap-[5px] rounded-[2px] border border-border bg-card px-[6px] py-[7px]",
         className
       )}
     >
@@ -87,7 +87,7 @@ export function TemplateThumb({
 /** The smaller sketch used on the resume cards in the left rail. */
 export function ResumeThumb({ accent }: { accent: string }) {
   return (
-    <div className="flex h-[52px] w-[38px] shrink-0 flex-col gap-[2.5px] rounded-[3px] border border-border bg-paper px-[5px] py-[6px]">
+    <div className="flex h-[52px] w-[38px] shrink-0 flex-col gap-[2.5px] rounded-[3px] border border-border bg-card px-[5px] py-[6px]">
       <span className="block h-[3px] w-[70%] rounded-[1px] bg-foreground" />
       <span className="block h-[2px] w-[46%] rounded-[1px] bg-muted-foreground/60" />
       <span

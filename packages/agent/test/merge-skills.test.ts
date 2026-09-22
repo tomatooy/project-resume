@@ -10,6 +10,7 @@ function custom(overrides: Partial<CustomSkill> = {}): CustomSkill {
     id: "usr_11111111-1111-4111-8111-111111111111",
     category: "editor",
     name: "Terse sentences",
+    description: "Make sentences shorter.",
     whenToUse: "The prose is wordy and the user wants it shorter.",
     body: "Prefer one clause per sentence.",
     createdAt: "2026-09-12T00:00:00.000Z",

@@ -1,8 +1,9 @@
 // biome-ignore-all lint/a11y/noStaticElementInteractions: the suggestion
 // card previews its own effect in the PDF on hover and on focus. The card
-// is not activatable and takes no role; Accept and Dismiss are its
+// is not activatable and takes no role; Accept and Reject are its
 // controls, and the focus handlers mirror hover for keyboard users.
 
+import { CheckIcon, MinusIcon, PlusIcon, XIcon } from "@phosphor-icons/react"
 import {
   addedFigures,
   breadcrumb,
@@ -14,16 +15,16 @@ import {
 } from "@workspace/resume-schema"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
+import type { ReactNode } from "react"
 
 import { MessageMarkdown } from "./MessageMarkdown"
 
 import { useSkillNames } from "@/lib/queries"
 import type { Suggestion, SuggestionStatus } from "@/lib/types"
-import { WordDiff } from "@/lib/word-diff"
 
 const STATUS_LABEL: Record<Exclude<SuggestionStatus, "pending">, string> = {
   accepted: "Accepted",
-  rejected: "Dismissed",
+  rejected: "Rejected",
   stale: "Outdated",
 }
 
@@ -34,6 +35,7 @@ export function SuggestionCard({
   onReject,
   onHover,
   busy,
+  navigation,
 }: {
   suggestion: Suggestion
   resume: Resume
@@ -41,6 +43,7 @@ export function SuggestionCard({
   onReject: () => void
   onHover: (hovering: boolean) => void
   busy: boolean
+  navigation?: ReactNode
 }) {
   const { patch, status } = suggestion
   const pending = status === "pending"
@@ -66,92 +69,87 @@ export function SuggestionCard({
       onFocus={() => pending && onHover(true)}
       onBlur={() => onHover(false)}
       className={cn(
-        "rounded-lg border p-3 transition-colors",
-        pending
-          ? structural
-            ? "border-destructive/30 bg-destructive/5"
-            : "border-primary/28 bg-primary/5"
-          : "border-border bg-canvas opacity-80"
+        "min-w-0 rounded-xl border bg-card transition-colors",
+        structural && pending ? "border-destructive/30" : "border-border"
       )}
     >
-      <div className="mb-2 flex items-center gap-1.5">
-        {pending ? (
-          <span
+      <div className="flex min-h-12 items-center justify-between gap-2 border-b border-border px-3.5 py-2">
+        <h3 className="text-[13px] font-semibold text-foreground">
+          Suggested change
+        </h3>
+        {navigation}
+      </div>
+
+      <div className="space-y-3 p-3.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-muted-foreground">
+          <p
             className={cn(
-              "size-[5px] animate-soft-pulse rounded-full",
-              structural ? "bg-destructive" : "bg-primary"
+              "min-w-0 flex-1 wrap-break-word",
+              structural && "text-destructive"
             )}
-          />
-        ) : null}
-        <span
-          className={cn(
-            "text-[10.5px] font-bold tracking-[0.05em] uppercase",
-            structural ? "text-destructive" : "text-primary-strong"
-          )}
-        >
-          {structural ? structuralVerb(patch, resume) : OP_LABEL[patch.op]}
-        </span>
-        {skillName ? (
-          <span className="text-[10.5px] text-muted-foreground">
-            {skillName}
-          </span>
-        ) : null}
-        <div className="flex-1" />
-        {!pending ? (
-          <span className="rounded-[5px] bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-            {STATUS_LABEL[status]}
-          </span>
-        ) : null}
-      </div>
-
-      {/* A structural verb already names where it lands, so the breadcrumb
-          under it would only repeat the words back. */}
-      {structural ? null : (
-        <p className="mb-2 truncate text-[10.5px] text-muted-foreground">
-          {breadcrumb(resume, target)}
-        </p>
-      )}
-
-      <PatchBody patch={patch} resume={resume} />
-
-      <div className="mt-2 text-[11.5px] leading-[1.5] text-muted-foreground">
-        <MessageMarkdown>{patch.reason}</MessageMarkdown>
-      </div>
-
-      {structural && pending ? (
-        <p className="mt-2 text-[11px] text-destructive/80">
-          This changes the shape of the resume, so it is left out of Accept all.
-        </p>
-      ) : null}
-
-      {estimates.length > 0 && pending ? (
-        <p className="mt-2 text-[11px] text-flag-foreground">
-          Not in the resume: {estimates.slice(0, 4).join(", ")}
-          {estimates.length > 4 ? ` and ${estimates.length - 4} more` : ""}.
-          Confirm before accepting.
-        </p>
-      ) : null}
-
-      {pending ? (
-        <div className="mt-3 flex gap-[7px]">
-          <Button size="sm" onClick={onAccept} disabled={busy}>
-            Accept
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onReject}
-            disabled={busy}
           >
-            Dismiss
-          </Button>
+            {structural
+              ? structuralVerb(patch, resume)
+              : breadcrumb(resume, target)}
+          </p>
+          {!pending ? (
+            <span className="rounded-[5px] bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+              {STATUS_LABEL[status]}
+            </span>
+          ) : null}
         </div>
-      ) : status === "stale" ? (
-        <p className="mt-2 text-[11px] text-flag-foreground">
-          The text changed after this was drafted, so it can no longer be
-          applied.
-        </p>
-      ) : null}
+
+        <PatchBody patch={patch} resume={resume} />
+
+        {structural && pending ? (
+          <p className="mt-2 text-[11px] text-destructive/80">
+            This changes the shape of the resume, so it is left out of Accept
+            all.
+          </p>
+        ) : null}
+
+        {estimates.length > 0 && pending ? (
+          <p className="mt-2 text-[11px] text-warning">
+            Not in the resume: {estimates.slice(0, 4).join(", ")}
+            {estimates.length > 4 ? ` and ${estimates.length - 4} more` : ""}.
+            Confirm before accepting.
+          </p>
+        ) : null}
+
+        {pending ? (
+          <div className="grid grid-cols-2 gap-2">
+            <Button className="h-9" onClick={onAccept} disabled={busy}>
+              <CheckIcon />
+              Accept
+            </Button>
+            <Button
+              variant="outline"
+              className="h-9"
+              onClick={onReject}
+              disabled={busy}
+            >
+              <XIcon />
+              Reject
+            </Button>
+          </div>
+        ) : status === "stale" ? (
+          <p className="mt-2 text-[11px] text-warning">
+            The text changed after this was drafted, so it can no longer be
+            applied.
+          </p>
+        ) : null}
+        <div className="space-y-1.5 border-t border-border pt-3">
+          <p className="text-[12px] font-semibold text-foreground">
+            Why this is better
+          </p>
+          <div className="text-[12px] leading-relaxed text-muted-foreground">
+            <MessageMarkdown>{patch.reason}</MessageMarkdown>
+          </div>
+          {skillName ? (
+            <p className="text-[10.5px] text-muted-foreground">{skillName}</p>
+          ) : null}
+        </div>
+      </div>
     </div>
   )
 }
@@ -193,46 +191,109 @@ function containerName(resume: Resume, parentId: string): string {
 
 function PatchBody({ patch, resume }: { patch: ResumePatch; resume: Resume }) {
   if (patch.op === "replace_text") {
-    return <WordDiff before={patch.before} after={patch.after} />
+    return (
+      <div className="space-y-3">
+        <ChangeBlock label="Original" removed>
+          {patch.before}
+        </ChangeBlock>
+        <ChangeBlock label="Suggested">{patch.after}</ChangeBlock>
+      </div>
+    )
   }
 
   if (patch.op === "update_fields") {
     return (
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
-        {Object.entries(patch.after).map(([key, value]) => (
-          <div key={key} className="contents">
-            <dt className="text-muted-foreground">{key}</dt>
-            <dd className="min-w-0 truncate font-medium">
-              {value === null ? "cleared" : String(value)}
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <div className="space-y-3">
+        <ChangeBlock label="Original" removed>
+          <FieldValues values={patch.before} />
+        </ChangeBlock>
+        <ChangeBlock label="Suggested">
+          <FieldValues values={patch.after} />
+        </ChangeBlock>
+      </div>
     )
   }
 
   if (patch.op === "delete") {
     return (
-      <p className="text-[12px] leading-[1.5] text-muted-foreground line-through decoration-border">
+      <ChangeBlock label="Original" removed>
         {nodeSummary(patch.before)}
-      </p>
+      </ChangeBlock>
     )
   }
 
   if (patch.op === "insert_after") {
     return (
-      <p className="text-[12.5px] leading-[1.55] font-medium">
-        {nodeSummary(patch.node)}
-      </p>
+      <ChangeBlock label="Suggested">{nodeSummary(patch.node)}</ChangeBlock>
     )
   }
 
   return (
-    <p className="text-[12px] text-muted-foreground">
+    <ChangeBlock label="Suggested">
       Move to position {patch.toIndex + 1} within{" "}
-      {breadcrumb(resume, patch.targetNodeId).split(" > ").at(-2) ??
-        "its section"}
+      {patch.toParentId
+        ? containerName(resume, patch.toParentId)
+        : (breadcrumb(resume, patch.targetNodeId).split(" > ").at(-2) ??
+          "its section")}
       .
-    </p>
+    </ChangeBlock>
+  )
+}
+
+function ChangeBlock({
+  label,
+  removed = false,
+  children,
+}: {
+  label: string
+  removed?: boolean
+  children: ReactNode
+}) {
+  const Icon = removed ? MinusIcon : PlusIcon
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[12px] font-medium text-foreground">{label}</p>
+      <div
+        className={cn(
+          "flex items-start gap-2 rounded-lg p-2.5 text-[12.5px] leading-relaxed",
+          removed
+            ? "bg-destructive/10 text-destructive"
+            : "bg-success/15 text-success"
+        )}
+      >
+        <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+        <div
+          className={cn(
+            "min-w-0 flex-1 whitespace-pre-wrap break-words",
+            removed && "line-through decoration-current"
+          )}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FieldValues({
+  values,
+}: {
+  values: Extract<ResumePatch, { op: "update_fields" }>["after"]
+}) {
+  return (
+    <dl className="space-y-1">
+      {Object.entries(values).map(([key, value]) => (
+        <div key={key}>
+          <dt className="font-medium">{key}</dt>
+          <dd>
+            {value === null
+              ? "Not set"
+              : typeof value === "object"
+                ? JSON.stringify(value)
+                : String(value)}
+          </dd>
+        </div>
+      ))}
+    </dl>
   )
 }

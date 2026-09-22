@@ -32,7 +32,7 @@ export function WordDiff({
           return (
             <span
               key={key}
-              className="rounded-[2px] bg-primary/14 font-medium text-primary-deep"
+              className="rounded-[2px] bg-success/10 font-medium text-success"
             >
               {part.value}
             </span>
@@ -42,7 +42,7 @@ export function WordDiff({
           return (
             <span
               key={key}
-              className="text-muted-foreground line-through decoration-border"
+              className="bg-destructive/10 text-destructive line-through decoration-current"
             >
               {part.value}
             </span>

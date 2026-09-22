@@ -58,15 +58,15 @@ export const checkFitTool = tool({
 })
 
 /**
- * Searches the playbook library by name, when-to-use and body text. Returns
- * one line per hit, never a body: the body is what `load_skill` is for. A
+ * Searches skill metadata and bodies. Returns one line per hit, never a
+ * body: the body is what `load_skill` is for. A
  * query that matches nothing returns the index instead of an empty list, so a
  * model that guessed the wrong words still finds its way.
  */
 const findSkillsTool = (deps: ToolDeps) =>
   tool({
     description:
-      "Search the playbook library when you are not sure which playbook fits. Returns ids, names and when-to-use lines, never the playbook text.",
+      "Search the playbook library when you are not sure which playbook fits. Returns ids, names, descriptions and optional usage guidance, never the body.",
     inputSchema: z.object({
       query: z.string().max(200),
       limit: z.number().int().min(1).max(8).optional(),
@@ -76,7 +76,8 @@ const findSkillsTool = (deps: ToolDeps) =>
         z.object({
           id: z.string(),
           name: z.string(),
-          whenToUse: z.string(),
+          description: z.string(),
+          whenToUse: z.string().optional(),
           notFor: z.string().optional(),
         })
       ),
@@ -85,9 +86,10 @@ const findSkillsTool = (deps: ToolDeps) =>
     execute: async ({ query, limit }) => {
       const hits = findSkills(deps.skills, query, limit ?? 4)
       return {
-        skills: hits.map(({ id, name, whenToUse, notFor }) => ({
+        skills: hits.map(({ id, name, description, whenToUse, notFor }) => ({
           id,
           name,
+          description,
           whenToUse,
           notFor,
         })),

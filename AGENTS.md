@@ -332,10 +332,15 @@ Server state (TanStack Query):
 
 - Keep UI consistent. Components live in `packages/ui` (shadcn on Base UI, not
   Radix). Use `cn` from `@workspace/ui/lib/utils`.
-- Tailwind v4 tokens come from `@workspace/ui/globals.css`. Use the theme
-  tokens (`bg-canvas`, `bg-paper`, `border-border`, `text-muted-foreground`,
-  `text-primary-deep`, `bg-primary/9`, `text-flag-foreground`, and similar)
-  rather than hardcoding colors.
+- Before building or reviewing UI, check `packages/ui` for an existing
+  component first. If none fits, check shadcn and install its Base UI component
+  into `packages/ui`. Prefer composing or extending these shared primitives;
+  only hand-roll a component when neither provides a suitable foundation.
+- Tailwind v4 tokens come from `@workspace/ui/globals.css`. Use semantic
+  tokens (`bg-background`, `bg-card`, `border-border`, `text-muted-foreground`,
+  `text-primary-text`, `text-warning`) and opacity modifiers (`bg-primary/10`,
+  `bg-success/10`) rather than hardcoding colors or adding per-panel tokens.
+  Follow `docs/design/style-colors.md` for color roles and reuse rules.
 - Add shadcn components via the shadcn MCP (`.mcp.json`) or
   `bunx shadcn@latest add <component> -c apps/web`; they land in `packages/ui`.
 - Do not use Tailwind or CSS inside resume templates; react-pdf cannot see it.

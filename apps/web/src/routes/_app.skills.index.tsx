@@ -153,7 +153,7 @@ function SkillCard({
   onDelete?: () => void
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-[10px] border border-border bg-paper p-3.5">
+    <div className="flex items-start gap-3 rounded-[10px] border border-border bg-card p-3.5">
       <button
         type="button"
         onClick={onOpen}
@@ -165,13 +165,13 @@ function SkillCard({
             {row.source === "custom" ? "Yours" : "Built in"}
           </span>
           {row.category === "interview" ? (
-            <span className="flex-none rounded-[5px] bg-primary/9 px-1.5 py-0.5 text-[10px] font-semibold text-primary-deep">
+            <span className="flex-none rounded-[5px] bg-primary/9 px-1.5 py-0.5 text-[10px] font-semibold text-primary-text">
               Interview
             </span>
           ) : null}
         </span>
         <span className="mt-1 block text-[12px] leading-[1.5] text-muted-foreground">
-          {row.whenToUse}
+          {row.description}
         </span>
         {row.notFor ? (
           <span className="mt-0.5 block text-[11.5px] text-muted-foreground/80">

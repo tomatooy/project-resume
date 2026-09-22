@@ -14,6 +14,7 @@ export const SKILL_META: readonly SkillMeta[] = [
     id: "bullet_rewrite",
     category: "editor",
     name: "Impact bullets",
+    description: "Rewrite resume bullets with clear actions and outcomes.",
     whenToUse:
       "Bullets should be tighter, verb-first and outcome-led; the user says improve, punchier, stronger, or asks for a rewrite.",
     notFor: "Cutting length, or matching a posting's wording.",
@@ -24,6 +25,7 @@ export const SKILL_META: readonly SkillMeta[] = [
     id: "jd_match",
     category: "editor",
     name: "Match a posting",
+    description: "Tailor resume wording to a target job description.",
     whenToUse:
       "The user pasted a job description into the message and the resume should speak to that role.",
     notFor: "A resume with no target role in view.",
@@ -33,6 +35,7 @@ export const SKILL_META: readonly SkillMeta[] = [
     id: "grammar_clarity",
     category: "editor",
     name: "Grammar and clarity",
+    description: "Correct grammar and make resume writing clear and natural.",
     whenToUse:
       "The content is right but the grammar, tense, capitalization or phrasing needs work, or it reads like a duty list or AI filler rather than a resume.",
     notFor: "Rewriting for impact, cutting length, or adding content.",
@@ -43,6 +46,7 @@ export const SKILL_META: readonly SkillMeta[] = [
     id: "condense_to_pages",
     category: "editor",
     name: "Cut to length",
+    description: "Condense a resume to meet a page or length target.",
     whenToUse:
       "The user says the resume is too long, or asks what to cut to fit a length.",
     notFor: "Sharpening wording, or adding content.",
@@ -52,6 +56,8 @@ export const SKILL_META: readonly SkillMeta[] = [
     id: "resume_quantifier",
     category: "editor",
     name: "Quantify impact",
+    description:
+      "Help express the scale and measurable impact of resume achievements.",
     whenToUse:
       "Bullets read as duties with no figures, or the user asks to quantify the work, add metrics or numbers, or says they have no data.",
     notFor:
@@ -62,6 +68,8 @@ export const SKILL_META: readonly SkillMeta[] = [
     id: "tech_resume_optimizer",
     category: "editor",
     name: "Tech resume",
+    description:
+      "Improve bullets, skills, projects and links for technical roles.",
     whenToUse:
       "The target is a software, data, DevOps or technical PM role and the resume should read technical: the bullets, the skills groups, the projects and the links.",
     notFor:
@@ -81,6 +89,7 @@ export const SKILL_IDS: readonly string[] = SKILL_META.map((meta) => meta.id)
 /** One line per playbook, the index the prompt and `find_skills` both read. */
 export function skillIndexLines(skills: readonly Skill[]): string[] {
   return skills.map(
-    (skill) => `- ${skill.id}: ${skill.name}. ${skill.whenToUse}`
+    (skill) =>
+      `- ${skill.id}: ${skill.name}. ${skill.description}${skill.whenToUse ? ` When to use: ${skill.whenToUse}` : ""}`
   )
 }

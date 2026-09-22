@@ -9,9 +9,11 @@
     // Both tiers on the same model until the fast tier earns a cheaper one.
     // The provider switch lives in `packages/agent/src/models.ts`.
     "AI_MODEL_SMART": "deepseek-v4-flash",
-    "AI_MODEL_FAST": "deepseek-v4-flash"
+    "AI_MODEL_FAST": "deepseek-v4-flash",
+    "TYPESAFE_DEFAULT_MODEL": "jev-latest"
   },
   // DEEPSEEK_API_KEY is a secret: `wrangler secret put DEEPSEEK_API_KEY` in
   // production, `apps/web/.dev.vars` locally. Never a var.
+  // Optional Jev client: TYPESAFE_API_KEY follows the same secret setup.
   "observability": { "enabled": true }
 }

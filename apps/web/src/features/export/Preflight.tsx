@@ -22,7 +22,7 @@ export function Preflight() {
   const checks = usePreflightChecks()
 
   return (
-    <div className="rounded-[10px] border border-border bg-paper p-4">
+    <div className="rounded-[10px] border border-border bg-card p-4">
       <div className="mb-3 text-[10.5px] font-bold tracking-[0.05em] text-muted-foreground uppercase">
         Preflight
       </div>
@@ -49,7 +49,7 @@ export function PreflightList({
           <span
             className={cn(
               "mt-[5px] size-2 flex-none rounded-full",
-              check.level === "warn" ? "bg-flag" : "bg-ok"
+              check.level === "warn" ? "bg-warning" : "bg-success"
             )}
           />
           <div className="min-w-0">

@@ -12,7 +12,8 @@ type SkillRow = {
   id: string
   category: string
   name: string
-  when_to_use: string
+  description: string
+  when_to_use: string | null
   not_for: string | null
   starter: string | null
   body: string
@@ -24,7 +25,7 @@ type SkillRow = {
 // hand: the two have to agree, and a column added to one and not the other is
 // a type error at the call site rather than a silently missing field.
 const COLUMNS =
-  "id, category, name, when_to_use, not_for, starter, body, created_at, deleted_at"
+  "id, category, name, description, when_to_use, not_for, starter, body, created_at, deleted_at"
 
 /** A null column is an absent field, not an empty one. */
 function toCustomSkill(row: SkillRow): CustomSkill {
@@ -35,7 +36,8 @@ function toCustomSkill(row: SkillRow): CustomSkill {
     // rather than a silent fallback to one group.
     category: SkillCategorySchema.parse(row.category),
     name: row.name,
-    whenToUse: row.when_to_use,
+    description: row.description,
+    whenToUse: row.when_to_use ?? undefined,
     notFor: row.not_for ?? undefined,
     starter: row.starter ?? undefined,
     body: row.body,
@@ -100,7 +102,8 @@ export class SupabaseSkillRepository implements SkillRepository {
         user_id: this.userId,
         category: input.category,
         name: input.name,
-        when_to_use: input.whenToUse,
+        description: input.description,
+        when_to_use: input.whenToUse ?? null,
         not_for: input.notFor ?? null,
         starter: input.starter ?? null,
         body: input.body,
@@ -118,7 +121,8 @@ export class SupabaseSkillRepository implements SkillRepository {
       .update({
         category: input.category,
         name: input.name,
-        when_to_use: input.whenToUse,
+        description: input.description,
+        when_to_use: input.whenToUse ?? null,
         not_for: input.notFor ?? null,
         starter: input.starter ?? null,
         body: input.body,

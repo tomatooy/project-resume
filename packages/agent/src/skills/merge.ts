@@ -49,6 +49,7 @@ export function mergeSkills(overlay: SkillOverlay): SkillEntry[] {
         id: row.id,
         category: row.category,
         name: row.name,
+        description: row.description,
         whenToUse: row.whenToUse,
         notFor: row.notFor,
         starter: row.starter,

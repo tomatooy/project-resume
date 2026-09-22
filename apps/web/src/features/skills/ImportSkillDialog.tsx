@@ -1,5 +1,5 @@
 import { UploadSimpleIcon, WarningIcon } from "@phosphor-icons/react"
-import type { UserSkillInput } from "@workspace/resume-core"
+import type { SkillDraft } from "@workspace/resume-core"
 import { Button } from "@workspace/ui/components/button"
 import {
   Dialog,
@@ -18,7 +18,7 @@ import { useImportSkillMarkdown } from "@/lib/queries"
  * Reads a `SKILL.md` into the editor.
  *
  * The file names itself and says when it applies in a `---` block; its
- * `description:` becomes "when to use". Parsing happens on the server, and
+ * `description:` fills the description. Parsing happens on the server, and
  * what comes back prefills the editor rather than saving: the user sees what
  * the file was read as before it joins their library.
  */
@@ -29,7 +29,7 @@ export function ImportSkillDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onImported: (input: UserSkillInput) => void
+  onImported: (input: SkillDraft) => void
 }) {
   const [text, setText] = useState("")
   const [fileName, setFileName] = useState<string | null>(null)
@@ -75,9 +75,8 @@ export function ImportSkillDialog({
         <DialogHeader>
           <DialogTitle>Import a SKILL.md</DialogTitle>
           <DialogDescription>
-            A markdown file that starts with a --- block naming it and saying
-            when it applies. You review the result in the editor before it is
-            saved.
+            Import the name, description and body into a new skill. Review and
+            edit the fields before adding it to your library.
           </DialogDescription>
         </DialogHeader>
 
@@ -99,11 +98,11 @@ export function ImportSkillDialog({
               "flex flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed px-4 py-7 transition-colors",
               dragging
                 ? "border-primary bg-primary/6 text-primary"
-                : "border-border text-muted-foreground hover:border-primary hover:bg-paper hover:text-primary"
+                : "border-border text-muted-foreground hover:border-primary hover:bg-card hover:text-primary"
             )}
           >
             <UploadSimpleIcon className="size-5" />
-            <span className="text-[12.5px] font-medium">
+            <span className="max-w-full text-[12.5px] font-medium wrap-anywhere">
               {fileName ?? "Drop a SKILL.md here, or click to choose one"}
             </span>
             <span className="text-[11px] text-muted-foreground">
@@ -121,7 +120,7 @@ export function ImportSkillDialog({
           {error ? (
             <div className="flex items-start gap-2.5 rounded-[9px] border border-destructive/40 bg-destructive/6 p-3">
               <WarningIcon className="mt-px size-4 flex-none text-destructive" />
-              <p className="text-[12px] leading-[1.5] text-muted-foreground">
+              <p className="min-w-0 text-[12px] leading-[1.5] text-muted-foreground wrap-anywhere">
                 {error}
               </p>
             </div>
@@ -145,7 +144,7 @@ export function ImportSkillDialog({
               placeholder={
                 "---\nname: …\ndescription: …\n---\n\nThe guidance itself."
               }
-              className="max-h-48 font-mono text-[11.5px]"
+              className="field-sizing-fixed max-h-48 min-w-0 max-w-full resize-y font-mono text-[11.5px]"
             />
           </div>
 
@@ -157,11 +156,7 @@ export function ImportSkillDialog({
             >
               Cancel
             </Button>
-            <Button
-              size="sm"
-              disabled={text.trim().length === 0 || parse.isPending}
-              onClick={read}
-            >
+            <Button size="sm" disabled={parse.isPending} onClick={read}>
               Read this file
             </Button>
           </div>

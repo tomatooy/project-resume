@@ -40,16 +40,16 @@ widens, narrows or gates what a turn may do.
 | Merge | One `mergeSkills(overlay)` in `packages/agent`; the turn's library and the client list both derive from it |
 | Index position | Stays above `DATA_RULE`; the index is per-user |
 | Trust | Custom bodies wrapped as untrusted guidance at merge time, plus caps. No content filtering |
-| Skill fields | `{ id, name, whenToUse, notFor?, starter?, body }` |
-| `starter`, `notFor` | Optional. Built-ins keep theirs; a custom skill may omit either |
+| Skill fields | `{ id, category, name, description, body, whenToUse?, notFor?, starter? }` |
+| `whenToUse`, `starter`, `notFor` | Optional. Name, description and body are required when saving |
 | Ids | Prefixed `usr_<uuid>`, never reused. Soft delete |
 | Delete | Deleted rows stay in `listSkills`, flagged, so an old card can name its skill |
-| Limits | 20 live custom skills; name 80, when to use 200, not for 200, starter 200, body 8000; raw `SKILL.md` 20,000 |
+| Limits | 20 live custom skills; name 80, description 1024, when to use 200, not for 200, starter 200, body 50,000. Import has no length or required-field guard; Add skill and Save skill enforce the field limits |
 | Bodies on the wire | Built-in bodies never reach the browser. `load_skill` returns ids and names; the body reaches the model through `toModelOutput` |
 | UI home | `/skills`, reached from the switch at the foot of the rail |
 | Rail | One rail, two lists: resumes everywhere, the library on `/skills`. The mode is the route, not layout state |
 | Skill tabs | The `/skills` layout has its own strip: an `All skills` tab, plus a closable tab per skill that is opened |
-| A built-in in a tab | Read-only detail (name, when to use, not for, the switch). Its body has no client path, so there is nothing to edit |
+| A built-in in a tab | Read-only detail (name, description, optional when to use and not for, the switch). Its body has no client path, so there is nothing to edit |
 | Category | `editor` or `interview` on every skill: a column with a check, defaulted to `editor`. It groups the rail and gates nothing |
 | Empty library | Allowed. The index says so and the tools stay in the set |
 
@@ -86,7 +86,7 @@ rail groups by. No validator, tool or prompt line reads it.
 
 `packages/resume-core` follows the `job_targets` slice end to end:
 
-- `domain/skill.ts`: `CustomSkill`, `SkillOverlay`, `UserSkillInputSchema`, the
+- `domain/skill.ts`: `CustomSkill`, `SkillOverlay`, `SkillDraftSchema`, `UserSkillInputSchema`, the
   caps, and `parseSkillMarkdown`.
 - `ports/skill-repository.ts`: `listOverlay`, `getCustom`, `countLive`, `create`,
   `update`, `softDelete`, `setDisabled`.
@@ -99,10 +99,21 @@ rail groups by. No validator, tool or prompt line reads it.
 `LoadedSkillSchema.body` became optional. New rows never carry it, and rows
 stored before this change still parse; nothing reads the old copy.
 
-Import parsing is hand-rolled: a leading `---` fence, `name:` and `description:`
-as plain `key: value` lines, `description` mapped to `whenToUse`, the remainder
-as the body. A YAML dependency would be more surface than the format needs, and
-unknown keys are ignored so a file written for another tool still imports.
+Import parses YAML frontmatter with `yaml`, including literal and folded
+multiline descriptions. `name` and `description` fill their own fields; the
+remaining markdown fills `body`. Optional usage guidance, starter, category
+and exclusions also prefill the draft. Unknown keys are ignored. Files without
+readable frontmatter are kept in the body so the user can edit them.
+
+Import never enforces save limits or required fields. `SkillDraft` can hold
+missing or oversized values and an unrecognized category. Add skill and Save
+skill validate with `UserSkillInputSchema`, show inline errors and send only
+valid input. The server validates create and update as well.
+
+`20260922120000_skill_description.sql` adds a required `description`, copies
+existing `when_to_use` values into it and makes `when_to_use` nullable. Existing
+usage guidance remains intact. The agent's `Skill` derives its content fields
+from `UserSkillInput`, so built-ins and custom skills share the same shape.
 
 ## 6. Merge
 
@@ -130,10 +141,10 @@ constant across steps, so second-step cache hits are unchanged.
 
 ## 7. Tools and prompt
 
-- `ToolDeps` gains `skills`, and `findSkills(skills, query, limit)` takes the
-  library. `find_skills` rows gained `notFor?`; the tool description and its
-  input schema are unchanged, so the tool block stays byte-identical and the
-  turn keeps passing a constant `activeTools` array.
+- `ToolDeps` holds `skills`, and `findSkills(skills, query, limit)` searches
+  names, descriptions, optional usage guidance and bodies. Discovery returns
+  descriptions plus optional `whenToUse` and `notFor`, without bodies. The
+  prompt index uses descriptions and includes usage guidance when present.
 - `load_skill` reads `deps.skills`. A disabled or deleted id is simply absent,
   which is the existing `unknown` path. Its `execute` returns ids and names;
   `toModelOutput` attaches the body, so the stream, the transcript row and the
@@ -152,7 +163,7 @@ only as what the evals pin. Nothing on the turn path imports it, and the
 
 `apps/web/src/server/fns/skills.ts`:
 
-- `listSkills` returns the merged rows (`id`, `name`, `whenToUse`, `notFor`,
+- `listSkills` returns the merged rows (`id`, `category`, `name`, `description`, `whenToUse?`, `notFor`,
   `starter`, `source`, `enabled`, `deleted`) with no bodies, deleted rows
   included. It is the client's one source of truth.
 - `getUserSkill` returns one live custom row including its body, for the editor.

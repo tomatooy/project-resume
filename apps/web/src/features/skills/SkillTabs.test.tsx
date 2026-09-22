@@ -45,6 +45,7 @@ function row(id: string, name: string): Row {
     id,
     category: "editor",
     name,
+    description: "Make sentences shorter.",
     whenToUse: "When it applies.",
     notFor: undefined,
     starter: undefined,

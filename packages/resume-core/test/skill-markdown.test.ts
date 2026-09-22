@@ -1,97 +1,143 @@
 import { describe, expect, it } from "vitest"
 
-import { AppError } from "../src/domain/errors"
-import {
-  MAX_SKILL_BODY_CHARS,
-  MAX_SKILL_MARKDOWN_CHARS,
-  parseSkillMarkdown,
-} from "../src/domain/skill"
+import { UserSkillInputSchema, parseSkillMarkdown } from "../src/domain/skill"
 
 const FILE = `---
 name: Terse sentences
-description: The prose is wordy and the user wants it shorter.
+description: Make sentences shorter.
 model: some-other-tool
 ---
 
 Prefer one clause per sentence.
 `
 
-/** The code an `AppError` carried out of a call, or undefined if none. */
-function codeOf(fn: () => unknown): string | undefined {
-  try {
-    fn()
-    return undefined
-  } catch (error) {
-    return error instanceof AppError ? error.code : undefined
-  }
-}
-
 describe("parseSkillMarkdown", () => {
-  it("reads the name, the description and the body", () => {
-    expect(parseSkillMarkdown(FILE)).toEqual({
+  it("imports standard fields without requiring when to use", () => {
+    const draft = parseSkillMarkdown(FILE)
+    expect(draft).toMatchObject({
       category: "editor",
       name: "Terse sentences",
-      whenToUse: "The prose is wordy and the user wants it shorter.",
+      description: "Make sentences shorter.",
       body: "Prefer one clause per sentence.",
+    })
+    expect(draft.whenToUse).toBeUndefined()
+    expect(draft).not.toHaveProperty("model")
+    expect(UserSkillInputSchema.safeParse(draft).success).toBe(true)
+  })
+
+  it.each(["|", ">"])(
+    "reads a multiline YAML description using %s",
+    (style) => {
+      const draft = parseSkillMarkdown(
+        `---\nname: "Terse: sentences"\ndescription: ${style}\n  First sentence.\n  Second sentence.\n---\n\nBody.`
+      )
+      expect(draft.name).toBe("Terse: sentences")
+      expect(draft.description).toBe(
+        style === "|"
+          ? "First sentence.\nSecond sentence."
+          : "First sentence. Second sentence."
+      )
+    }
+  )
+
+  it("reads optional metadata separately from the description", () => {
+    const draft = parseSkillMarkdown(
+      FILE.replace(
+        "model:",
+        `category: interview
+whenToUse: Before an interview.
+notFor: Adding detail.
+starter: Shorten this.
+model:`
+      )
+    )
+    expect(draft).toMatchObject({
+      category: "interview",
+      description: "Make sentences shorter.",
+      whenToUse: "Before an interview.",
+      notFor: "Adding detail.",
+      starter: "Shorten this.",
     })
   })
 
-  it("reads a category line, and leaves one out", () => {
-    const interview = FILE.replace(
-      "description:",
-      "category: interview\ndescription:"
-    )
-    expect(parseSkillMarkdown(interview).category).toBe("interview")
-    // The key is optional: a file another tool wrote has no opinion here.
-    expect(parseSkillMarkdown(FILE).category).toBe("editor")
-  })
-
-  it("names a category line it cannot place", () => {
-    const odd = FILE.replace(
-      "description:",
-      "category: interviewing\ndescription:"
-    )
-    expect(codeOf(() => parseSkillMarkdown(odd))).toBe("VALIDATION")
-  })
-
-  it("maps description to whenToUse and ignores keys it does not know", () => {
-    const parsed = parseSkillMarkdown(FILE)
-    expect(parsed.whenToUse).toBe(
-      "The prose is wordy and the user wants it shorter."
-    )
-    expect(parsed).not.toHaveProperty("model")
-  })
-
-  it("tolerates CRLF line endings", () => {
-    expect(parseSkillMarkdown(FILE.replace(/\n/g, "\r\n")).name).toBe(
-      "Terse sentences"
-    )
-  })
-
-  it("rejects a file with no frontmatter fence", () => {
-    expect(codeOf(() => parseSkillMarkdown("Just prose."))).toBe("VALIDATION")
-  })
-
-  it("rejects a block that is never closed", () => {
-    expect(codeOf(() => parseSkillMarkdown("---\nname: Terse\n\nProse."))).toBe(
-      "VALIDATION"
-    )
-  })
-
-  it("rejects a file with no description", () => {
+  it("tolerates a BOM and CRLF line endings", () => {
     expect(
-      codeOf(() => parseSkillMarkdown("---\nname: Terse\n---\n\nProse."))
-    ).toBe("VALIDATION")
+      parseSkillMarkdown(`\uFEFF${FILE.replace(/\n/g, "\r\n")}`).name
+    ).toBe("Terse sentences")
   })
 
-  it("rejects a body past the field cap", () => {
-    const file = `---\nname: Terse\ndescription: Wordy prose.\n---\n\n${"x".repeat(MAX_SKILL_BODY_CHARS + 1)}`
-    expect(codeOf(() => parseSkillMarkdown(file))).toBe("VALIDATION")
+  it("imports oversized content intact and rejects it only when saving", () => {
+    const body = "x".repeat(60_000)
+    const draft = parseSkillMarkdown(
+      FILE.replace("Prefer one clause per sentence.", body)
+    )
+    expect(draft.body).toBe(body)
+    expect(UserSkillInputSchema.safeParse(draft).success).toBe(false)
   })
 
-  it("rejects a file past the raw cap before reading it", () => {
+  it("leaves missing fields for the user to fill in", () => {
+    const draft = parseSkillMarkdown("---\nname: Terse\n---\n\nBody.")
+    expect(draft.description).toBe("")
+    expect(draft.body).toBe("Body.")
+    expect(UserSkillInputSchema.safeParse(draft).success).toBe(false)
+  })
+
+  it("keeps an unrecognized category in the draft for correction", () => {
+    const draft = parseSkillMarkdown(
+      FILE.replace("model:", "category: other\nmodel:")
+    )
+    expect(draft.category).toBe("other")
+    expect(UserSkillInputSchema.safeParse(draft).success).toBe(false)
+  })
+
+  it.each([
+    "Just prose.",
+    "---\nname: Terse\n\nProse.",
+    "---\nname: [broken\n---\nBody.",
+  ])("preserves text it cannot parse as frontmatter in the body", (text) => {
+    expect(parseSkillMarkdown(text)).toMatchObject({
+      name: "",
+      description: "",
+      body: text,
+    })
+  })
+})
+
+describe("UserSkillInputSchema", () => {
+  const input = {
+    category: "editor",
+    name: "Terse",
+    description: "Shorten prose.",
+    body: "Short sentences.",
+  }
+
+  it("normalizes blank optional fields away", () => {
     expect(
-      codeOf(() => parseSkillMarkdown("x".repeat(MAX_SKILL_MARKDOWN_CHARS + 1)))
-    ).toBe("VALIDATION")
+      UserSkillInputSchema.parse({ ...input, whenToUse: "  " }).whenToUse
+    ).toBeUndefined()
+  })
+
+  it.each(["name", "description", "body"])(
+    "requires nonblank %s at save time",
+    (field) => {
+      expect(
+        UserSkillInputSchema.safeParse({ ...input, [field]: "  " }).success
+      ).toBe(false)
+    }
+  )
+
+  it("accepts 50,000 body characters and rejects 50,001 when saving", () => {
+    expect(
+      UserSkillInputSchema.safeParse({
+        ...input,
+        body: "x".repeat(50_000),
+      }).success
+    ).toBe(true)
+    expect(
+      UserSkillInputSchema.safeParse({
+        ...input,
+        body: "x".repeat(50_001),
+      }).success
+    ).toBe(false)
   })
 })

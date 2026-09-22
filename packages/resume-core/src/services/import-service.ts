@@ -11,7 +11,7 @@ import type { ResumeService } from "./resume-service"
 import type { VersionService } from "./version-service"
 
 /** Same ceiling as a pasted job description, so there is one number to know. */
-export const MAX_IMPORT_CHARS = 20_000
+export const MAX_IMPORT_CHARS = 50_000
 const MIN_IMPORT_CHARS = 40
 
 export type ImportResumeInput = {

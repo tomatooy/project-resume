@@ -7,7 +7,7 @@ import { type SkillRow, useSetSkillEnabled } from "@/lib/queries"
 /**
  * A built-in skill, read only.
  *
- * Its playbook text is compiled into the server bundle and reaches the model
+ * Its body is compiled into the server bundle and reaches the model
  * through `load_skill` alone, so there is nothing to read here and nothing to
  * edit: the one thing a user can do to a built-in is switch it off.
  */
@@ -46,15 +46,18 @@ export function SkillDetail({ row }: { row: SkillRow }) {
           </div>
         </div>
 
-        <Block label="When to use it">{row.whenToUse}</Block>
+        <Block label="Description">{row.description}</Block>
+        {row.whenToUse ? (
+          <Block label="When to use it">{row.whenToUse}</Block>
+        ) : null}
         {row.notFor ? <Block label="Not for">{row.notFor}</Block> : null}
 
-        <div className="mt-7 flex items-start gap-2.5 rounded-[10px] border border-border bg-canvas p-3.5">
+        <div className="mt-7 flex items-start gap-2.5 rounded-[10px] border border-border bg-background p-3.5">
           <InfoIcon className="mt-px size-4 flex-none text-muted-foreground" />
           <p className="text-[12px] leading-[1.55] text-muted-foreground">
-            Its playbook text stays on the server and is never sent to the
-            browser, so it cannot be read or edited here. Switching it off stops
-            the assistant being offered it, here and in the composer.
+            Its body stays on the server and is never sent to the browser, so it
+            cannot be read or edited here. Switching it off stops the assistant
+            being offered it, here and in the composer.
           </p>
         </div>
       </div>

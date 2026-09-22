@@ -89,7 +89,7 @@ export function VersionsPanel() {
                   type="button"
                   onClick={() => setSelectedId(active ? null : version.id)}
                   className={cn(
-                    "rounded-[10px] border bg-paper p-3.5 text-left transition-colors",
+                    "rounded-[10px] border bg-card p-3.5 text-left transition-colors",
                     active
                       ? "rounded-b-none border-b-0 border-primary/40 bg-primary/6"
                       : "border-border hover:border-primary/25"
@@ -112,7 +112,7 @@ export function VersionsPanel() {
                 </button>
 
                 {active ? (
-                  <div className="rounded-b-[10px] border border-t-0 border-primary/40 bg-paper p-3.5">
+                  <div className="rounded-b-[10px] border border-t-0 border-primary/40 bg-card p-3.5">
                     {selected.isPending ? (
                       <Skeleton className="h-20" />
                     ) : (
@@ -164,12 +164,12 @@ export function VersionsPanel() {
                                   <span
                                     className={cn(
                                       "mt-[5px] size-1.5 flex-none rounded-full",
-                                      entry.change === "added" && "bg-ok",
+                                      entry.change === "added" && "bg-success",
                                       entry.change === "removed" &&
                                         "bg-destructive",
                                       entry.change === "changed" &&
                                         "bg-primary",
-                                      entry.change === "moved" && "bg-flag"
+                                      entry.change === "moved" && "bg-warning"
                                     )}
                                   />
                                   <span className="min-w-0 flex-1">

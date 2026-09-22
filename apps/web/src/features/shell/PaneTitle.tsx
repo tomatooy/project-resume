@@ -15,7 +15,7 @@ export function PaneTitle({
 }) {
   return (
     <span className={cn("flex flex-none items-center gap-2.25", className)}>
-      <span className="size-1.5 flex-none rounded-full bg-chart-2" />
+      <span className="size-1.5 flex-none rounded-full bg-primary" />
       <span className="font-heading text-[12.5px] font-semibold">
         {children}
       </span>

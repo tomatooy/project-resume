@@ -323,6 +323,7 @@ const skillInput = {
   // value is written, not that the default filled it in.
   category: "interview" as const,
   name: "Adapter skill",
+  description: "Make sentences shorter.",
   whenToUse: "When the adapter check runs.",
   notFor: "Anything real.",
   starter: "Run the check.",
@@ -331,6 +332,7 @@ const skillInput = {
 const written = await a.skills.create(skillInput)
 check("create returns a usr_ id", written.id.startsWith("usr_"))
 check("category round-trips", written.category === "interview")
+check("description round-trips", written.description === skillInput.description)
 check("optional fields round-trip", written.notFor === skillInput.notFor)
 check("createdAt round-trips", written.createdAt.length > 0)
 check(
@@ -342,6 +344,7 @@ const editedSkill = await a.skills.update(written.id, {
   ...skillInput,
   category: "editor",
   name: "Renamed skill",
+  whenToUse: undefined,
   notFor: undefined,
   starter: undefined,
 })
@@ -350,6 +353,7 @@ check("update moves the category", editedSkill?.category === "editor")
 // An omitted optional is null in the column and absent in the domain, which
 // is what tells the chip there is no starter to write.
 check("update clears an omitted optional", editedSkill?.notFor === undefined)
+check("update clears when to use", editedSkill.whenToUse === undefined)
 check(
   "the row counts as live",
   (await a.skills.listOverlay()).custom.some(

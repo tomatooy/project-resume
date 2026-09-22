@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { TrashIcon, UploadSimpleIcon } from "@phosphor-icons/react"
-import type { UserSkillInput } from "@workspace/resume-core"
+import type { SkillDraft } from "@workspace/resume-core"
 import { Button } from "@workspace/ui/components/button"
 import { Spinner } from "@workspace/ui/components/spinner"
 import { useEffect, useState } from "react"
@@ -52,7 +52,7 @@ function NewSkillTab() {
   // draft once it is on screen, so the generation remounts it onto the file's
   // fields rather than reaching into its state.
   const [draft, setDraft] = useState<{
-    fields: UserSkillInput
+    fields: SkillDraft
     generation: number
   }>({ fields: BLANK_SKILL, generation: 0 })
 
@@ -127,6 +127,7 @@ function CustomSkillTab({ row }: { row: SkillRow }) {
         initial={{
           category: skill.category,
           name: skill.name,
+          description: skill.description,
           whenToUse: skill.whenToUse,
           notFor: skill.notFor,
           starter: skill.starter,

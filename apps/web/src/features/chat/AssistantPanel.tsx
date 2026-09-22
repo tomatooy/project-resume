@@ -67,7 +67,7 @@ export function AssistantPanel({
   const history = useQuery(messagesQuery(conversationId))
 
   return (
-    <aside className="flex min-h-0 min-w-0 flex-1 flex-col bg-paper">
+    <aside className="flex min-h-0 min-w-0 flex-1 flex-col bg-card">
       <header className="flex h-11 flex-none items-center gap-2.25 border-b border-border px-3.5">
         <PaneTitle>Assistant</PaneTitle>
         {selectedNodeId ? (
@@ -85,7 +85,7 @@ export function AssistantPanel({
         ) : (
           <span className="truncate text-[11px] text-muted-foreground">
             {hint
-              ? `${hint.name}. ${hint.whenToUse}`
+              ? `${hint.name}. ${hint.description}`
               : "Select text or a field to focus the next turn."}
           </span>
         )}

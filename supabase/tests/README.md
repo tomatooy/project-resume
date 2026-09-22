@@ -27,6 +27,7 @@ These cover what lives in SQL and therefore cannot be reached from
 | `020_rpc.test.sql` | `create_resume_version` and `decide_suggestions`, called as `authenticated` through RLS |
 | `030_rls.test.sql` | Tenant isolation on all seven tables, plus a positive control |
 | `040_grants.test.sql` | `anon` and `service_role` are refused before RLS is consulted |
+| `060_skills.test.sql` | Description is required; when-to-use guidance is optional |
 | `050_memory.test.sql` | `create_memory_summary` inserts and activates in one call, and only for the owner |
 
 ## Two things to know before adding a test

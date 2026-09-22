@@ -1,16 +1,48 @@
 import { describe, expect, it } from "vitest"
 
-import { MAX_CUSTOM_SKILLS, type UserSkillInput } from "../src/domain/skill"
+import {
+  MAX_CUSTOM_SKILLS,
+  MAX_SKILL_BODY_CHARS,
+  type UserSkillInput,
+} from "../src/domain/skill"
 import { harness } from "./harness"
 
 const input: UserSkillInput = {
   category: "editor",
   name: "Terse sentences",
+  description: "Make sentences shorter.",
   whenToUse: "The prose is wordy and the user wants it shorter.",
   body: "Prefer one clause per sentence.",
 }
 
 describe("SkillService", () => {
+  it("guards writes even when a caller bypasses the form", async () => {
+    const h = harness()
+    await expect(
+      h.skillService.create({ ...input, description: " " })
+    ).rejects.toMatchObject({ code: "VALIDATION" })
+    expect((await h.skillService.listOverlay()).custom).toEqual([])
+    const created = await h.skillService.create(input)
+    await expect(
+      h.skillService.update(created.id, {
+        ...input,
+        body: "x".repeat(MAX_SKILL_BODY_CHARS + 1),
+      })
+    ).rejects.toMatchObject({ code: "VALIDATION" })
+    expect((await h.skillService.get(created.id)).body).toBe(input.body)
+  })
+
+  it("can clear when to use while preserving the description", async () => {
+    const h = harness()
+    const created = await h.skillService.create(input)
+    const updated = await h.skillService.update(created.id, {
+      ...input,
+      whenToUse: undefined,
+    })
+    expect(updated.whenToUse).toBeUndefined()
+    expect(updated.description).toBe(input.description)
+  })
+
   it("creates a skill under a usr_ id and lists it in the overlay", async () => {
     const h = harness()
 
@@ -128,7 +160,8 @@ describe("SkillService", () => {
 
     const parsed = h.skillService.importMarkdown(file)
 
-    expect(parsed.whenToUse).toBe("Wordy prose.")
+    expect(parsed.description).toBe("Wordy prose.")
+    expect(parsed.whenToUse).toBeUndefined()
     expect((await h.skillService.listOverlay()).custom).toEqual([])
   })
 })

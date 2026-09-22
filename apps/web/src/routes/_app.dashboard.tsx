@@ -40,7 +40,7 @@ function Dashboard() {
                   key={resume.id}
                   to="/r/$resumeId/edit"
                   params={{ resumeId: resume.id }}
-                  className="flex items-start gap-3.5 rounded-[10px] border border-border bg-paper p-4 transition-colors hover:border-primary/35"
+                  className="flex items-start gap-3.5 rounded-[10px] border border-border bg-card p-4 transition-colors hover:border-primary/35"
                 >
                   <ResumeThumb
                     accent={templates[resume.templateId]?.accent ?? "#0069a8"}
@@ -63,14 +63,14 @@ function Dashboard() {
           <button
             type="button"
             onClick={() => setImporting(true)}
-            className="flex min-h-[104px] flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-border text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary hover:bg-paper hover:text-primary disabled:opacity-60"
+            className="flex min-h-[104px] flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-border text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary hover:bg-card hover:text-primary disabled:opacity-60"
           >
             <FilePlusIcon className="size-5" />
             Create a new resume
           </button>
         </div>
 
-        <div className="mt-8 rounded-[10px] border border-border bg-paper p-4">
+        <div className="mt-8 rounded-[10px] border border-border bg-card p-4">
           <div className="mb-2 text-[10.5px] font-bold tracking-[0.05em] text-muted-foreground uppercase">
             Getting started
           </div>

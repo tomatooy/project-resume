@@ -55,7 +55,7 @@ export function StatusBar() {
   const tab = useResumeTab(resumeId)
 
   return (
-    <footer className="grid h-7 flex-none grid-cols-[1fr_auto_1fr] items-center border-t border-border bg-canvas px-3">
+    <footer className="surface-metal grid h-7 flex-none grid-cols-[1fr_auto_1fr] items-center border-t bg-card px-3">
       <div className="flex items-center gap-0.5">
         <BarButton
           icon={<SidebarSimpleIcon />}
@@ -127,7 +127,7 @@ function BarButton({
             className={cn(
               "flex size-6 items-center justify-center rounded-[5px] transition-colors [&_svg]:size-3.5",
               pressed
-                ? "bg-primary/9 text-primary-deep"
+                ? "bg-accent text-primary-text"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >

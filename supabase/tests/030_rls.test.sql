@@ -61,9 +61,9 @@ insert into suggestions (id, agent_run_id, resume_id, ordinal, patch, target_nod
   ('88888888-0000-4000-8000-000000000001', '77777777-0000-4000-8000-000000000001',
    '22222222-0000-4000-8000-000000000001', 0, '{}', 'n1', 'replace_text');
 
-insert into user_skills (id, user_id, name, when_to_use, body) values
+insert into user_skills (id, user_id, name, description, when_to_use, body) values
   ('usr_99999999-0000-4000-8000-000000000001', '11111111-0000-4000-8000-000000000001',
-   'A''s playbook', 'When A wants it.', 'A''s prose.');
+   'A''s playbook', 'A skill description.', 'When A wants it.', 'A''s prose.');
 
 insert into user_disabled_skills (user_id, skill_id) values
   ('11111111-0000-4000-8000-000000000001', 'bullet_rewrite');
@@ -197,8 +197,8 @@ with d as (delete from user_skills where id = 'usr_99999999-0000-4000-8000-00000
 insert into probe select 'user_skills_delete', count(*) from d;
 select is((select n from probe where step = 'user_skills_delete'), 0::bigint, 'B cannot delete A''s skills');
 select throws_ok(
-  $$ insert into user_skills (user_id, name, when_to_use, body)
-     values ('11111111-0000-4000-8000-000000000001', 'planted', 'planted', 'planted') $$,
+  $$ insert into user_skills (user_id, name, description, when_to_use, body)
+     values ('11111111-0000-4000-8000-000000000001', 'planted', 'planted', 'planted', 'planted') $$,
   '42501', null, 'B cannot write a skill owned by A');
 
 select is((select count(*) from user_disabled_skills

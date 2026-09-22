@@ -71,8 +71,8 @@ const FONT_SCALE_LABEL: Record<FontScale, string> = {
  */
 const PICKER_CLASS = cn(
   "flex h-7 items-center gap-1.5 rounded-[7px] px-2 text-[11.5px] font-semibold text-foreground transition-colors hover:bg-muted",
-  "aria-expanded:bg-primary/8 aria-expanded:text-primary-strong",
-  "data-popup-open:bg-primary/8 data-popup-open:text-primary-strong"
+  "aria-expanded:bg-primary/8 aria-expanded:text-primary-text",
+  "data-popup-open:bg-primary/8 data-popup-open:text-primary-text"
 )
 
 export function PreviewPane({
@@ -128,8 +128,8 @@ export function PreviewPane({
     void session.setTemplate(templateId, { ...options, fontScale })
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-canvas">
-      <div className="@container relative flex-none border-b border-border bg-paper">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
+      <div className="@container relative flex-none border-b border-border bg-card">
         {loading ? (
           <span className="absolute inset-x-0 top-0 h-[2px] overflow-hidden">
             <span className="block h-full w-1/3 animate-[preview-scan_1.1s_ease-in-out_infinite] bg-primary/70" />
@@ -251,7 +251,7 @@ export function PreviewPane({
         </div>
 
         <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
-          <div className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-border bg-paper px-1.5 py-1 text-muted-foreground shadow-sm">
+          <div className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-border bg-card px-1.5 py-1 text-muted-foreground shadow-sm">
             <IconButton
               label="Zoom out"
               className="rounded-full"
@@ -337,7 +337,7 @@ function TemplateMenu({
   })
 
   return (
-    <div className="border-t border-border bg-canvas px-3.5 pt-3 pb-3.5">
+    <div className="border-t border-border bg-background px-3.5 pt-3 pb-3.5">
       <span className="text-[10px] font-semibold tracking-[0.07em] text-muted-foreground uppercase">
         Switch template
       </span>
@@ -354,7 +354,7 @@ function TemplateMenu({
                 "flex flex-col gap-1.5 rounded-lg border p-1.5 text-left transition-colors",
                 active
                   ? "border-primary bg-primary/6"
-                  : "border-border bg-paper hover:border-primary/40"
+                  : "border-border bg-card hover:border-primary/40"
               )}
             >
               <TemplateThumb template={template} src={thumbs[template.id]} />
@@ -362,7 +362,7 @@ function TemplateMenu({
                 className={cn(
                   "truncate text-[10.5px]",
                   active
-                    ? "font-semibold text-primary-strong"
+                    ? "font-semibold text-primary-text"
                     : "font-medium text-muted-foreground"
                 )}
               >

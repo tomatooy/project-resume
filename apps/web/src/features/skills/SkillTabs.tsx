@@ -35,7 +35,7 @@ export function SkillTabs() {
   return (
     <nav
       aria-label="Skills"
-      className="flex h-11 flex-none items-stretch gap-0.5 border-b border-border bg-canvas pr-1"
+      className="flex h-11 flex-none items-stretch gap-0.5 border-b border-border bg-background pr-1"
     >
       <LibraryTab current={activeId === undefined} />
 
@@ -48,7 +48,7 @@ export function SkillTabs() {
             className={cn(
               "group/tab flex items-center transition-colors",
               current
-                ? "-mb-px bg-paper text-foreground"
+                ? "-mb-px bg-card text-foreground"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
@@ -100,7 +100,7 @@ function LibraryTab({ current }: { current: boolean }) {
       className={cn(
         "flex items-center px-3 font-heading text-[12px] font-semibold transition-colors",
         current
-          ? "-mb-px bg-paper text-foreground"
+          ? "-mb-px bg-card text-foreground"
           : "text-muted-foreground hover:text-foreground"
       )}
     >

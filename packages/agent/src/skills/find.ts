@@ -1,7 +1,7 @@
 import type { Skill } from "./types"
 
 /**
- * Playbook ids matching a query by name, when-to-use and body.
+ * Playbook ids matching a query by name, description, optional when-to-use and body.
  *
  * Takes the library rather than reading the built-in one: a turn's library is
  * built-ins plus the user's overlay, and a disabled or deleted skill must not
@@ -21,7 +21,7 @@ export function findSkills(
   const scored = skills
     .map((skill) => {
       const haystack =
-        `${skill.id} ${skill.name} ${skill.whenToUse} ${skill.body}`.toLowerCase()
+        `${skill.id} ${skill.name} ${skill.description} ${skill.whenToUse ?? ""} ${skill.body}`.toLowerCase()
       let score = 0
       for (const term of terms) {
         if (haystack.includes(term)) score += 1

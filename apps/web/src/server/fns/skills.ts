@@ -1,10 +1,6 @@
 import { createServerFn } from "@tanstack/react-start"
 import { mergeSkills } from "@workspace/agent"
-import {
-  AppError,
-  MAX_SKILL_MARKDOWN_CHARS,
-  UserSkillInputSchema,
-} from "@workspace/resume-core"
+import { AppError, UserSkillInputSchema } from "@workspace/resume-core"
 import { z } from "zod"
 
 import { serve } from "../handler"
@@ -26,6 +22,7 @@ export const listSkills = createServerFn({ method: "GET" }).handler(
       id: entry.skill.id,
       category: entry.skill.category,
       name: entry.skill.name,
+      description: entry.skill.description,
       whenToUse: entry.skill.whenToUse,
       notFor: entry.skill.notFor,
       starter: entry.skill.starter,
@@ -90,7 +87,7 @@ export const setSkillEnabled = createServerFn({ method: "POST" })
  * Nothing is saved: the user reviews the parse before it becomes a skill.
  */
 export const importSkillMarkdown = createServerFn({ method: "POST" })
-  .validator(z.object({ text: z.string().max(MAX_SKILL_MARKDOWN_CHARS) }))
+  .validator(z.object({ text: z.string() }))
   .handler(
     serve(async ({ services, data }) =>
       services.skills.importMarkdown(data.text)

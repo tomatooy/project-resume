@@ -39,6 +39,7 @@
     "@workspace/resume-render": "workspace:*",
     "@workspace/resume-schema": "workspace:*",
     "@workspace/supabase": "workspace:*",
+    "@workspace/typesafe": "workspace:*",
     "@workspace/ui": "workspace:*",
     "ai": "^7.0.89",
     "diff": "^9.0.0",

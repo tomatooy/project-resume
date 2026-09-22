@@ -36,12 +36,12 @@ const components: StreamdownComponents = {
   ),
   li: ({ children }) => <li className="mt-0.5">{children}</li>,
   code: ({ children }) => (
-    <code className="rounded bg-canvas px-1 py-px font-mono text-[11.5px]">
+    <code className="rounded bg-background px-1 py-px font-mono text-[11.5px]">
       {children}
     </code>
   ),
   pre: ({ children }) => (
-    <pre className="overflow-x-auto rounded-[7px] bg-canvas p-2 text-[11px] [&:not(:first-child)]:mt-1.5">
+    <pre className="overflow-x-auto rounded-[7px] bg-background p-2 text-[11px] [&:not(:first-child)]:mt-1.5">
       {children}
     </pre>
   ),

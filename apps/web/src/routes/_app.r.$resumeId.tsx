@@ -129,7 +129,7 @@ function ResumeColumns({ resumeId }: { resumeId: string }) {
   if (maximized) {
     return (
       <div ref={layout.ref} className="relative flex h-full min-h-0">
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-canvas">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
           {maximized === "preview" ? preview(false) : assistant}
         </div>
       </div>
@@ -142,7 +142,7 @@ function ResumeColumns({ resumeId }: { resumeId: string }) {
   if (layout.fullWidth) {
     return (
       <div ref={layout.ref} className="relative flex h-full min-h-0">
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-paper">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card">
           {tabs}
           <Outlet />
         </div>
@@ -159,7 +159,7 @@ function ResumeColumns({ resumeId }: { resumeId: string }) {
           <ResizablePanel
             id="editor"
             minSize={300}
-            className="overflow-hidden bg-paper"
+            className="overflow-hidden bg-card"
           >
             {tabs}
             <Outlet />
@@ -170,20 +170,20 @@ function ResumeColumns({ resumeId }: { resumeId: string }) {
             defaultSize={panels.preview ? 520 : 400}
             minSize={panels.preview ? 360 : 320}
             maxSize="70"
-            className="overflow-hidden bg-canvas"
+            className="overflow-hidden bg-background"
           >
             {side}
           </ResizablePanel>
         </ResizablePanelGroup>
       ) : layout.centerOpen ? (
-        <div className="flex min-w-[300px] flex-1 flex-col overflow-hidden bg-paper">
+        <div className="flex min-w-[300px] flex-1 flex-col overflow-hidden bg-card">
           {tabs}
           <Outlet />
         </div>
       ) : (
         // No room for both: the strip goes full width and the side panels get
         // the rest, so the tab that owns the column can still be seen.
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-canvas">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
           {tabs}
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {side}

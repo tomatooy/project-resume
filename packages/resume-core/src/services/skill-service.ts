@@ -3,6 +3,8 @@ import {
   type CustomSkill,
   MAX_CUSTOM_SKILLS,
   type SkillOverlay,
+  type SkillDraft,
+  UserSkillInputSchema,
   type UserSkillInput,
   parseSkillMarkdown,
 } from "../domain/skill"
@@ -35,17 +37,18 @@ export class SkillService {
    * the cap rather than the database refusing one.
    */
   async create(input: UserSkillInput): Promise<CustomSkill> {
+    const valid = validateInput(input)
     if ((await this.skills.countLive()) >= MAX_CUSTOM_SKILLS) {
       throw new AppError(
         "VALIDATION",
         `You can keep at most ${MAX_CUSTOM_SKILLS} custom skills. Remove one first.`
       )
     }
-    return this.skills.create(input)
+    return this.skills.create(valid)
   }
 
   async update(id: string, input: UserSkillInput): Promise<CustomSkill> {
-    const updated = await this.skills.update(id, input)
+    const updated = await this.skills.update(id, validateInput(input))
     if (!updated) throw new AppError("NOT_FOUND", "Not found")
     return updated
   }
@@ -61,7 +64,18 @@ export class SkillService {
   }
 
   /** Parses a `SKILL.md` for the editor to prefill; it does not save one. */
-  importMarkdown(text: string): UserSkillInput {
+  importMarkdown(text: string): SkillDraft {
     return parseSkillMarkdown(text)
   }
+}
+
+function validateInput(input: UserSkillInput): UserSkillInput {
+  const result = UserSkillInputSchema.safeParse(input)
+  if (!result.success) {
+    throw new AppError(
+      "VALIDATION",
+      result.error.issues[0]?.message ?? "Invalid skill"
+    )
+  }
+  return result.data
 }

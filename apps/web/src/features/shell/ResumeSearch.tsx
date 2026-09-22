@@ -153,7 +153,7 @@ export function SearchResults({
         <NoMatches query={query} onClear={onClear} />
       )}
       {groups.length > 0 && (
-        <p className="sticky bottom-0 bg-canvas pt-1.5 text-center text-[10.5px] text-muted-foreground">
+        <p className="sticky bottom-0 bg-background pt-1.5 text-center text-[10.5px] text-muted-foreground">
           {groups.length} of {result?.scanned ?? 0} resumes
         </p>
       )}
@@ -178,7 +178,7 @@ function ResultCard({
       title={group.resume.title}
       className={cn(
         "block w-full rounded-[6px] px-2 py-1 text-left transition-colors",
-        selected ? "bg-primary/9" : "hover:bg-muted"
+        selected ? "bg-muted" : "hover:bg-muted"
       )}
     >
       <div className="flex h-[22px] items-center gap-1.5">
@@ -187,7 +187,7 @@ function ResultCard({
           className={cn(
             "min-w-0 flex-1 truncate text-[12.5px]",
             selected
-              ? "font-semibold text-primary-deep"
+              ? "font-semibold text-primary-text"
               : "font-medium text-foreground/80"
           )}
         >
@@ -237,7 +237,7 @@ function Highlighted({ text, ranges }: { text: string; ranges: TextRange[] }) {
     parts.push(
       <mark
         key={start}
-        className="rounded-[3px] bg-primary/12 px-0.5 text-primary-deep"
+        className="rounded-[3px] bg-muted px-0.5 text-primary-text"
       >
         {text.slice(start, end)}
       </mark>

@@ -40,7 +40,7 @@ export function JobProgressPanel({
               {state === "done" ? (
                 <CheckCircleIcon
                   weight="fill"
-                  className="size-4 flex-none text-ok"
+                  className="size-4 flex-none text-success"
                 />
               ) : state === "active" ? (
                 <Spinner className="size-4 flex-none text-primary" />

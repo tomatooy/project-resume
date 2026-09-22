@@ -1,3 +1,4 @@
+import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react"
 import { type RejectedPatch, structuralReason } from "@workspace/resume-schema"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -6,7 +7,7 @@ import {
   CollapsibleTrigger,
 } from "@workspace/ui/components/collapsible"
 import { Spinner } from "@workspace/ui/components/spinner"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { useSkillNames } from "@/lib/queries"
 import type { ChatUIMessage, Suggestion, SuggestionStatus } from "@/lib/types"
@@ -77,54 +78,53 @@ export function Transcript({
   const busy = status === "submitted" || status === "streaming"
 
   return (
-    <div
-      ref={scrollRef}
-      className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3.5"
-    >
-      {messages.length === 0 ? (
-        <div className="rounded-[9px] border border-border bg-canvas p-3.5">
-          <p className="text-[12.5px] leading-[1.55] text-muted-foreground">
-            Say what you want changed. The assistant picks a playbook from its
-            library, says what it is about to do, then sends every edit as a
-            card you accept or reject. Nothing touches the document until you
-            accept it, and adding or removing whole entries stays off until you
-            allow it under Context.
-          </p>
-        </div>
-      ) : null}
+    <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-auto p-3.5">
+      <div className="mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-3 break-words">
+        {messages.length === 0 ? (
+          <div className="rounded-[9px] border border-border bg-background p-3.5">
+            <p className="text-[12.5px] leading-[1.55] text-muted-foreground">
+              Say what you want changed. The assistant picks a playbook from its
+              library, says what it is about to do, then sends every edit as a
+              card you accept or reject. Nothing touches the document until you
+              accept it, and adding or removing whole entries stays off until
+              you allow it under Context.
+            </p>
+          </div>
+        ) : null}
 
-      {messages.map((message) =>
-        message.role === "user" ? (
-          <UserBubble key={message.id} message={message} />
-        ) : (
-          <AssistantTurn
-            key={message.id}
-            message={message}
-            names={names}
-            statuses={statuses}
-            busy={deciding}
-            onDecide={onDecide}
-            onEnableStructural={onEnableStructural}
-            onUseSkill={onUseSkill}
-          />
-        )
-      )}
+        {messages.map((message) =>
+          message.role === "user" ? (
+            <UserBubble key={message.id} message={message} />
+          ) : (
+            <AssistantTurn
+              key={message.id}
+              message={message}
+              names={names}
+              statuses={statuses}
+              busy={deciding}
+              onDecide={onDecide}
+              onEnableStructural={onEnableStructural}
+              onUseSkill={onUseSkill}
+            />
+          )
+        )}
 
-      {busy && !planLanded ? (
-        <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-          <Spinner className="size-3.5" />
-          {hinted ?? "Working through the resume"}
-        </div>
-      ) : null}
+        {busy && !planLanded ? (
+          <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+            <Spinner className="size-3.5" />
+            {hinted ?? "Working through the resume"}
+          </div>
+        ) : null}
 
-      {status === "error" ? (
-        <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-          That request did not finish.
-          <Button size="sm" variant="outline" onClick={onRetry}>
-            Retry
-          </Button>
-        </div>
-      ) : null}
+        {status === "error" ? (
+          <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+            That request did not finish.
+            <Button size="sm" variant="outline" onClick={onRetry}>
+              Retry
+            </Button>
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -135,7 +135,7 @@ function UserBubble({ message }: { message: ChatUIMessage }) {
     .join("")
   return (
     <div className="flex justify-end">
-      <div className="max-w-[88%] rounded-[10px] bg-primary px-3 py-2.5 text-[12.5px] leading-[1.55] text-primary-foreground">
+      <div className="max-w-[88%] rounded-[10px] bg-muted px-3 py-2.5 text-[12.5px] leading-[1.55] text-foreground">
         {text}
       </div>
     </div>
@@ -281,7 +281,7 @@ function PlaybookChips({
         type="button"
         title={`Run just this playbook: ${name}`}
         onClick={() => onUseSkill(skill.id)}
-        className="rounded-full border border-border bg-paper px-2 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="rounded-full border border-border bg-card px-2 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         {skill.name}
       </button>
@@ -404,7 +404,7 @@ function Proposal({
         structuralRefused={structuralRefused}
       />
       {output.gaps.length > 0 ? (
-        <div className="rounded-[9px] border border-border bg-canvas p-2.5">
+        <div className="rounded-[9px] border border-border bg-background p-2.5">
           <p className="mb-1 text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
             Missing details
           </p>
@@ -454,6 +454,9 @@ function SuggestionGroup({
 }) {
   const session = useSession()
   const doc = useResumeState((s) => s.doc)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const index = Math.min(activeIndex, Math.max(0, suggestions.length - 1))
+  const suggestion = suggestions[index]
   const pending = suggestions.filter((s) => s.status === "pending")
   // Accept all is the bulk path for edits that keep the document's shape.
   // Adding, removing and cross-container moves stay one at a time, the same
@@ -462,13 +465,17 @@ function SuggestionGroup({
     (s) => structuralReason(doc, s.patch) === undefined
   )
 
+  const showSuggestion = (nextIndex: number) => {
+    session.previewPatches([])
+    setActiveIndex(nextIndex)
+  }
+
   if (suggestions.length === 0 && rejected.length === 0) return null
 
   return (
     <div className="flex flex-col gap-2">
-      {suggestions.map((suggestion) => (
+      {suggestion ? (
         <SuggestionCard
-          key={suggestion.id}
           suggestion={suggestion}
           resume={doc}
           busy={busy}
@@ -477,8 +484,39 @@ function SuggestionGroup({
           }
           onAccept={() => onDecide([suggestion.id], "accepted", runId)}
           onReject={() => onDecide([suggestion.id], "rejected", runId)}
+          navigation={
+            <div className="flex shrink-0 items-center gap-0.5">
+              <span
+                aria-live="polite"
+                aria-atomic="true"
+                className="mr-1 text-[11.5px] tabular-nums text-muted-foreground"
+              >
+                {index + 1} of {suggestions.length}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="border-0"
+                aria-label="Previous suggestion"
+                disabled={index === 0}
+                onClick={() => showSuggestion(index - 1)}
+              >
+                <CaretLeftIcon />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="border-0"
+                aria-label="Next suggestion"
+                disabled={index === suggestions.length - 1}
+                onClick={() => showSuggestion(index + 1)}
+              >
+                <CaretRightIcon />
+              </Button>
+            </div>
+          }
         />
-      ))}
+      ) : null}
 
       {bulk.length > 1 ? (
         <div className="flex gap-[7px]">
@@ -508,7 +546,7 @@ function SuggestionGroup({
               )
             }
           >
-            Dismiss all
+            Reject all
           </Button>
         </div>
       ) : null}
@@ -532,7 +570,7 @@ function SuggestionGroup({
             }
           />
           <CollapsibleContent>
-            <ul className="mt-1.5 flex flex-col gap-1 rounded-[7px] bg-canvas p-2.5">
+            <ul className="mt-1.5 flex flex-col gap-1 rounded-[7px] bg-background p-2.5">
               {rejected.map((entry) => (
                 <li
                   key={`${entry.index}-${entry.code}`}

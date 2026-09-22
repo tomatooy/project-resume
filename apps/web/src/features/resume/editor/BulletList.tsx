@@ -58,8 +58,8 @@ export function BulletList({
               {(handle) => (
                 <div
                   className={cn(
-                    "group/bullet rounded-[9px] border bg-paper transition-colors",
-                    weak ? "border-flag/40 bg-flag/4" : "border-border"
+                    "group/bullet rounded-[9px] border bg-card transition-colors",
+                    weak ? "border-warning/40 bg-warning/4" : "border-border"
                   )}
                 >
                   <div className="flex items-start gap-2 px-2 py-2.5">
@@ -113,7 +113,7 @@ export function BulletList({
                   </div>
 
                   {weak ? (
-                    <p className="px-2 pb-2 pl-9 text-[10.5px] text-flag-foreground">
+                    <p className="px-2 pb-2 pl-9 text-[10.5px] text-warning">
                       No measurable outcome. Add a number, a scale, or a
                       timeframe.
                     </p>

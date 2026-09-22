@@ -28,7 +28,7 @@ export function ResumeTabs({
   return (
     <nav
       aria-label="Resume views"
-      className="flex h-11 flex-none items-stretch gap-0.5 border-b border-border bg-canvas pr-1"
+      className="flex h-11 flex-none items-stretch gap-0.5 border-b border-border bg-background pr-1"
     >
       {RESUME_TABS.map((tab) => {
         const current = tab.id === active.id
@@ -41,7 +41,7 @@ export function ResumeTabs({
             className={cn(
               "flex items-center px-3 font-heading text-[12px] font-semibold transition-colors",
               current
-                ? "-mb-px bg-paper text-foreground"
+                ? "-mb-px bg-card text-foreground"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >

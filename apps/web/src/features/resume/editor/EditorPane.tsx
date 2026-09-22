@@ -98,7 +98,7 @@ function ContactPane() {
             return (
               <div
                 key={link.id}
-                className="flex items-start gap-2 rounded-[9px] border border-border bg-paper p-2"
+                className="flex items-start gap-2 rounded-[9px] border border-border bg-card p-2"
               >
                 <TextInput
                   ariaLabel="Link label"
@@ -162,7 +162,7 @@ function SummaryPane() {
         hint={`${summary.trim().length} characters · ${lines} ${lines === 1 ? "sentence" : "sentences"}`}
       />
 
-      <p className="mt-4 rounded-[9px] border border-border bg-canvas px-3.5 py-3 text-[12px] leading-[1.55] text-muted-foreground">
+      <p className="mt-4 rounded-[9px] border border-border bg-background px-3.5 py-3 text-[12px] leading-[1.55] text-muted-foreground">
         Ask the assistant to rewrite this with the Summary skill. Its
         suggestions arrive as cards you accept or reject, so nothing changes
         until you say so.

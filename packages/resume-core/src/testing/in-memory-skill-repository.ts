@@ -42,7 +42,11 @@ export class InMemorySkillRepository implements SkillRepository {
     if (!row) return null
     // Fields left out of the input are cleared, the same way the adapter
     // writes the whole column set: the editor always sends the full record.
-    Object.assign(row, input, { notFor: input.notFor, starter: input.starter })
+    Object.assign(row, input, {
+      whenToUse: input.whenToUse,
+      notFor: input.notFor,
+      starter: input.starter,
+    })
     return { ...row }
   }
 

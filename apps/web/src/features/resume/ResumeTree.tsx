@@ -155,7 +155,7 @@ function AddSectionRow({ onAdd }: { onAdd: (id: PaneKey) => void }) {
         render={
           <button
             type="button"
-            className="flex h-[26px] w-full items-center gap-1.5 rounded-[6px] pr-1.5 text-[12.5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="flex h-[26px] w-full items-center gap-1.5 rounded-[6px] pr-1.5 text-[12.5px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <PlusIcon className="size-3.5 flex-none opacity-70" />
             <span className="min-w-0 flex-1 truncate text-left">
@@ -209,10 +209,8 @@ function TreeRow({
         onClick={onSelect}
         title={entry.label}
         className={cn(
-          "flex h-[26px] w-full items-center gap-1.5 rounded-sm px-1 text-[12.5px] transition-colors",
-          active
-            ? "bg-primary/10 text-primary-deep"
-            : "text-foreground/70 hover:bg-muted"
+          "flex h-[26px] w-full items-center gap-1.5 rounded-sm px-1 text-[12.5px] transition-colors hover:bg-accent",
+          active ? "text-foreground bg-accent" : "text-foreground/70"
         )}
       >
         <Glyph className="size-3.5 flex-none opacity-70" />
@@ -220,7 +218,7 @@ function TreeRow({
         {entry.flags > 0 ? (
           <span
             className={cn(
-              "flex-none rounded-[5px] bg-flag/15 px-1.5 py-0.5 text-[10px] font-semibold text-flag-foreground",
+              "flex-none rounded-[5px] bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold text-warning",
               manageable && yields
             )}
           >
