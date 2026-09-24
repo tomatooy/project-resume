@@ -26,7 +26,7 @@ import { useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { ImportDialog } from "@/features/import/ImportDialog"
-import { SKELETON_KEYS, absoluteTime, relativeTime } from "@/lib/format"
+import { absoluteTime, relativeTime } from "@/lib/format"
 import {
   SEARCH_MIN_QUERY,
   resumesQuery,
@@ -42,6 +42,7 @@ import { RailSlotHost } from "./rail-slot"
 import { useOptionalWorkspace } from "@/features/workspace/context"
 import { SearchField, SearchResults } from "./ResumeSearch"
 import { SkillsRail } from "./SkillsRail"
+import { RailSkeleton } from "./RailSkeleton"
 
 export function ResumeRail() {
   const matchRoute = useMatchRoute()
@@ -151,9 +152,13 @@ function ResumeList() {
             <span className="text-[10px] font-semibold tracking-[0.07em] text-muted-foreground uppercase">
               My resumes
             </span>
-            <span className="rounded-[5px] bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-              {data?.length ?? 0}
-            </span>
+            {isPending ? (
+              <Skeleton className="h-4 w-5 bg-foreground/10 motion-reduce:animate-none" />
+            ) : (
+              <span className="rounded-[5px] bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                {data?.length ?? 0}
+              </span>
+            )}
           </div>
           <div className="min-w-0 overflow-hidden" inert={!searchOpen}>
             <SearchField
@@ -196,9 +201,7 @@ function ResumeList() {
             onClear={() => setQuery("")}
           />
         ) : isPending ? (
-          SKELETON_KEYS.map((key) => (
-            <Skeleton key={key} className="h-[26px] w-full rounded-[6px]" />
-          ))
+          <RailSkeleton />
         ) : (
           data?.map((resume) => {
             const selected = resume.id === activeId

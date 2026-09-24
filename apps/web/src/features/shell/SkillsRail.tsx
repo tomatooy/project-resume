@@ -7,9 +7,9 @@ import { cn } from "@workspace/ui/lib/utils"
 import { toast } from "sonner"
 
 import { NEW_SKILL_ID } from "@/features/skills/workspace"
-import { SKELETON_KEYS } from "@/lib/format"
 import { type SkillRow, skillsQuery, useSetSkillEnabled } from "@/lib/queries"
 import { IconButton } from "./IconButton"
+import { RailSkeleton } from "./RailSkeleton"
 
 /**
  * The playbook library in the rail, in the same shape as the resume list.
@@ -56,9 +56,13 @@ export function SkillsRail() {
         <span className="text-[10px] font-semibold tracking-[0.07em] text-muted-foreground uppercase">
           Skills
         </span>
-        <span className="rounded-[5px] bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-          {rows.length}
-        </span>
+        {isPending ? (
+          <Skeleton className="h-4 w-5 bg-foreground/10 motion-reduce:animate-none" />
+        ) : (
+          <span className="rounded-[5px] bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+            {rows.length}
+          </span>
+        )}
         <div className="flex-1" />
         <IconButton
           label="Write a new skill"
@@ -74,9 +78,7 @@ export function SkillsRail() {
 
       <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-1.5 pb-3">
         {isPending ? (
-          SKELETON_KEYS.map((key) => (
-            <Skeleton key={key} className="h-[26px] w-full rounded-[6px]" />
-          ))
+          <RailSkeleton />
         ) : (
           <>
             <Group label="Editor">

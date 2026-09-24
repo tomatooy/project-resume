@@ -14,7 +14,6 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@workspace/ui/components/input-group"
-import { Skeleton } from "@workspace/ui/components/skeleton"
 import {
   Tooltip,
   TooltipContent,
@@ -23,8 +22,9 @@ import {
 import { cn } from "@workspace/ui/lib/utils"
 import { useEffect, useRef, type ReactNode } from "react"
 
-import { SKELETON_KEYS, absoluteTime, relativeTime } from "@/lib/format"
+import { absoluteTime, relativeTime } from "@/lib/format"
 import type { ResumeSearch, ResumeSearchGroup, TextRange } from "@/lib/types"
+import { RailSkeleton } from "./RailSkeleton"
 
 /**
  * The rail's search: the field that replaces the header's label, and the
@@ -134,13 +134,7 @@ export function SearchResults({
   const waiting = isPending || (isPlaceholderData && groups.length === 0)
 
   if (waiting) {
-    return (
-      <>
-        {SKELETON_KEYS.map((key) => (
-          <Skeleton key={key} className="h-[26px] w-full rounded-[6px]" />
-        ))}
-      </>
-    )
+    return <RailSkeleton />
   }
 
   return (

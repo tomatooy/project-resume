@@ -176,9 +176,9 @@ function Gone({ name }: { name?: string }) {
 
 function Waiting() {
   return (
-    <div className="flex min-h-0 flex-1 items-center gap-2 p-6 text-[12px] text-muted-foreground">
+    <div className="flex min-h-0 flex-1 items-center justify-center gap-2 p-6 text-[12px] text-muted-foreground">
       <Spinner className="size-3.5" />
-      Loading the skill
+      Loading
     </div>
   )
 }

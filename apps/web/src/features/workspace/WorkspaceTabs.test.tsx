@@ -168,6 +168,21 @@ describe("workspace tabs with a memory router", () => {
     expect(stored.tabs[0].resumeId).toBe("b")
   })
 
+  it("brings a double-clicked tab to the front", async () => {
+    const { user, router } = await setup()
+    await user.click(screen.getByRole("button", { name: "Open Beta" }))
+    await user.click(screen.getByRole("button", { name: "Open library" }))
+    await screen.findByRole("tab", { name: "All skills" })
+    expect(screen.getAllByRole("tab")).toHaveLength(3)
+    await user.dblClick(screen.getByRole("tab", { name: /Beta/ }))
+    expect(screen.getAllByRole("tab")[0]).toHaveTextContent("Beta")
+    expect(router.state.location.pathname).toBe("/r/b/edit")
+    const stored = JSON.parse(
+      window.localStorage.getItem("resume-studio.workspace.v1:test") ?? "null"
+    )
+    expect(stored.tabs[0]).toMatchObject({ kind: "resume", resumeId: "b" })
+  })
+
   it("does not open a tab for a preloaded route", async () => {
     const { router } = await setup()
     await screen.findByRole("tab", { name: /Alpha/ })

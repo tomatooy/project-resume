@@ -12,7 +12,7 @@ colors retain the original Resume Studio palette in both themes.
 | Role | Usage |
 | --- | --- |
 | `background` | App canvas, sidebar, PDF preview canvas |
-| `card` | Editor, cards, inputs, top and bottom bars |
+| `card` | Editor, cards, inputs, top and bottom bars, skill pages |
 | `foreground` | Primary text |
 | `muted-foreground` | Secondary text |
 | `primary` | Main actions, focus, active indicators |

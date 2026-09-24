@@ -276,8 +276,11 @@ function WorkspaceTab({
     >
       <TabsTrigger
         value={key}
-        title={`${label}. Alt+Shift+Arrow to reorder.`}
+        title={`${label}. Double-click to move it to the front. Alt+Shift+Arrow to reorder.`}
         className="h-full max-w-64 flex-none rounded-none border-0 pr-1 pl-3 font-heading text-xs data-active:bg-card group-data-[variant=default]/tabs-list:data-active:shadow-none"
+        onDoubleClick={() => {
+          if (index > 0) workspace.moveTab(key, 0)
+        }}
         onKeyDown={(event) => {
           if (
             event.altKey &&
