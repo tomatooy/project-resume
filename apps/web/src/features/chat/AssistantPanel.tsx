@@ -12,59 +12,80 @@ import { toast } from "sonner"
 
 import { IconButton } from "@/features/shell/IconButton"
 import { PaneTitle } from "@/features/shell/PaneTitle"
-import { messagesQuery, skillsQuery, useClearConversation } from "@/lib/queries"
+import { messagesQuery, skillsQuery } from "@/lib/queries"
 import type { ChatHistory } from "@/lib/types"
 import { breadcrumbOf } from "../resume/breadcrumb"
 import { useResumeState, useSession } from "../resume/session-context"
+import { useWorkspace } from "../workspace/context"
+import { useResumeRuntime } from "../workspace/resume-runtime"
 import { ClearConversationDialog } from "./ClearConversationDialog"
 import { Composer } from "./Composer"
 import { Transcript } from "./Transcript"
 import { useAssistant } from "./use-assistant"
 
-export function AssistantPanel({
-  maximized = false,
-  onClose,
-  onToggleMaximize,
-}: {
+export type AssistantPanelProps = {
   maximized?: boolean
   onClose?: () => void
   onToggleMaximize?: () => void
-}) {
+}
+export function AssistantPanel(props: AssistantPanelProps) {
+  const conversationId = useResumeState((s) => s.conversationId)
+  const history = useQuery(messagesQuery(conversationId))
+  if (history.data)
+    return (
+      <Conversation key={conversationId} {...props} history={history.data} />
+    )
+  return (
+    <aside className="flex min-h-0 flex-1 flex-col bg-card p-3.5 text-xs text-muted-foreground">
+      {history.error ? (
+        <>
+          <span>Could not load this conversation.</span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void history.refetch()}
+          >
+            Try again
+          </Button>
+        </>
+      ) : (
+        <span className="flex items-center gap-2">
+          <Spinner />
+          Loading the conversation
+        </span>
+      )}
+    </aside>
+  )
+}
+
+function Conversation({
+  history,
+  maximized = false,
+  onClose,
+  onToggleMaximize,
+}: AssistantPanelProps & { history: ChatHistory }) {
+  const workspace = useWorkspace()
+  const resume = useResumeRuntime()
+  const runtime = workspace.ensureAssistant(resume, history)
+  const assistant = useAssistant(runtime)
   const session = useSession()
   const doc = useResumeState((s) => s.doc)
-  const resumeId = useResumeState((s) => s.resumeId)
-  const conversationId = useResumeState((s) => s.conversationId)
   const selectedNodeId = useResumeState((s) => s.selectedNodeId)
-  const [hintSkillId, setHintSkillId] = useState<string | undefined>(undefined)
-  // The draft lives here, not in the composer, because a turn's plan chips and
-  // its playbook chips both put text in the box from outside it.
-  const [draft, setDraft] = useState("")
-  // The gate lives here because two places set it: the composer's toggle and
-  // the button a refused structural request leaves behind.
-  const [structural, setStructural] = useState(false)
-  // What the header's clear action needs from the transcript it does not own:
-  // a turn in flight cannot be cleared, and an empty one has nothing to clear.
-  const [chatBusy, setChatBusy] = useState(false)
-  const [chatEmpty, setChatEmpty] = useState(true)
   const [confirmingClear, setConfirmingClear] = useState(false)
-  // Bumped after a clear to remount the conversation onto the emptied cache.
-  const [generation, setGeneration] = useState(0)
-  const clear = useClearConversation(conversationId)
   const { data: skills } = useQuery(skillsQuery())
-  // Deleted and disabled rows are still in the list so an old card can name
-  // its skill; the header only ever names one the turn could actually load.
-  const hint = hintSkillId
-    ? skills?.find((skill) => skill.id === hintSkillId && !skill.deleted)
-    : undefined
-
-  // What a transcript chip does: remember the skill and put its starter (when
-  // it has one) in the box.
-  const useSkill = (skillId: string) => {
-    setHintSkillId(skillId)
-    setDraft(skills?.find((skill) => skill.id === skillId)?.starter ?? "")
+  const hint = skills?.find(
+    (skill) => skill.id === assistant.hintSkillId && !skill.deleted
+  )
+  const busy = assistant.running || assistant.deciding || assistant.clearing
+  useEffect(() => {
+    runtime.patch({ unread: false })
+  }, [runtime])
+  function useSkill(id: string) {
+    runtime.patch({
+      hintSkillId: id,
+      draft: skills?.find((skill) => skill.id === id)?.starter ?? "",
+    })
   }
-
-  const history = useQuery(messagesQuery(conversationId))
 
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col bg-card">
@@ -75,7 +96,7 @@ export function AssistantPanel({
             type="button"
             onClick={() => session.select(null)}
             title="Clear the selection"
-            className="flex min-w-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10.5px] text-muted-foreground hover:bg-border"
+            className="flex min-w-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10.5px] text-muted-foreground"
           >
             <span className="truncate">
               {breadcrumbOf(doc, selectedNodeId)}
@@ -90,15 +111,15 @@ export function AssistantPanel({
           </span>
         )}
         <div className="flex-1" />
-        {chatEmpty ? null : (
+        {assistant.messages.length ? (
           <IconButton
             label="Clear conversation"
-            disabled={chatBusy || clear.isPending}
+            disabled={busy}
             onClick={() => setConfirmingClear(true)}
           >
             <TrashIcon />
           </IconButton>
-        )}
+        ) : null}
         {onToggleMaximize ? (
           <IconButton
             label={maximized ? "Restore assistant" : "Maximize assistant"}
@@ -113,130 +134,46 @@ export function AssistantPanel({
           </IconButton>
         ) : null}
       </header>
-
-      {history.data ? (
-        <Conversation
-          key={`${conversationId}:${generation}`}
-          conversationId={conversationId}
-          resumeId={resumeId}
-          history={history.data}
-          hintSkillId={hintSkillId}
-          onHintChange={setHintSkillId}
-          onUseSkill={useSkill}
-          structural={structural}
-          onStructuralChange={setStructural}
-          draft={draft}
-          onDraftChange={setDraft}
-          onBusyChange={setChatBusy}
-          onEmptyChange={setChatEmpty}
-        />
-      ) : history.error ? (
-        <div className="flex flex-col items-start gap-2 p-3.5 text-[12px] text-muted-foreground">
-          Could not load this conversation.
-          <Button size="sm" variant="outline" onClick={() => history.refetch()}>
-            Try again
-          </Button>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 p-3.5 text-[12px] text-muted-foreground">
-          <Spinner className="size-3.5" />
-          Loading the conversation
-        </div>
-      )}
-
+      <Transcript
+        messages={assistant.messages}
+        status={assistant.status}
+        statuses={assistant.statuses}
+        deciding={assistant.deciding}
+        hintSkillId={assistant.hintSkillId}
+        onDecide={assistant.decide}
+        onRetry={assistant.retry}
+        onEnableStructural={() => {
+          runtime.patch({ structural: true })
+          assistant.retry({ structural: true })
+        }}
+        onUseSkill={useSkill}
+      />
+      <Composer
+        draft={assistant.draft}
+        onDraftChange={(draft) => runtime.patch({ draft })}
+        hintSkillId={assistant.hintSkillId}
+        onHintChange={(hintSkillId) => runtime.patch({ hintSkillId })}
+        structural={assistant.structural}
+        onStructuralChange={(structural) => runtime.patch({ structural })}
+        busy={busy}
+        onSend={assistant.send}
+        onStop={() => {
+          void runtime
+            .stop()
+            .catch((error: Error) => toast.error(error.message))
+        }}
+      />
       <ClearConversationDialog
         open={confirmingClear}
         onClose={() => setConfirmingClear(false)}
         onConfirm={() => {
           setConfirmingClear(false)
-          // A hovered card's preview outlives the transcript unless it goes.
-          session.previewPatches([])
-          clear.mutate(undefined, {
-            onSuccess: () => {
-              setGeneration((n) => n + 1)
-              toast.success("Conversation cleared")
-            },
-            onError: (error) => toast.error(error.message),
-          })
+          void runtime
+            .clear()
+            .then(() => toast.success("Conversation cleared"))
+            .catch((error: Error) => toast.error(error.message))
         }}
       />
     </aside>
-  )
-}
-
-/** One transcript over one `useChat`; remounted with the conversation. */
-function Conversation({
-  conversationId,
-  resumeId,
-  history,
-  hintSkillId,
-  onHintChange,
-  structural,
-  onStructuralChange,
-  draft,
-  onDraftChange,
-  onUseSkill,
-  onBusyChange,
-  onEmptyChange,
-}: {
-  conversationId: string
-  resumeId: string
-  history: ChatHistory
-  hintSkillId?: string
-  onHintChange: (skillId: string | undefined) => void
-  onUseSkill: (skillId: string) => void
-  structural: boolean
-  onStructuralChange: (structural: boolean) => void
-  draft: string
-  onDraftChange: (text: string) => void
-  onBusyChange: (busy: boolean) => void
-  onEmptyChange: (empty: boolean) => void
-}) {
-  const assistant = useAssistant({
-    conversationId,
-    resumeId,
-    initialMessages: history.messages,
-    initialStatuses: history.suggestions,
-  })
-  const { status } = assistant
-  const busy = status === "submitted" || status === "streaming"
-
-  // The header that acts on this transcript is rendered above it, so the two
-  // facts its clear action needs are reported up rather than duplicated here.
-  useEffect(() => {
-    onBusyChange(busy || assistant.deciding)
-  }, [busy, assistant.deciding, onBusyChange])
-  useEffect(() => {
-    onEmptyChange(assistant.messages.length === 0)
-  }, [assistant.messages.length, onEmptyChange])
-
-  return (
-    <>
-      <Transcript
-        messages={assistant.messages}
-        status={status}
-        statuses={assistant.statuses}
-        deciding={assistant.deciding}
-        hintSkillId={hintSkillId}
-        onDecide={assistant.decide}
-        onRetry={assistant.retry}
-        onEnableStructural={() => {
-          onStructuralChange(true)
-          assistant.retry({ structural: true })
-        }}
-        onUseSkill={onUseSkill}
-      />
-      <Composer
-        draft={draft}
-        onDraftChange={onDraftChange}
-        hintSkillId={hintSkillId}
-        onHintChange={onHintChange}
-        structural={structural}
-        onStructuralChange={onStructuralChange}
-        busy={busy}
-        onSend={assistant.send}
-        onStop={() => void assistant.stop()}
-      />
-    </>
   )
 }

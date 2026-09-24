@@ -9,6 +9,7 @@ import { pluralize } from "@/lib/format"
 import { downloadPdf } from "../resume/preview/download"
 import { usePreview } from "../resume/preview/preview-context"
 import { useResumeState } from "../resume/session-context"
+import { useTabScroll } from "../workspace/use-tab-scroll"
 import { Preflight } from "./Preflight"
 
 type Format = {
@@ -56,6 +57,8 @@ const FORMATS: Format[] = [
  * while the tab is open.
  */
 export function ExportScreen() {
+  const resumeId = useResumeState((s) => s.resumeId)
+  const scroll = useTabScroll(`resume:${resumeId}:export`)
   const doc = useResumeState((s) => s.doc)
   const templateId = useResumeState((s) => s.templateId)
   const options = useResumeState((s) => s.templateOptions)
@@ -81,7 +84,7 @@ export function ExportScreen() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div ref={scroll} className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-[880px] px-[26px] pt-[26px] pb-[110px]">
         <h2 className="font-heading text-[19px] font-semibold tracking-[-0.015em]">
           Export

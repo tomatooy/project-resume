@@ -5,6 +5,12 @@ import {
   ResizablePanelGroup,
 } from "@workspace/ui/components/resizable"
 
+import {
+  WorkspaceProvider,
+  WorkspaceContent,
+} from "@/features/workspace/context"
+import { WorkspaceTabs } from "@/features/workspace/WorkspaceTabs"
+
 import { AppHeader } from "@/features/shell/AppHeader"
 import { RailSlotProvider } from "@/features/shell/rail-slot"
 import { ResumeRail } from "@/features/shell/ResumeRail"
@@ -38,39 +44,45 @@ function AppLayout() {
   const shell = useShellLayoutState()
 
   return (
-    <ShellLayoutProvider layout={shell.layout}>
-      {/* The rail and the route below it are siblings, so the slot that lets a
+    <WorkspaceProvider key={session.userId} userId={session.userId}>
+      <WorkspaceContent>
+        <ShellLayoutProvider layout={shell.layout}>
+          {/* The rail and the route below it are siblings, so the slot that lets a
           screen render into the open resume's row lives above both. */}
-      <RailSlotProvider>
-        <div className="flex h-svh flex-col overflow-hidden bg-background">
-          <AppHeader email={session.email} />
-          <div className="relative flex min-h-0 flex-1">
-            <ResizablePanelGroup orientation="horizontal" {...shell.group}>
-              <ResizablePanel
-                id="rail"
-                defaultSize={RAIL_WIDTH}
-                minSize={RAIL_MIN_WIDTH}
-                maxSize={RAIL_MAX_WIDTH}
-                collapsible
-                panelRef={shell.railRef}
-                onResize={shell.onRailResize}
-                className="overflow-hidden"
-              >
-                <ResumeRail />
-              </ResizablePanel>
-              <ResizableHandle withHandle />
-              <ResizablePanel
-                id="content"
-                minSize={320}
-                className="overflow-hidden"
-              >
-                <Outlet />
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          </div>
-          <StatusBar />
-        </div>
-      </RailSlotProvider>
-    </ShellLayoutProvider>
+          <RailSlotProvider>
+            <div className="flex h-svh flex-col overflow-hidden bg-background">
+              <AppHeader email={session.email} />
+              <div className="relative flex min-h-0 flex-1">
+                <ResizablePanelGroup orientation="horizontal" {...shell.group}>
+                  <ResizablePanel
+                    id="rail"
+                    defaultSize={RAIL_WIDTH}
+                    minSize={RAIL_MIN_WIDTH}
+                    maxSize={RAIL_MAX_WIDTH}
+                    collapsible
+                    panelRef={shell.railRef}
+                    onResize={shell.onRailResize}
+                    className="overflow-hidden"
+                  >
+                    <ResumeRail />
+                  </ResizablePanel>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel
+                    id="content"
+                    minSize={320}
+                    className="overflow-hidden"
+                  >
+                    <WorkspaceTabs>
+                      <Outlet />
+                    </WorkspaceTabs>
+                  </ResizablePanel>
+                </ResizablePanelGroup>
+              </div>
+              <StatusBar />
+            </div>
+          </RailSlotProvider>
+        </ShellLayoutProvider>
+      </WorkspaceContent>
+    </WorkspaceProvider>
   )
 }

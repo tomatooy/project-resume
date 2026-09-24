@@ -17,6 +17,10 @@ import {
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
 import { useState } from "react"
+import { useStore } from "@tanstack/react-store"
+import { createResumeUi } from "../workspace/store"
+import { useOptionalResumeRuntime } from "../workspace/resume-runtime"
+import { useTabScroll } from "../workspace/use-tab-scroll"
 import { toast } from "sonner"
 
 import { SKELETON_KEYS, pluralize, relativeTime } from "@/lib/format"
@@ -40,7 +44,13 @@ export function VersionsPanel() {
   const session = useSession()
   const resumeId = useResumeState((s) => s.resumeId)
   const head = useResumeState((s) => s.doc)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const runtime = useOptionalResumeRuntime()
+  const [local] = useState(createResumeUi)
+  const ui = runtime?.ui ?? local
+  const selectedId = useStore(ui, (s) => s.versionId)
+  const setSelectedId = (versionId: string | null) =>
+    ui.setState((s) => ({ ...s, versionId }))
+  const scroll = useTabScroll(`resume:${resumeId}:versions`)
 
   const versions = useQuery(versionsQuery(resumeId))
   const selected = useQuery({
@@ -54,7 +64,10 @@ export function VersionsPanel() {
     : []
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-[22px] pb-[76px]">
+    <div
+      ref={scroll}
+      className="min-h-0 flex-1 overflow-y-auto px-6 pt-[22px] pb-[76px]"
+    >
       <h2 className="font-heading text-[19px] font-semibold tracking-[-0.015em]">
         Versions
       </h2>
@@ -126,19 +139,31 @@ export function VersionsPanel() {
                             size="sm"
                             variant="outline"
                             disabled={restore.isPending}
-                            onClick={() =>
-                              restore.mutate(version.id, {
-                                onSuccess: (result) => {
-                                  session.replaceHead(
-                                    result.head,
-                                    result.revision,
-                                    result.updatedAt
-                                  )
-                                  setSelectedId(null)
-                                  toast.success(result.version.label)
-                                },
-                              })
-                            }
+                            onClick={() => {
+                              void session
+                                .track(
+                                  (async () => {
+                                    await session.flush()
+                                    if (session.state.saveStatus !== "saved")
+                                      throw new Error(
+                                        "Save your latest edits before restoring a version."
+                                      )
+                                    const result = await restore.mutateAsync(
+                                      version.id
+                                    )
+                                    session.replaceHead(
+                                      result.head,
+                                      result.revision,
+                                      result.updatedAt
+                                    )
+                                    setSelectedId(null)
+                                    toast.success(result.version.label)
+                                  })()
+                                )
+                                .catch((error: Error) =>
+                                  toast.error(error.message)
+                                )
+                            }}
                           >
                             <ArrowUUpLeftIcon />
                             Restore

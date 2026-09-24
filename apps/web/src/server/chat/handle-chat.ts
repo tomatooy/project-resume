@@ -67,6 +67,10 @@ export async function handleChat(
         ? await openTurn(deps, body, messages, last)
         : await continueTurn(deps, body, last)
 
+    if (request.signal.aborted) {
+      await services.runs.cancel(turn.run.id)
+      return new Response(null, { status: 499 })
+    }
     return stream(deps, request, {
       ...turn,
       resume: record.data,
@@ -156,7 +160,7 @@ async function openTurn(
       hintSkillId: body.hintSkillId ?? undefined,
       allowStructural: structural,
     },
-    metadata,
+    metadata: { ...metadata, runId: run.id },
     summaryText: memory.summaryText,
     modelMessages,
   }
@@ -212,6 +216,16 @@ async function continueTurn(
     )
   }
 
+  const metadata = last.metadata
+  if (
+    metadata &&
+    typeof metadata === "object" &&
+    "runId" in metadata &&
+    metadata.runId !== run.id
+  ) {
+    throw new AppError("CONFLICT", "That request has already ended.")
+  }
+
   const memory = await services.memory.buildContext(body.conversationId)
   const tail = await checkFitAnswer(last)
   return {
@@ -222,7 +236,7 @@ async function continueTurn(
       hintSkillId: run.hintSkillId ?? undefined,
       allowStructural: run.structural,
     },
-    metadata: metadataFor(run),
+    metadata: { ...metadataFor(run), runId: run.id },
     summaryText: memory.summaryText,
     modelMessages: [...toModelMessages(memory.messages), ...tail],
   }

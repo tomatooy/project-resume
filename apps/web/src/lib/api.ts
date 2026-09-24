@@ -13,6 +13,7 @@ import {
   updateResume as updateResumeFn,
 } from "@/server/fns/resumes"
 import {
+  cancelChatRun as cancelChatRunFn,
   clearConversation as clearConversationFn,
   getOrCreateConversation as getOrCreateConversationFn,
 } from "@/server/fns/conversations"
@@ -201,6 +202,7 @@ export const getOrCreateConversation = guard(getOrCreateConversationFn)
 
 /** Forgets the conversation: transcript and memory, never the resume. */
 export const clearConversation = guard(clearConversationFn)
+export const cancelChatRun = guard(cancelChatRunFn)
 
 /**
  * Rebuilds an `ApiError` from the JSON the chat route answers with when it

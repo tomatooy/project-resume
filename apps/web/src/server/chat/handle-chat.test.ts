@@ -530,6 +530,32 @@ describe("handleChat", () => {
     expect(response.status).toBe(409)
   })
 
+  it("stamps the run id on the stream and rejects an old fit answer while a newer run is open", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: [
+        toolCall("check_fit", { patches: [] }),
+        toolCall("check_fit", { patches: [] }),
+      ],
+    })
+    const h = await harness(model)
+    const first = await h.post({ messages: [user("One page")] })
+    const body = await first.text()
+    const oldRun = h.db.runs[0]
+    if (!oldRun) throw new Error("missing run")
+    expect(body).toContain(`"runId":"${oldRun.id}"`)
+    await h.services.runs.cancel(oldRun.id)
+    const second = await h.post({
+      messages: [user("Try another request", "u2")],
+    })
+    await second.text()
+    const answer = answeredFit([["call-1", 1]])
+    answer.metadata = { runId: oldRun.id }
+    const late = await h.post({ messages: [user("One page"), answer] })
+    expect(late.status).toBe(409)
+    expect(model.doStreamCalls).toHaveLength(2)
+    expect(h.db.runs.map((run) => run.status)).toEqual(["cancelled", "running"])
+  })
+
   it("reads the overlay once for the whole request", async () => {
     const model = new MockLanguageModelV3({ doStream: [text("Sure.")] })
     const h = await harness(model)

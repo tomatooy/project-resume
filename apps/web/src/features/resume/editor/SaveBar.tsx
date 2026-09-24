@@ -88,12 +88,21 @@ export function SaveBar() {
               size="icon-xs"
               className="border-none"
               aria-label="Save version"
-              onClick={() =>
-                snapshot.mutate(undefined, {
-                  onSuccess: (version) =>
-                    toast.success(`Saved version ${version.versionNo}`),
-                })
-              }
+              onClick={() => {
+                void session
+                  .track(
+                    (async () => {
+                      await session.flush()
+                      if (session.state.saveStatus !== "saved")
+                        throw new Error(
+                          "Save your latest edits before saving a version."
+                        )
+                      const version = await snapshot.mutateAsync(undefined)
+                      toast.success(`Saved version ${version.versionNo}`)
+                    })()
+                  )
+                  .catch((error: Error) => toast.error(error.message))
+              }}
               disabled={snapshot.isPending}
             >
               {snapshot.isPending ? <Spinner /> : <BookmarkSimpleIcon />}

@@ -1,3 +1,5 @@
+import { useTabScroll } from "@/features/workspace/use-tab-scroll"
+import { ResourceFailure } from "@/features/workspace/ResourceFailure"
 import { PencilSimpleIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react"
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
@@ -25,7 +27,8 @@ export const Route = createFileRoute("/_app/skills/")({
 })
 
 function SkillsLibrary() {
-  const { data, isPending } = useQuery(skillsQuery())
+  const scroll = useTabScroll("skills")
+  const { data, isPending, error, refetch } = useQuery(skillsQuery())
   const setEnabled = useSetSkillEnabled()
   const navigate = useNavigate()
   const [deleting, setDeleting] = useState<SkillRow | null>(null)
@@ -44,8 +47,18 @@ function SkillsLibrary() {
     )
   }
 
+  if (error && !data)
+    return (
+      <ResourceFailure
+        error={error}
+        reset={() => {
+          void refetch()
+        }}
+      />
+    )
+
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div ref={scroll} className="min-h-0 flex-1 overflow-auto">
       <div className="mx-auto max-w-[880px] px-[26px] pt-[26px] pb-[110px]">
         <div className="flex items-start justify-between gap-4">
           <div>

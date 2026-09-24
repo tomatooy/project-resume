@@ -52,7 +52,7 @@ export function FieldShell({
 }
 
 const CONTROL =
-  "w-full rounded-[7px] border bg-card px-2.5 text-[12.5px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/20"
+  "w-full rounded-[7px] border bg-card px-2.5 text-[12.5px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-primary"
 
 /**
  * Holds a field's error back while the user is part-way through typing it.

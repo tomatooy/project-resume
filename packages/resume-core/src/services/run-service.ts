@@ -70,6 +70,16 @@ export class RunService {
     return this.runs.findRunning(conversationId)
   }
 
+  async cancel(runId: string): Promise<void> {
+    const run = await this.runs.findById(runId)
+    if (!run) throw new AppError("NOT_FOUND", "Run not found")
+    if (run.status !== "running") return
+    await this.runs.finish(runId, {
+      status: "cancelled",
+      errorClass: "stopped",
+    })
+  }
+
   /**
    * Closes the one run a conversation may have open. Clearing the transcript
    * does this first: a run left `running` refuses the next turn with CONFLICT

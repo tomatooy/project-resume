@@ -7,6 +7,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query"
 import {
+  cancelChatRun,
   clearConversation,
   createResume,
   createSnapshot,
@@ -31,6 +32,78 @@ import {
   updateUserSkill,
 } from "./api"
 import type { ChatHistory } from "./types"
+import type { ResumeState } from "@/features/resume/store"
+import { UserSkillInputSchema, type SkillDraft } from "@workspace/resume-core"
+
+export function cacheWorkspaceResume(
+  client: QueryClient,
+  state: ResumeState
+): void {
+  client.setQueryData(resumeQuery(state.resumeId).queryKey, (record) =>
+    record
+      ? {
+          ...record,
+          data: state.doc,
+          revision: state.revision,
+          updatedAt: state.updatedAt,
+          templateId: state.templateId,
+          templateOptions: state.templateOptions,
+        }
+      : record
+  )
+}
+
+export function cacheWorkspaceMessages(
+  client: QueryClient,
+  conversationId: string,
+  history: ChatHistory
+): void {
+  client.setQueryData(messagesQuery(conversationId).queryKey, history)
+}
+
+export function workspaceAssistantApi(client: QueryClient, resumeId: string) {
+  return {
+    cancelChatRun,
+    decideSuggestions: (input: Parameters<typeof decideSuggestions>[0]) =>
+      decideResumeSuggestions(client, resumeId, input),
+    clearConversation: (input: Parameters<typeof clearConversation>[0]) =>
+      clearChatConversation(client, input.conversationId),
+  }
+}
+
+export async function releaseWorkspaceResume(
+  client: QueryClient,
+  resumeId: string,
+  conversationId: string
+): Promise<void> {
+  client.removeQueries({
+    queryKey: resumeQuery(resumeId).queryKey,
+    exact: true,
+  })
+  await Promise.all([
+    client.invalidateQueries({
+      queryKey: messagesQuery(conversationId).queryKey,
+    }),
+    client.invalidateQueries({ queryKey: resumesQuery().queryKey }),
+    invalidateVersions(client, resumeId),
+  ])
+}
+
+export async function saveWorkspaceSkill(
+  client: QueryClient,
+  fields: SkillDraft,
+  id?: string
+): Promise<string> {
+  const input = UserSkillInputSchema.parse(fields)
+  const saved = id
+    ? await updateUserSkill({ ...input, id })
+    : await createUserSkill(input)
+  const detail = userSkillQuery(saved.id)
+  await client.cancelQueries({ queryKey: detail.queryKey, exact: true })
+  client.setQueryData(detail.queryKey, saved)
+  await client.invalidateQueries({ queryKey: skillsQuery().queryKey })
+  return saved.id
+}
 
 /**
  * The browser's server state, as one module.
@@ -222,11 +295,19 @@ export function useRestoreVersion(resumeId: string) {
 export function useDecideSuggestions(resumeId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: decideSuggestions,
-    onSuccess: async (result) => {
-      if (result.version) await invalidateVersions(queryClient, resumeId)
-    },
+    mutationFn: (input: Parameters<typeof decideSuggestions>[0]) =>
+      decideResumeSuggestions(queryClient, resumeId, input),
   })
+}
+
+async function decideResumeSuggestions(
+  client: QueryClient,
+  resumeId: string,
+  input: Parameters<typeof decideSuggestions>[0]
+) {
+  const result = await decideSuggestions(input)
+  if (result.version) await invalidateVersions(client, resumeId)
+  return result
 }
 
 /**
@@ -238,13 +319,20 @@ export function useDecideSuggestions(resumeId: string) {
 export function useClearConversation(conversationId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => clearConversation({ conversationId }),
-    onSuccess: () =>
-      queryClient.setQueryData<ChatHistory>(
-        messagesQuery(conversationId).queryKey,
-        { messages: [], suggestions: {} }
-      ),
+    mutationFn: () => clearChatConversation(queryClient, conversationId),
   })
+}
+
+async function clearChatConversation(
+  client: QueryClient,
+  conversationId: string
+) {
+  const result = await clearConversation({ conversationId })
+  cacheWorkspaceMessages(client, conversationId, {
+    messages: [],
+    suggestions: {},
+  })
+  return result
 }
 
 /* ------------------------------------------------------ skill mutations */

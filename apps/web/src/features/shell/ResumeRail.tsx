@@ -12,6 +12,7 @@ import {
   useNavigate,
   useParams,
 } from "@tanstack/react-router"
+import { Button } from "@workspace/ui/components/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,7 +22,7 @@ import {
 } from "@workspace/ui/components/dropdown-menu"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { ImportDialog } from "@/features/import/ImportDialog"
@@ -38,36 +39,24 @@ import { DeleteResumeDialog } from "./DeleteResumeDialog"
 import { IconButton } from "./IconButton"
 import { RenameDialog } from "./RenameDialog"
 import { RailSlotHost } from "./rail-slot"
-import { useResumeTab } from "./resume-tabs"
+import { useOptionalWorkspace } from "@/features/workspace/context"
 import { SearchField, SearchResults } from "./ResumeSearch"
 import { SkillsRail } from "./SkillsRail"
 
-/**
- * The rail, and the switch at its foot.
- *
- * One rail with two lists is the point: resumes and skills are both things
- * the user keeps several of, and the mode is the route, so a link into the
- * library is a link, not a piece of layout state that has to be kept in step
- * with the URL.
- */
 export function ResumeRail() {
   const matchRoute = useMatchRoute()
-  const skillsMode = Boolean(matchRoute({ to: "/skills", fuzzy: true }))
-  const params = useParams({ strict: false })
-  const resumeId = "resumeId" in params ? params.resumeId : undefined
-
-  // Where the switch goes back to. Remembered while browsing, so leaving the
-  // library returns to the resume that was open rather than the dashboard;
-  // a page loaded straight into skills mode has nothing to remember.
-  const [lastResumeId, setLastResumeId] = useState<string>()
-  useEffect(() => {
-    if (resumeId) setLastResumeId(resumeId)
-  }, [resumeId])
+  // The initial route seeds the rail; browsing it leaves the active tab alone.
+  const [skillsMode, setSkillsMode] = useState(() =>
+    Boolean(matchRoute({ to: "/skills", fuzzy: true }))
+  )
 
   return (
     <nav className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       {skillsMode ? <SkillsRail /> : <ResumeList />}
-      <RailSwitch skillsMode={skillsMode} resumeId={lastResumeId ?? resumeId} />
+      <RailSwitch
+        skillsMode={skillsMode}
+        onToggle={() => setSkillsMode((current) => !current)}
+      />
     </nav>
   )
 }
@@ -75,34 +64,26 @@ export function ResumeRail() {
 /** The foot of the rail: one row, naming what the rail is not showing. */
 function RailSwitch({
   skillsMode,
-  resumeId,
+  onToggle,
 }: {
   skillsMode: boolean
-  resumeId?: string
+  onToggle: () => void
 }) {
-  const row =
-    "flex h-[26px] w-full items-center gap-1.5 rounded-[6px] px-2 text-[12.5px] text-foreground/60 transition-colors hover:bg-accent"
-
   return (
     <div className="flex flex-none items-center border-t border-border p-1.5">
-      {skillsMode ? (
-        resumeId ? (
-          <Link to="/r/$resumeId/edit" params={{ resumeId }} className={row}>
-            <FileTextIcon className="size-3.5 flex-none opacity-70" />
-            <span className="truncate">My resumes</span>
-          </Link>
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={onToggle}
+        className="h-[26px] w-full justify-start gap-1.5 rounded-[6px] px-2 text-[12.5px] font-normal text-foreground/60 hover:bg-accent"
+      >
+        {skillsMode ? (
+          <FileTextIcon className="size-3.5 flex-none opacity-70" />
         ) : (
-          <Link to="/dashboard" className={row}>
-            <FileTextIcon className="size-3.5 flex-none opacity-70" />
-            <span className="truncate">My resumes</span>
-          </Link>
-        )
-      ) : (
-        <Link to="/skills" className={row}>
           <BooksIcon className="size-3.5 flex-none opacity-70" />
-          <span className="truncate">Skills</span>
-        </Link>
-      )}
+        )}
+        <span className="truncate">{skillsMode ? "My resumes" : "Skills"}</span>
+      </Button>
     </div>
   )
 }
@@ -115,7 +96,7 @@ function ResumeList() {
 
   // A row opens the tab the user is already on, so switching resumes from
   // Export does not throw them back to the editor.
-  const tab = useResumeTab(activeId)
+  const workspace = useOptionalWorkspace()
 
   const navigate = useNavigate()
   const [renaming, setRenaming] = useState<{
@@ -227,7 +208,7 @@ function ResumeList() {
                     their own rows, not part of this one's target. */}
                 <div className="group/row relative">
                   <Link
-                    to={tab.to}
+                    to="/r/$resumeId/edit"
                     params={{ resumeId: resume.id }}
                     title={resume.title}
                     className={cn(
@@ -333,7 +314,8 @@ function ResumeList() {
         onConfirm={(id) => {
           remove.mutate(id, {
             onSuccess: () => {
-              if (id === activeId) void navigate({ to: "/dashboard" })
+              if (workspace) void workspace.forgetResource("resume", id)
+              else if (id === activeId) void navigate({ to: "/dashboard" })
             },
           })
           setDeleting(null)

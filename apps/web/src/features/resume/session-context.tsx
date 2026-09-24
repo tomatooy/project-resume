@@ -11,18 +11,23 @@ export function ResumeSessionProvider({
   record,
   conversationId,
   children,
+  session: supplied,
 }: {
   record: ResumeRecord
   conversationId: string
   children: ReactNode
+  session?: ResumeSession
 }) {
   // One session per mount. The route keys this provider on the resume id, so
   // switching resumes mounts a fresh session rather than mutating the open
   // one; a refetched record for the same id must not replace a live session,
   // or the undo stack and any unsaved edits would go with it.
-  const [session] = useState(() => new Session(record, conversationId))
+  const [session] = useState(
+    () => supplied ?? new Session(record, conversationId)
+  )
 
   useEffect(() => {
+    if (supplied) return
     // Paired with `dispose` below: the effect can be torn down and mounted
     // again on the same session, so re-arming here is what keeps autosave
     // alive across that.
@@ -38,7 +43,7 @@ export function ResumeSessionProvider({
       void session.flush()
       session.dispose()
     }
-  }, [session])
+  }, [session, supplied])
 
   return <SessionContext value={session}>{children}</SessionContext>
 }

@@ -14,6 +14,7 @@ import type { ChatUIMessage, Suggestion, SuggestionStatus } from "@/lib/types"
 import { useResumeState, useSession } from "../resume/session-context"
 import { MessageMarkdown } from "./MessageMarkdown"
 import { SuggestionCard } from "./SuggestionCard"
+import { useTabScroll } from "../workspace/use-tab-scroll"
 import type { useAssistant } from "./use-assistant"
 
 type UIPart = ChatUIMessage["parts"][number]
@@ -51,20 +52,24 @@ export function Transcript({
   onEnableStructural: () => void
   onUseSkill: (skillId: string) => void
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const resumeId = useResumeState((s) => s.resumeId)
+  const scrollRef = useTabScroll(`resume:${resumeId}:chat`, true)
   // Names for ids that came back without one (`alreadyLoaded`) or that belong
   // to a skill the user has since removed; every row, deleted included.
   const names = useSkillNames()
 
   // Scroll when anything new arrives, message or streamed part.
   const streamLength = messages.reduce((n, m) => n + m.parts.length, 0)
+  const previousLength = useRef(streamLength)
   useEffect(() => {
+    if (streamLength === previousLength.current) return
+    previousLength.current = streamLength
     if (streamLength === 0) return
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     })
-  }, [streamLength])
+  }, [streamLength, scrollRef])
 
   const last = messages.at(-1)
   const streaming = last?.role === "assistant" ? last : undefined

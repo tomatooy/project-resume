@@ -2,6 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import { useState } from "react"
 
+import { Brand } from "@/features/shell/Brand"
 import { DEFAULT_NEXT, safeNextPath } from "@/lib/next-path"
 import { supabaseBrowser } from "@/lib/supabase-browser"
 import { getSession } from "@/server/fns/session"
@@ -86,14 +87,7 @@ function LoginScreen() {
   return (
     <main className="flex h-svh flex-col items-center justify-center bg-background px-6">
       <div className="w-full max-w-[360px] rounded-xl border border-border bg-card p-8 shadow-sm">
-        <div className="flex items-center gap-[9px]">
-          <span className="flex size-[26px] items-center justify-center rounded-[7px] bg-primary font-heading text-[13px] font-bold text-primary-foreground">
-            R
-          </span>
-          <span className="font-heading text-[14.5px] font-semibold tracking-[-0.01em] text-foreground">
-            Résumé Studio
-          </span>
-        </div>
+        <Brand className="text-[14.5px]" />
 
         <h1 className="mt-6 font-heading text-[20px] font-semibold tracking-[-0.01em] text-foreground">
           Sign in

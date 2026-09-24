@@ -96,6 +96,25 @@ const MAX_HISTORY = 50
  */
 export class ResumeSession {
   readonly store: Store<ResumeState>
+  private pendingWrites = new Set<Promise<void>>()
+
+  get hasPendingWrites(): boolean {
+    return this.pendingWrites.size > 0
+  }
+
+  track<T>(write: Promise<T>): Promise<T> {
+    const pending = write.then(() => undefined)
+    this.pendingWrites.add(pending)
+    void pending.then(
+      () => this.pendingWrites.delete(pending),
+      () => this.pendingWrites.delete(pending)
+    )
+    return write
+  }
+
+  async settled(): Promise<void> {
+    await Promise.all(this.pendingWrites)
+  }
 
   private undoStack: UndoEntry[] = []
   private redoStack: UndoEntry[] = []
@@ -285,11 +304,13 @@ export class ResumeSession {
   ): Promise<void> {
     const options = templateOptions ?? this.state.templateOptions
     this.store.setState((s) => ({ ...s, templateId, templateOptions: options }))
-    await this.api.setTemplate({
-      id: this.state.resumeId,
-      templateId,
-      templateOptions: options,
-    })
+    await this.track(
+      this.api.setTemplate({
+        id: this.state.resumeId,
+        templateId,
+        templateOptions: options,
+      })
+    )
   }
 
   /* ----------------------------------------------------------- autosave */

@@ -12,14 +12,24 @@ import {
 } from "@workspace/ui/components/select"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { useState } from "react"
+import { z } from "zod"
 
 import { resumesQuery } from "@/lib/queries"
 import type { TailorFromJobResult } from "@/lib/types"
+import { useLocalStorage } from "@/lib/use-local-storage"
 import { JobProgressPanel } from "./JobProgress"
 import { useTailor } from "./use-tailor"
 
 /** Below this the posting is a job title, and tailoring has nothing to work from. */
 const MIN_CHARS = 200
+
+/**
+ * The base resume last picked here. A habit rather than a document, so it
+ * stays in the browser with the panel and split preferences; only a resume id
+ * is ever stored.
+ */
+const LastSource = z.string().max(64)
+const LAST_SOURCE_KEY = "resume-studio.tailor-source"
 
 /**
  * One pane, not a wizard. The link and the description are the same field in
@@ -36,7 +46,12 @@ export function JobTab({
   const { data: resumes } = useQuery(resumesQuery())
   const [url, setUrl] = useState("")
   const [text, setText] = useState("")
-  const [source, setSource] = useState(sourceResumeId ?? "")
+  const [picked, setPicked] = useState<string | null>(null)
+  const [lastSource, rememberSource] = useLocalStorage(
+    LAST_SOURCE_KEY,
+    LastSource,
+    ""
+  )
   const [touched, setTouched] = useState(false)
   const { progress, failure, fetching, busy, fetchPosting, run, cancel } =
     useTailor(onDone)
@@ -58,6 +73,15 @@ export function JobTab({
     label: resume.title,
     value: resume.id,
   }))
+
+  // The base resume to build from, in order: what was picked in this dialog,
+  // the resume it was opened from, then the one remembered from last time. A
+  // remembered id missing from the list was deleted, so it is ignored rather
+  // than cleared: the list is the authority.
+  const remembered = (resumes ?? []).some((resume) => resume.id === lastSource)
+    ? lastSource
+    : ""
+  const source = picked ?? sourceResumeId ?? remembered
 
   const ready = source !== "" && text.trim().length >= MIN_CHARS
 
@@ -129,7 +153,13 @@ export function JobTab({
         <Select
           items={options}
           value={source}
-          onValueChange={(value) => setSource(value ?? "")}
+          onValueChange={(value) => {
+            const next = value ?? ""
+            setPicked(next)
+            // Picked here, so this is what the next dialog opens with. The
+            // dialog opened from a resume's own menu is not a pick.
+            if (next) rememberSource(next)
+          }}
         >
           <SelectTrigger
             id="job-source"

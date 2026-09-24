@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner"
 
 import { useDeleteUserSkill } from "@/lib/queries"
+import { useOptionalWorkspace } from "../workspace/context"
 
 /**
  * Confirms removing one custom skill. The list and the open tab both delete
@@ -31,6 +32,7 @@ export function DeleteSkillDialog({
   onDeleted?: (id: string) => void
 }) {
   const remove = useDeleteUserSkill()
+  const workspace = useOptionalWorkspace()
 
   return (
     <AlertDialog
@@ -57,6 +59,7 @@ export function DeleteSkillDialog({
               remove.mutate(row.id, {
                 onSuccess: () => {
                   toast.success(`Deleted ${row.name}`)
+                  void workspace?.forgetResource("skill", row.id)
                   onDeleted?.(row.id)
                 },
                 onError: (error) => toast.error(error.message),

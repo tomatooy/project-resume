@@ -116,7 +116,7 @@ export function Composer({
             event.preventDefault()
             send()
           }}
-          className="flex items-center gap-2 rounded-[9px] border border-border px-2.5 py-2 focus-within:border-primary focus-within:ring-[3px] focus-within:ring-primary/20"
+          className="flex items-center gap-2 rounded-[9px] border border-border px-2.5 py-2 focus-within:border-primary"
         >
           <input
             ref={input}

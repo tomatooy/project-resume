@@ -1,3 +1,4 @@
+import { ResourceFailure } from "@/features/workspace/ResourceFailure"
 import { createFileRoute, Outlet } from "@tanstack/react-router"
 import {
   ResizableHandle,
@@ -14,7 +15,11 @@ import { ResumeSessionProvider } from "@/features/resume/session-context"
 import { useWorkspaceLayout } from "@/features/resume/use-workspace-layout"
 import { ResumeWorkspaceProvider } from "@/features/resume/workspace"
 import { RailSlotContent } from "@/features/shell/rail-slot"
-import { ResumeTabs } from "@/features/shell/ResumeTabs"
+import { useWorkspace } from "@/features/workspace/context"
+import { ResumeRuntimeProvider } from "@/features/workspace/resume-runtime"
+import { WorkspaceTabActions } from "@/features/workspace/WorkspaceTabs"
+import { IconButton } from "@/features/shell/IconButton"
+import { ArrowsInSimpleIcon, ArrowsOutSimpleIcon } from "@phosphor-icons/react"
 import { useResumeTab } from "@/features/shell/resume-tabs"
 import { StatusBarExtra } from "@/features/shell/StatusBar"
 import { conversationQuery, resumeQuery, skillsQuery } from "@/lib/queries"
@@ -31,47 +36,46 @@ export const Route = createFileRoute("/_app/r/$resumeId")({
     return { record, conversationId: conversation.id }
   },
   component: ResumeShell,
+  errorComponent: ResourceFailure,
 })
 
-/**
- * Everything scoped to one open resume: the session and the PDF engine, the
- * tree under the resume's row in the rail, and the middle/side split every tab
- * sits in. The four tabs differ only in what the middle column renders, so the
- * strip and the split live here rather than in each screen: switching tabs
- * swaps one column and leaves the rest standing.
- */
+/** Binds the active route to its retained runtime and mounts its PDF engine. */
 function ResumeShell() {
   const { record, conversationId } = Route.useLoaderData()
+  const workspace = useWorkspace()
+  const runtime = workspace.ensureResume(record, conversationId)
 
   return (
-    // Keyed so opening a different resume mounts a fresh session rather than
-    // mutating the one already open.
+    // Remount views when the resource changes; the registry retains the session.
     <ResumeSessionProvider
       key={record.id}
       record={record}
       conversationId={conversationId}
+      session={runtime.session}
     >
-      <PreviewProvider>
-        <ResumeWorkspaceProvider>
-          {/* Hangs the open resume's tree under its row in the rail, which
+      <ResumeRuntimeProvider runtime={runtime}>
+        <PreviewProvider store={runtime.preview}>
+          <ResumeWorkspaceProvider>
+            {/* Hangs the open resume's tree under its row in the rail, which
               the shell drew above this route. */}
-          <RailSlotContent>
-            <ResumeTree />
-          </RailSlotContent>
-          {/* The status bar is rendered above this route, so the preflight
+            <RailSlotContent>
+              <ResumeTree />
+            </RailSlotContent>
+            {/* The status bar is rendered above this route, so the preflight
               control reaches it through the bar's portal host. It is true of
               every tab, so it is mounted once, here. */}
-          <StatusBarExtra>
-            <PreflightIndicator />
-          </StatusBarExtra>
-          <ResumeColumns resumeId={record.id} />
-        </ResumeWorkspaceProvider>
-      </PreviewProvider>
+            <StatusBarExtra>
+              <PreflightIndicator />
+            </StatusBarExtra>
+            <ResumeColumns resumeId={record.id} />
+          </ResumeWorkspaceProvider>
+        </PreviewProvider>
+      </ResumeRuntimeProvider>
     </ResumeSessionProvider>
   )
 }
 
-/** The tab strip and the two columns that hold still under it. */
+/** Shared columns beneath the global tab strip. */
 function ResumeColumns({ resumeId }: { resumeId: string }) {
   const tab = useResumeTab(resumeId)
   const layout = useWorkspaceLayout({ tab })
@@ -113,23 +117,24 @@ function ResumeColumns({ resumeId }: { resumeId: string }) {
     assistant
   )
 
-  // Like the panes, the strip lands in every layout, so it is written once.
-  const tabs = (
-    <ResumeTabs
-      resumeId={resumeId}
-      fullWidth={layout.fullWidth}
-      onToggleFullWidth={layout.toggleFullWidth}
-    />
+  const actions = (
+    <WorkspaceTabActions>
+      <IconButton
+        label={layout.fullWidth ? "Restore the side panels" : "Full width"}
+        aria-pressed={layout.fullWidth}
+        onClick={layout.toggleFullWidth}
+      >
+        {layout.fullWidth ? <ArrowsInSimpleIcon /> : <ArrowsOutSimpleIcon />}
+      </IconButton>
+    </WorkspaceTabActions>
   )
 
-  // Maximizing hands the pane the whole row right of the resume rail: the tab
-  // strip, the middle column and the other pane stand down until it is
-  // restored. What is hidden stays switched on, so restoring brings back the
-  // arrangement that was there before.
+  // The global strip remains available while a pane fills the content area.
   if (maximized) {
     return (
       <div ref={layout.ref} className="relative flex h-full min-h-0">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
+          {actions}
           {maximized === "preview" ? preview(false) : assistant}
         </div>
       </div>
@@ -143,7 +148,7 @@ function ResumeColumns({ resumeId }: { resumeId: string }) {
     return (
       <div ref={layout.ref} className="relative flex h-full min-h-0">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card">
-          {tabs}
+          {actions}
           <Outlet />
         </div>
       </div>
@@ -161,7 +166,7 @@ function ResumeColumns({ resumeId }: { resumeId: string }) {
             minSize={300}
             className="overflow-hidden bg-card"
           >
-            {tabs}
+            {actions}
             <Outlet />
           </ResizablePanel>
           <ResizableHandle withHandle />
@@ -177,14 +182,14 @@ function ResumeColumns({ resumeId }: { resumeId: string }) {
         </ResizablePanelGroup>
       ) : layout.centerOpen ? (
         <div className="flex min-w-[300px] flex-1 flex-col overflow-hidden bg-card">
-          {tabs}
+          {actions}
           <Outlet />
         </div>
       ) : (
         // No room for both: the strip goes full width and the side panels get
         // the rest, so the tab that owns the column can still be seen.
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
-          {tabs}
+          {actions}
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {side}
           </div>

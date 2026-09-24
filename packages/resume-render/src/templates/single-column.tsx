@@ -57,8 +57,8 @@ export function SingleColumn({
     <Document
       title={`${basics.name} resume`}
       author={basics.name}
-      creator="Résumé Studio"
-      producer="Résumé Studio"
+      creator="VS:Résumé"
+      producer="VS:Résumé"
     >
       <Page
         size={options.pageSize}

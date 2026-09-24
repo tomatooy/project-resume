@@ -5,7 +5,7 @@
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "PUBLIC_APP_NAME": "Résumé Studio",
+    "PUBLIC_APP_NAME": "VS:Résumé",
     // Both tiers on the same model until the fast tier earns a cheaper one.
     // The provider switch lives in `packages/agent/src/models.ts`.
     "AI_MODEL_SMART": "deepseek-v4-flash",

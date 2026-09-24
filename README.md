@@ -1,4 +1,4 @@
-# Résumé Studio
+# VS:Résumé
 
 An AI resume builder and optimization assistant. You keep one or more
 structured resumes, edit them in a form-based editor beside a live PDF preview,

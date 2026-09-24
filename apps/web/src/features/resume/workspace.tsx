@@ -8,6 +8,9 @@ import {
 } from "react"
 
 import { useResumeState } from "./session-context"
+import { createResumeUi } from "../workspace/store"
+import { useStore } from "@tanstack/react-store"
+import { useOptionalResumeRuntime } from "../workspace/resume-runtime"
 
 /** One pane of the editor: the fixed Contact or Summary, or a section's id. */
 export type PaneKey = string
@@ -28,16 +31,23 @@ const ResumeWorkspaceContext = createContext<ResumeWorkspace | null>(null)
  */
 export function ResumeWorkspaceProvider({ children }: { children: ReactNode }) {
   const sections = useResumeState((s) => s.doc.sections)
-  const [pane, setPane] = useState<PaneKey>("contact")
+  const runtime = useOptionalResumeRuntime()
+  const [local] = useState(() => createResumeUi())
+  const store = runtime?.ui ?? local
+  const pane = useStore(store, (s) => s.pane)
+  const setPane = useMemo(
+    () => (pane: PaneKey) => store.setState((s) => ({ ...s, pane })),
+    [store]
+  )
 
   // A section deleted while it was open would leave the pane pointing nowhere.
   // The tree can delete one from any screen, so the reset lives with the state.
   useEffect(() => {
     if (pane === "contact" || pane === "summary") return
     if (!sections.some((section) => section.id === pane)) setPane("contact")
-  }, [sections, pane])
+  }, [sections, pane, setPane])
 
-  const value = useMemo(() => ({ pane, setPane }), [pane])
+  const value = useMemo(() => ({ pane, setPane }), [pane, setPane])
   return (
     <ResumeWorkspaceContext value={value}>{children}</ResumeWorkspaceContext>
   )

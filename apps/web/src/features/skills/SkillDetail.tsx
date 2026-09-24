@@ -3,6 +3,7 @@ import { Switch } from "@workspace/ui/components/switch"
 import { toast } from "sonner"
 
 import { type SkillRow, useSetSkillEnabled } from "@/lib/queries"
+import { useTabScroll } from "@/features/workspace/use-tab-scroll"
 
 /**
  * A built-in skill, read only.
@@ -13,9 +14,10 @@ import { type SkillRow, useSetSkillEnabled } from "@/lib/queries"
  */
 export function SkillDetail({ row }: { row: SkillRow }) {
   const setEnabled = useSetSkillEnabled()
+  const scroll = useTabScroll(`skill:${row.id}`)
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div ref={scroll} className="min-h-0 flex-1 overflow-auto">
       <div className="mx-auto max-w-[720px] px-[26px] pt-[26px] pb-[110px]">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">

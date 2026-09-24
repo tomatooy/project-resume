@@ -3,6 +3,15 @@ import { z } from "zod"
 
 import { serve } from "../handler"
 
+export const cancelChatRun = createServerFn({ method: "POST" })
+  .validator(z.object({ runId: z.uuid() }))
+  .handler(
+    serve(async ({ services, data }) => {
+      await services.runs.cancel(data.runId)
+      return { ok: true }
+    })
+  )
+
 /** One conversation per resume; created the first time the resume is opened. */
 export const getOrCreateConversation = createServerFn({ method: "POST" })
   .validator(z.object({ resumeId: z.uuid() }))

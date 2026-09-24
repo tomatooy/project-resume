@@ -24,13 +24,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       meta: [
         { charSet: "utf-8" },
         { name: "viewport", content: "width=device-width, initial-scale=1" },
-        { title: "Résumé Studio" },
+        { title: "VS:Résumé" },
         {
           name: "description",
           content: "Write, tailor and export a resume with an AI assistant.",
         },
       ],
-      links: [{ rel: "stylesheet", href: appCss }],
+      links: [
+        { rel: "stylesheet", href: appCss },
+        { rel: "icon", type: "image/webp", href: "/logo.webp" },
+        { rel: "manifest", href: "/manifest.json" },
+      ],
     }),
     notFoundComponent: NotFound,
     errorComponent: ErrorScreen,

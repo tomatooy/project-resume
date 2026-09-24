@@ -1,16 +1,20 @@
 import { useQuery } from "@tanstack/react-query"
-import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { createFileRoute } from "@tanstack/react-router"
 import { TrashIcon, UploadSimpleIcon } from "@phosphor-icons/react"
-import type { SkillDraft } from "@workspace/resume-core"
 import { Button } from "@workspace/ui/components/button"
 import { Spinner } from "@workspace/ui/components/spinner"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 
 import { DeleteSkillDialog } from "@/features/skills/DeleteSkillDialog"
 import { ImportSkillDialog } from "@/features/skills/ImportSkillDialog"
 import { SkillDetail } from "@/features/skills/SkillDetail"
 import { BLANK_SKILL, SkillForm } from "@/features/skills/SkillForm"
-import { NEW_SKILL_ID, useSkillsWorkspace } from "@/features/skills/workspace"
+import { NEW_SKILL_ID } from "@/features/skills/workspace"
+import { useWorkspace } from "@/features/workspace/context"
+import { ResourceFailure } from "@/features/workspace/ResourceFailure"
+import { tabKey } from "@/features/workspace/targets"
+import { useTabScroll } from "@/features/workspace/use-tab-scroll"
+
 import { type SkillRow, skillsQuery, userSkillQuery } from "@/lib/queries"
 
 /**
@@ -27,34 +31,29 @@ export const Route = createFileRoute("/_app/skills/$skillId")({
 
 function SkillTab() {
   const { skillId } = Route.useParams()
-  const { ensure } = useSkillsWorkspace()
-  const { data, isPending } = useQuery(skillsQuery())
+  const { data, isPending, error, refetch } = useQuery(skillsQuery())
   const row = data?.find((entry) => entry.id === skillId)
 
-  // The tab the URL names joins the strip, whether it was opened from the
-  // rail, from the library list, or pasted in.
-  useEffect(() => {
-    ensure(skillId)
-  }, [ensure, skillId])
-
-  if (skillId === NEW_SKILL_ID) return <NewSkillTab />
+  if (skillId === NEW_SKILL_ID) return <NewSkillTab key="new" />
   if (isPending) return <Waiting />
+  if (error && !data)
+    return (
+      <ResourceFailure
+        error={error}
+        reset={() => {
+          void refetch()
+        }}
+      />
+    )
   if (!row || row.deleted) return <Gone name={row?.name} />
   if (row.source === "builtin") return <SkillDetail row={row} />
-  return <CustomSkillTab row={row} />
+  return <CustomSkillTab key={row.id} row={row} />
 }
 
 function NewSkillTab() {
-  const { close } = useSkillsWorkspace()
-  const navigate = useNavigate()
+  const workspace = useWorkspace()
   const [importing, setImporting] = useState(false)
-  // What an import read replaces what the form starts from. The form owns its
-  // draft once it is on screen, so the generation remounts it onto the file's
-  // fields rather than reaching into its state.
-  const [draft, setDraft] = useState<{
-    fields: SkillDraft
-    generation: number
-  }>({ fields: BLANK_SKILL, generation: 0 })
+  const editor = workspace.ensureSkill(NEW_SKILL_ID)
 
   return (
     <Shell
@@ -70,25 +69,21 @@ function NewSkillTab() {
       }
     >
       <SkillForm
-        key={draft.generation}
-        initial={draft.fields}
-        onSaved={(id) => {
-          close(NEW_SKILL_ID)
-          void navigate({ to: "/skills/$skillId", params: { skillId: id } })
-        }}
+        initial={BLANK_SKILL}
+        editor={editor}
+        saveEditor={() => workspace.saveSkill(editor)}
+        onSaved={() => undefined}
         onCancel={() => {
-          close(NEW_SKILL_ID)
-          void navigate({ to: "/skills" })
+          void workspace.requestCloseTabs([
+            tabKey({ kind: "skill", skillId: NEW_SKILL_ID }),
+          ])
         }}
       />
       <ImportSkillDialog
         open={importing}
         onOpenChange={setImporting}
         onImported={(input) => {
-          setDraft((current) => ({
-            fields: input,
-            generation: current.generation + 1,
-          }))
+          editor.replace(input)
           setImporting(false)
         }}
       />
@@ -98,14 +93,23 @@ function NewSkillTab() {
 
 function CustomSkillTab({ row }: { row: SkillRow }) {
   const detail = useQuery(userSkillQuery(row.id))
-  const navigate = useNavigate()
-  const { close } = useSkillsWorkspace()
+  const workspace = useWorkspace()
   const [deleting, setDeleting] = useState(false)
 
   if (detail.isPending) return <Waiting />
+  if (detail.error && !detail.data)
+    return (
+      <ResourceFailure
+        error={detail.error}
+        reset={() => {
+          void detail.refetch()
+        }}
+      />
+    )
   if (!detail.data) return <Gone name={row.name} />
 
   const skill = detail.data
+  const editor = workspace.ensureSkill(skill.id, skill)
   return (
     <Shell
       meta={`Yours · ${row.category === "interview" ? "Interview" : "Editor"}`}
@@ -121,29 +125,20 @@ function CustomSkillTab({ row }: { row: SkillRow }) {
       }
     >
       <SkillForm
-        // Keyed so a different skill in the same tab starts a fresh form.
-        key={skill.id}
+        initial={skill}
         skillId={skill.id}
-        initial={{
-          category: skill.category,
-          name: skill.name,
-          description: skill.description,
-          whenToUse: skill.whenToUse,
-          notFor: skill.notFor,
-          starter: skill.starter,
-          body: skill.body,
-        }}
+        editor={editor}
+        saveEditor={() => workspace.saveSkill(editor)}
         onSaved={() => undefined}
-        onCancel={() => void navigate({ to: "/skills" })}
+        onCancel={() => {
+          void workspace.requestCloseTabs([
+            tabKey({ kind: "skill", skillId: skill.id }),
+          ])
+        }}
       />
       <DeleteSkillDialog
         target={deleting ? { id: skill.id, name: skill.name } : null}
         onClose={() => setDeleting(false)}
-        // The tab its id was holding has nothing left to show.
-        onDeleted={() => {
-          close(skill.id)
-          void navigate({ to: "/skills" })
-        }}
       />
     </Shell>
   )
@@ -154,8 +149,7 @@ function CustomSkillTab({ row }: { row: SkillRow }) {
  * was open, or a URL from a copy someone else made.
  */
 function Gone({ name }: { name?: string }) {
-  const { close } = useSkillsWorkspace()
-  const navigate = useNavigate()
+  const workspace = useWorkspace()
   const { skillId } = Route.useParams()
 
   return (
@@ -168,8 +162,9 @@ function Gone({ name }: { name?: string }) {
         <Button
           size="sm"
           onClick={() => {
-            close(skillId)
-            void navigate({ to: "/skills" })
+            void workspace.requestCloseTabs([
+              tabKey({ kind: "skill", skillId }),
+            ])
           }}
         >
           Close this tab
@@ -203,8 +198,10 @@ function Shell({
   action?: React.ReactNode
   children: React.ReactNode
 }) {
+  const { skillId } = Route.useParams()
+  const scroll = useTabScroll(`skill:${skillId}`)
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div ref={scroll} className="min-h-0 flex-1 overflow-auto">
       <div className="mx-auto max-w-[720px] px-[26px] pt-[26px] pb-[110px]">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">

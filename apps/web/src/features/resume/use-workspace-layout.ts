@@ -4,6 +4,8 @@ import {
 } from "@workspace/ui/components/resizable"
 import { type ComponentProps, useEffect, useState } from "react"
 import { z } from "zod"
+import { useStore } from "@tanstack/react-store"
+import { useResumeRuntime } from "../workspace/resume-runtime"
 
 import type { ResumeTab } from "@/features/shell/resume-tabs"
 import { type PanelKey, useShellLayout } from "@/features/shell/shell-layout"
@@ -50,7 +52,8 @@ export function useWorkspaceLayout({ tab }: { tab: ResumeTab }) {
   // The middle column's own maximize, from the tab strip: the side panes stand
   // down but stay switched on, and it is not persisted, for the same reasons a
   // maximized pane is not.
-  const [fullWidth, setFullWidth] = useState(false)
+  const runtime = useResumeRuntime()
+  const fullWidth = useStore(runtime.ui, (s) => s.fullWidth)
   const [sideSplit, setSideSplit] = useLocalStorage(
     "resume-studio.right-split",
     Split,
@@ -78,7 +81,8 @@ export function useWorkspaceLayout({ tab }: { tab: ResumeTab }) {
   // comes back when this one is restored.
   const toggleMaximize = (panel: PanelKey) =>
     setMaximized((current) => (current === panel ? null : panel))
-  const toggleFullWidth = () => setFullWidth((current) => !current)
+  const toggleFullWidth = () =>
+    runtime.ui.setState((s) => ({ ...s, fullWidth: !s.fullWidth }))
 
   // A maximized pane that gets switched off has nothing left to render, so the
   // layout follows it out.

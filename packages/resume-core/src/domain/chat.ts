@@ -144,6 +144,7 @@ export const MessagePartSchema = z.discriminatedUnion("type", [
 export type MessagePart = z.infer<typeof MessagePartSchema>
 
 export const MessageMetadataSchema = z.object({
+  runId: z.string().optional(),
   /** The playbooks the turn loaded, for a row that recorded them. */
   skillIds: z.array(z.string()).optional(),
   /** The playbook the composer hinted at. Advisory, kept for the record. */

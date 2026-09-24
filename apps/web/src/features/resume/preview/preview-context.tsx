@@ -26,8 +26,15 @@ const PreviewContext = createContext<PreviewStore | null>(null)
  * in the preview pane so the blob survives navigation between Editor, Export
  * and History, and so Export can download without re-rendering.
  */
-export function PreviewProvider({ children }: { children: ReactNode }) {
-  const store = useMemo(() => createPreviewStore(), [])
+export function PreviewProvider({
+  children,
+  store: supplied,
+}: {
+  children: ReactNode
+  store?: PreviewStore
+}) {
+  const local = useMemo(() => createPreviewStore(), [])
+  const store = supplied ?? local
   return (
     <PreviewContext value={store}>
       <ClientOnly>

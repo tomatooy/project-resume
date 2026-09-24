@@ -206,3 +206,27 @@ describe("RunService.assertWithinHourlyLimit", () => {
     ).resolves.toBeUndefined()
   })
 })
+
+describe("RunService.cancel", () => {
+  it("cancels only the requested run and ignores duplicate cancellation and late finishes", async () => {
+    const h = await seeded()
+    const run = await h.runService.start(h.input)
+    await h.runService.cancel(run.id)
+    await h.runService.cancel(run.id)
+    await h.runService.finish(run.id, { status: "completed" })
+    expect((await h.runs.findById(run.id))?.status).toBe("cancelled")
+    const next = await h.runService.start(h.input)
+    await h.runService.cancel(run.id)
+    expect((await h.runs.findById(next.id))?.status).toBe("running")
+  })
+  it("does not cancel completed or inaccessible runs", async () => {
+    const h = await seeded()
+    const run = await h.runService.start(h.input)
+    await h.runService.finish(run.id, { status: "completed" })
+    await h.runService.cancel(run.id)
+    expect((await h.runs.findById(run.id))?.status).toBe("completed")
+    await expect(h.runService.cancel("missing")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    })
+  })
+})

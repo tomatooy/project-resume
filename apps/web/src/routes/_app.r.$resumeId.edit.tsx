@@ -1,5 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { useEffect } from "react"
+import { useTabScroll } from "@/features/workspace/use-tab-scroll"
 
 import { ConflictBanner } from "@/features/resume/ConflictBanner"
 import { EditorPane } from "@/features/resume/editor/EditorPane"
@@ -28,6 +29,7 @@ export const Route = createFileRoute("/_app/r/$resumeId/edit")({
 /** The Editor tab: the form column only. */
 function EditorScreen() {
   const session = useSession()
+  const scroll = useTabScroll(`resume:${session.state.resumeId}:editor`)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -46,7 +48,10 @@ function EditorScreen() {
   }, [session])
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-[22px] pb-[76px]">
+    <div
+      ref={scroll}
+      className="min-h-0 flex-1 overflow-y-auto px-6 pt-[22px] pb-[76px]"
+    >
       <ConflictBanner />
       <EditorPane />
     </div>

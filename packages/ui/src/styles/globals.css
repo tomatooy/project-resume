@@ -113,6 +113,15 @@
     border-color: var(--border);
     box-shadow: none;
   }
+
+  .text-engraved {
+    display: inline-block;
+    color: color-mix(in srgb, var(--foreground) 12%, var(--card));
+  }
+
+  .dark .text-engraved {
+    color: color-mix(in srgb, var(--foreground) 55%, var(--card));
+  }
 }
 
 @layer base {

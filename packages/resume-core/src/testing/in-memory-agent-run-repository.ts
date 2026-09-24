@@ -41,7 +41,7 @@ export class InMemoryAgentRunRepository implements AgentRunRepository {
 
   async finish(id: string, input: FinishAgentRun): Promise<void> {
     const run = this.db.runs.find((r) => r.id === id)
-    if (!run) return
+    if (run?.status !== "running") return
     run.status = input.status
     run.errorClass = input.errorClass ?? null
     run.inputTokens = input.inputTokens ?? null

@@ -1,6 +1,8 @@
 import { CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react"
 import { cn } from "@workspace/ui/lib/utils"
 import { useState } from "react"
+import { useResumeState } from "../resume/session-context"
+import { useTabScroll } from "../workspace/use-tab-scroll"
 
 import {
   DEMO_QUESTIONS,
@@ -9,6 +11,8 @@ import {
 } from "./questions"
 
 export function InterviewScreen() {
+  const resumeId = useResumeState((s) => s.resumeId)
+  const scroll = useTabScroll(`resume:${resumeId}:interview`)
   const [filter, setFilter] =
     useState<(typeof INTERVIEW_FILTERS)[number]>("All")
   const [openId, setOpenId] = useState<string | null>(
@@ -20,7 +24,7 @@ export function InterviewScreen() {
   )
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div ref={scroll} className="min-h-0 flex-1 overflow-auto">
       <div className="mx-auto max-w-[820px] px-[26px] pt-[26px] pb-[110px]">
         <h2 className="font-heading text-[19px] font-semibold tracking-[-0.015em]">
           Interview prep

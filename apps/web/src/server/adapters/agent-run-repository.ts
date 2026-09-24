@@ -95,6 +95,7 @@ export class SupabaseAgentRunRepository implements AgentRunRepository {
         finished_at: new Date().toISOString(),
       })
       .eq("id", id)
+      .eq("status", "running")
     if (error) throw error
   }
 
