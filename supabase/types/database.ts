@@ -167,12 +167,83 @@ export type Database = {
           },
         ]
       }
+      job_resume_bindings: {
+        Row: {
+          created_at: string
+          current_operation_id: string | null
+          external_job_id: string
+          id: string
+          job_target_id: string
+          platform: string
+          resume_id: string
+          source_resume_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_operation_id?: string | null
+          external_job_id: string
+          id?: string
+          job_target_id: string
+          platform: string
+          resume_id: string
+          source_resume_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_operation_id?: string | null
+          external_job_id?: string
+          id?: string
+          job_target_id?: string
+          platform?: string
+          resume_id?: string
+          source_resume_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_resume_bindings_current_operation_id_fkey"
+            columns: ["current_operation_id"]
+            isOneToOne: false
+            referencedRelation: "tailor_operations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_resume_bindings_job_target_id_fkey"
+            columns: ["job_target_id"]
+            isOneToOne: false
+            referencedRelation: "job_targets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_resume_bindings_resume_id_fkey"
+            columns: ["resume_id"]
+            isOneToOne: false
+            referencedRelation: "resumes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_resume_bindings_source_resume_id_fkey"
+            columns: ["source_resume_id"]
+            isOneToOne: false
+            referencedRelation: "resumes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       job_targets: {
         Row: {
           company: string
           created_at: string
+          external_job_id: string | null
           id: string
           location: string | null
+          parsed_at: string | null
+          platform: string | null
           raw_text: string
           requirements: Json
           source_url: string | null
@@ -182,8 +253,11 @@ export type Database = {
         Insert: {
           company?: string
           created_at?: string
+          external_job_id?: string | null
           id?: string
           location?: string | null
+          parsed_at?: string | null
+          platform?: string | null
           raw_text: string
           requirements?: Json
           source_url?: string | null
@@ -193,8 +267,11 @@ export type Database = {
         Update: {
           company?: string
           created_at?: string
+          external_job_id?: string | null
           id?: string
           location?: string | null
+          parsed_at?: string | null
+          platform?: string | null
           raw_text?: string
           requirements?: Json
           source_url?: string | null
@@ -485,6 +562,146 @@ export type Database = {
           },
         ]
       }
+      tailor_operation_artifacts: {
+        Row: {
+          content: Json
+          content_hash: string
+          created_at: string
+          expires_at: string
+          label: string
+          operation_id: string
+          subtitle: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          content: Json
+          content_hash: string
+          created_at?: string
+          expires_at: string
+          label: string
+          operation_id: string
+          subtitle: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          content?: Json
+          content_hash?: string
+          created_at?: string
+          expires_at?: string
+          label?: string
+          operation_id?: string
+          subtitle?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tailor_operation_artifacts_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: true
+            referencedRelation: "tailor_operations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tailor_operations: {
+        Row: {
+          agent_run_id: string | null
+          attempt: number
+          binding_id: string
+          created_at: string
+          deadline: string
+          error_class: string | null
+          expected_revision: number
+          finished_at: string | null
+          id: string
+          idempotency_key: string
+          input_version_id: string
+          job_target_id: string
+          legacy: boolean
+          resume_id: string
+          status: string
+          user_id: string
+          workflow_id: string
+        }
+        Insert: {
+          agent_run_id?: string | null
+          attempt: number
+          binding_id: string
+          created_at?: string
+          deadline: string
+          error_class?: string | null
+          expected_revision: number
+          finished_at?: string | null
+          id?: string
+          idempotency_key: string
+          input_version_id: string
+          job_target_id: string
+          legacy?: boolean
+          resume_id: string
+          status: string
+          user_id: string
+          workflow_id: string
+        }
+        Update: {
+          agent_run_id?: string | null
+          attempt?: number
+          binding_id?: string
+          created_at?: string
+          deadline?: string
+          error_class?: string | null
+          expected_revision?: number
+          finished_at?: string | null
+          id?: string
+          idempotency_key?: string
+          input_version_id?: string
+          job_target_id?: string
+          legacy?: boolean
+          resume_id?: string
+          status?: string
+          user_id?: string
+          workflow_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tailor_operations_agent_run_id_fkey"
+            columns: ["agent_run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tailor_operations_binding_id_fkey"
+            columns: ["binding_id"]
+            isOneToOne: false
+            referencedRelation: "job_resume_bindings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tailor_operations_input_version_id_fkey"
+            columns: ["input_version_id"]
+            isOneToOne: false
+            referencedRelation: "resume_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tailor_operations_job_target_id_fkey"
+            columns: ["job_target_id"]
+            isOneToOne: false
+            referencedRelation: "job_targets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tailor_operations_resume_id_fkey"
+            columns: ["resume_id"]
+            isOneToOne: false
+            referencedRelation: "resumes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_disabled_skills: {
         Row: {
           created_at: string
@@ -553,6 +770,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      commit_tailor_creation: { Args: { p_input: Json }; Returns: boolean }
       create_memory_summary: {
         Args: {
           p_conversation_id: string
@@ -599,6 +817,20 @@ export type Database = {
           p_new_content?: Json
           p_run_id: string
         }
+        Returns: Json
+      }
+      tailor_admit: { Args: { p_input: Json }; Returns: Json }
+      tailor_adopt: {
+        Args: {
+          p_content_hash: string
+          p_external_job_id: string
+          p_platform: string
+          p_resume_id: string
+        }
+        Returns: undefined
+      }
+      tailor_transition: {
+        Args: { p_action: string; p_id: string; p_payload?: Json }
         Returns: Json
       }
     }

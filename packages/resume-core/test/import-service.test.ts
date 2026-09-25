@@ -1,6 +1,7 @@
 import type { ParsedResume } from "@workspace/resume-schema"
 import { describe, expect, it } from "vitest"
 
+import { MAX_IMPORT_CHARS } from "../src/services/import-service"
 import { harness } from "./harness"
 
 /** Long enough to pass the floor; what it says never reaches the stub. */
@@ -68,7 +69,7 @@ describe("ImportService", () => {
       { code: "VALIDATION" }
     )
     await expect(
-      h.importService.import({ text: "x".repeat(20_001) })
+      h.importService.import({ text: "x".repeat(MAX_IMPORT_CHARS + 1) })
     ).rejects.toMatchObject({ code: "VALIDATION" })
     expect(h.resumeParser.calls).toHaveLength(0)
   })

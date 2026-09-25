@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "minimum_chrome_version": "127",
+  "name": "VS:Résumé",
+  "version": "0.1.0",
+  "description": "Create a tailored resume for a selected job.",
+  "permissions": ["storage", "identity", "webNavigation"],
+  "host_permissions": ["https://www.linkedin.com/*"],
+  "action": {
+    "default_title": "VS:Résumé"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/*"],
+      "js": ["widget-host.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["widget.html", "panel.html"],
+      "matches": ["https://www.linkedin.com/*"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
+}

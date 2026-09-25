@@ -1,4 +1,4 @@
--- Résumé Studio: initial schema.
+-- VS:Résumé: initial schema.
 --
 -- Authorization is Row Level Security, not application code. Every query runs
 -- through PostgREST carrying the user's JWT and there is no service-role key

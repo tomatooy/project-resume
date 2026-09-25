@@ -7,7 +7,7 @@ from them. Components use semantic Tailwind utilities.
 The base palette follows Cursor Light and Cursor Dark, sourced from the
 installed app's `theme-cursor` theme files. Keep the brighter GitHub-style
 `success` greens for saved states and additions. Warning and destructive
-colors retain the original Resume Studio palette in both themes.
+colors retain the original VS:Résumé palette in both themes.
 
 | Role | Usage |
 | --- | --- |

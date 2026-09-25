@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { NullableJobIdentitySchema } from "./job-identity"
 
 /**
  * The model's reading of a posting. Flat arrays of short strings, for the same
@@ -26,19 +27,30 @@ export const JobRequirementsSchema = ParsedJobPostingSchema.pick({
 })
 export type JobRequirements = z.infer<typeof JobRequirementsSchema>
 
-export type JobTarget = {
-  id: string
-  /** Null when the user pasted the description rather than giving a link. */
-  sourceUrl: string | null
-  rawText: string
-  title: string
-  company: string
-  location: string | null
-  requirements: JobRequirements
-  createdAt: string
-}
-
-export type NewJobTarget = Omit<JobTarget, "id" | "createdAt">
+export const JobTargetSchema = z
+  .object({
+    id: z.string(),
+    sourceUrl: z.string().nullable(),
+    rawText: z.string(),
+    title: z.string(),
+    company: z.string(),
+    location: z.string().nullable(),
+    requirements: JobRequirementsSchema,
+    createdAt: z.string(),
+  })
+  .and(NullableJobIdentitySchema)
+export type JobTarget = z.infer<typeof JobTargetSchema>
+export const NewJobTargetSchema = z
+  .object({
+    sourceUrl: z.string().nullable(),
+    rawText: z.string(),
+    title: z.string(),
+    company: z.string(),
+    location: z.string().nullable(),
+    requirements: JobRequirementsSchema,
+  })
+  .and(NullableJobIdentitySchema)
+export type NewJobTarget = z.infer<typeof NewJobTargetSchema>
 
 /** The same ceiling import uses, for the same reason: one model call's worth. */
 export const MAX_JOB_CHARS = 20_000

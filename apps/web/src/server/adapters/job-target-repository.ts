@@ -1,4 +1,9 @@
 import {
+  JobTargetSchema,
+  jobIdentityFromUrl,
+  type JobIdentity,
+} from "@workspace/resume-core"
+import {
   JobRequirementsSchema,
   type JobTarget,
   type JobTargetRepository,
@@ -10,6 +15,8 @@ import type { Db } from "../auth/supabase"
 
 type Row = {
   id: string
+  platform: string | null
+  external_job_id: string | null
   source_url: string | null
   raw_text: string
   title: string
@@ -20,7 +27,7 @@ type Row = {
 }
 
 const COLUMNS =
-  "id, source_url, raw_text, title, company, location, requirements, created_at"
+  "id, platform, external_job_id, source_url, raw_text, title, company, location, requirements, created_at"
 
 /** Empty rather than throwing: a posting whose requirements did not survive a
  *  schema change is still a posting, and the text is the part that matters. */
@@ -28,7 +35,9 @@ const EMPTY = { mustHaves: [], niceToHaves: [], keywords: [] }
 
 function toJobTarget(row: Row): JobTarget {
   const parsed = JobRequirementsSchema.safeParse(row.requirements)
-  return {
+  return JobTargetSchema.parse({
+    platform: row.platform,
+    externalJobId: row.external_job_id,
     id: row.id,
     sourceUrl: row.source_url,
     rawText: row.raw_text,
@@ -37,7 +46,7 @@ function toJobTarget(row: Row): JobTarget {
     location: row.location,
     requirements: parsed.success ? parsed.data : EMPTY,
     createdAt: row.created_at,
-  }
+  })
 }
 
 export class SupabaseJobTargetRepository implements JobTargetRepository {
@@ -51,6 +60,9 @@ export class SupabaseJobTargetRepository implements JobTargetRepository {
       .from("job_targets")
       .insert({
         user_id: this.userId,
+        platform: input.platform,
+        external_job_id: input.externalJobId,
+        parsed_at: new Date().toISOString(),
         source_url: input.sourceUrl,
         raw_text: input.rawText,
         title: input.title,
@@ -63,6 +75,35 @@ export class SupabaseJobTargetRepository implements JobTargetRepository {
 
     if (error) throw error
     return toJobTarget(data)
+  }
+
+  async findByIdentity(identity: JobIdentity): Promise<JobTarget[]> {
+    // Owner-scoped, idempotent backfill. Preserve every capture and association.
+    const legacy = await this.db
+      .from("job_targets")
+      .select("id,source_url")
+      .is("platform", null)
+    if (legacy.error) throw legacy.error
+    for (const row of legacy.data) {
+      const found = row.source_url ? jobIdentityFromUrl(row.source_url) : null
+      if (!found) continue
+      const result = await this.db
+        .from("job_targets")
+        .update({
+          platform: found.platform,
+          external_job_id: found.externalJobId,
+        })
+        .eq("id", row.id)
+        .is("platform", null)
+      if (result.error) throw result.error
+    }
+    const result = await this.db
+      .from("job_targets")
+      .select(COLUMNS)
+      .eq("platform", identity.platform)
+      .eq("external_job_id", identity.externalJobId)
+    if (result.error) throw result.error
+    return result.data.map(toJobTarget)
   }
 
   async findById(id: string): Promise<JobTarget | null> {

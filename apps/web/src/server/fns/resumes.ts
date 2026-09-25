@@ -10,10 +10,6 @@ import { serve } from "../handler"
 
 const idInput = z.object({ id: z.uuid() })
 
-export const listResumes = createServerFn({ method: "GET" }).handler(
-  serve(({ services }) => services.resumes.list())
-)
-
 /**
  * Rail search. The query is the user's own text, so it never reaches a log
  * line: only how many resumes matched does.

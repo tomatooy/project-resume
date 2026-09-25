@@ -16,6 +16,7 @@
  */
 import { createClient } from "@supabase/supabase-js"
 import { AppError } from "@workspace/resume-core"
+import { StubJobParser, StubResumeTailor } from "@workspace/resume-core/testing"
 
 import { createServices, supabasePorts } from "@/server/container"
 
@@ -410,6 +411,198 @@ check(
   "B's own disabled list does not see A's toggles",
   !(await b.skills.listOverlay()).disabledIds.includes("bullet_rewrite")
 )
+
+console.log("durable tailoring")
+const operationPorts = supabasePorts(dbA, USER_A, {
+  jobParser: new StubJobParser(),
+  resumeTailor: new StubResumeTailor(),
+})
+const durable = createServices(operationPorts)
+const identity = {
+  platform: "linkedin",
+  externalJobId: String(Date.now()),
+} satisfies import("@workspace/resume-core").JobIdentity
+const admission = {
+  ...identity,
+  sourceResumeId: created.id,
+  sourceUrl: `https://www.linkedin.com/jobs/view/${identity.externalJobId}`,
+  jobText:
+    "An engineering role building useful products with a collaborative team. ".repeat(
+      8
+    ),
+  idempotencyKey: crypto.randomUUID(),
+}
+const simultaneous = await Promise.all([
+  durable.operations.admit(admission),
+  durable.operations.admit({
+    ...admission,
+    idempotencyKey: crypto.randomUUID(),
+  }),
+])
+const initial = simultaneous[0]
+if (initial?.kind !== "bound") throw new Error("Admission did not bind")
+check(
+  "concurrent admission creates one resume",
+  simultaneous.every(
+    (r) => r.kind === "bound" && r.resumeId === initial.resumeId
+  )
+)
+check(
+  "other user sees no binding",
+  (await b.operations.lookup(identity)).kind === "none"
+)
+await durable.operations.parse(initial.operation.id)
+await durable.operations.generate(initial.operation.id)
+await durable.operations.cancel(initial.operation.id)
+await durable.operations.complete(initial.operation.id)
+check(
+  "cancelled output cannot commit",
+  (await durable.operations.get(initial.operation.id)).status === "cancelled"
+)
+check(
+  "cancel purges staged content",
+  !(await operationPorts.operations.hasArtifact(initial.operation.id))
+)
+const retryInput = {
+  ...identity,
+  expectedOperationId: initial.operation.id,
+  idempotencyKey: crypto.randomUUID(),
+}
+const retries = await Promise.all([
+  durable.operations.retry(retryInput),
+  durable.operations.retry(retryInput),
+])
+const retried = retries[0]
+if (retried?.kind !== "bound") throw new Error("Retry did not bind")
+check(
+  "concurrent retry reuses one attempt",
+  retries.every(
+    (r) => r.kind === "bound" && r.operation.id === retried.operation.id
+  )
+)
+check("retry keeps clone", retried.resumeId === initial.resumeId)
+await durable.operations.parse(retried.operation.id)
+await durable.operations.generate(retried.operation.id)
+const copy = await durable.resumes.get(retried.resumeId)
+copy.data.basics.name = "Manual edit during generation"
+await durable.resumes.update({
+  id: copy.id,
+  data: copy.data,
+  expectedRevision: copy.revision,
+})
+await durable.operations.complete(retried.operation.id)
+check(
+  "revision guard preserves concurrent manual edit",
+  (await durable.operations.get(retried.operation.id)).errorClass === "conflict"
+)
+const recovery = await durable.operations.retry({
+  ...identity,
+  expectedOperationId: retried.operation.id,
+  idempotencyKey: crypto.randomUUID(),
+})
+if (recovery.kind !== "bound") throw new Error("Missing recovery")
+await durable.operations.parse(recovery.operation.id)
+await durable.operations.generate(recovery.operation.id)
+await durable.operations.complete(recovery.operation.id)
+check(
+  "recovery commits a version and readiness",
+  (await durable.operations.lookup(identity)).kind === "bound" &&
+    (await durable.operations.get(recovery.operation.id)).status === "succeeded"
+)
+check(
+  "success purges staged content",
+  !(await operationPorts.operations.hasArtifact(recovery.operation.id))
+)
+await durable.resumes.remove(recovery.resumeId)
+check(
+  "deleted binding reads as none",
+  (await durable.operations.lookup(identity)).kind === "none"
+)
+const replacement = await durable.operations.admit({
+  ...admission,
+  idempotencyKey: crypto.randomUUID(),
+})
+check(
+  "deleted copy is replaced",
+  replacement.kind === "bound" && replacement.resumeId !== initial.resumeId
+)
+if (replacement.kind === "bound") {
+  await durable.operations.cancel(replacement.operation.id)
+  await durable.resumes.remove(replacement.resumeId)
+}
+
+console.log("legacy job adoption")
+const legacyIdentity = {
+  platform: "linkedin",
+  externalJobId: String(Date.now() + 1),
+} satisfies import("@workspace/resume-core").JobIdentity
+const legacy = await durable.tailor.tailorFromJob({
+  sourceResumeId: created.id,
+  sourceUrl: `https://www.linkedin.com/jobs/view/${legacyIdentity.externalJobId}`,
+  jobText: admission.jobText,
+})
+const adopted = await durable.operations.lookup(legacyIdentity)
+check(
+  "legacy completed run with a version is adopted",
+  adopted.kind === "bound" &&
+    adopted.resumeId === legacy.resume.id &&
+    adopted.operation.status === "succeeded" &&
+    adopted.operation.legacy
+)
+await durable.resumes.remove(legacy.resume.id)
+check(
+  "deleted legacy selection does not return to older associations",
+  (await durable.operations.lookup(legacyIdentity)).kind === "none"
+)
+
+console.log("adopted in-flight creation")
+let startWriter = () => {}
+let releaseWriter = () => {}
+const writerStarted = new Promise<void>((resolve) => {
+  startWriter = resolve
+})
+const writerReleased = new Promise<void>((resolve) => {
+  releaseWriter = resolve
+})
+const blockedWriter: import("@workspace/resume-core").ResumeTailor = {
+  async tailor() {
+    startWriter()
+    await writerReleased
+    return { parsed: { basics: {}, sections: [] }, model: "stub" }
+  },
+}
+const pendingServices = createServices(
+  supabasePorts(dbA, USER_A, {
+    jobParser: new StubJobParser(),
+    resumeTailor: blockedWriter,
+  })
+)
+const pendingIdentity = {
+  platform: "linkedin",
+  externalJobId: String(Date.now() + 2),
+} satisfies import("@workspace/resume-core").JobIdentity
+const webCreation = pendingServices.tailor.tailorFromJob({
+  sourceResumeId: created.id,
+  sourceUrl: `https://www.linkedin.com/jobs/view/${pendingIdentity.externalJobId}`,
+  jobText: admission.jobText,
+})
+await writerStarted
+const pendingLegacy = await durable.operations.lookup(pendingIdentity)
+if (pendingLegacy.kind !== "bound") throw new Error("Missing legacy run")
+check(
+  "running legacy work is reported running",
+  pendingLegacy.operation.status === "running"
+)
+await durable.operations.cancel(pendingLegacy.operation.id)
+releaseWriter()
+const stopped = await webCreation
+check(
+  "late synchronous writer honors extension cancellation",
+  !stopped.tailored &&
+    (await durable.operations.get(pendingLegacy.operation.id)).status ===
+      "cancelled"
+)
+await durable.resumes.remove(stopped.resume.id)
 
 await a.resumes.remove(created.id)
 let goneAfterDelete = false

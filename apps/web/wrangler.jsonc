@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "resume-studio",
-  "main": "@tanstack/react-start/server-entry",
+  "main": "src/server.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
@@ -15,5 +15,12 @@
   // DEEPSEEK_API_KEY is a secret: `wrangler secret put DEEPSEEK_API_KEY` in
   // production, `apps/web/.dev.vars` locally. Never a var.
   // Optional Jev client: TYPESAFE_API_KEY follows the same secret setup.
+  "workflows": [
+    {
+      "name": "resume-tailoring",
+      "binding": "TAILOR_WORKFLOW",
+      "class_name": "TailorWorkflow"
+    }
+  ],
   "observability": { "enabled": true }
 }

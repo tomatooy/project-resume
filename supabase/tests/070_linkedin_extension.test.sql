@@ -1,0 +1,47 @@
+begin;
+select plan(24);
+insert into auth.users(id,instance_id,aud,role,email) values
+ ('70000000-0000-4000-8000-000000000001','00000000-0000-0000-0000-000000000000','authenticated','authenticated','extension-a@example.test'),
+ ('70000000-0000-4000-8000-000000000002','00000000-0000-0000-0000-000000000000','authenticated','authenticated','extension-b@example.test');
+insert into resumes(id,user_id,title,data) values('71000000-0000-4000-8000-000000000001','70000000-0000-4000-8000-000000000001','Base','{"schemaVersion":1,"basics":{"name":"Original"},"sections":[]}');
+create temporary table test_attempts(name text primary key, op jsonb);
+grant all on test_attempts to authenticated;
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"70000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
+insert into test_attempts values('first',tailor_admit(jsonb_build_object('platform','linkedin','externalJobId','123456','sourceResumeId','71000000-0000-4000-8000-000000000001','sourceUrl','https://www.linkedin.com/jobs/view/123456','jobText',repeat('Job description ',20),'idempotencyKey','72000000-0000-4000-8000-000000000001','expectedRevision',1,'document','{"schemaVersion":1,"basics":{"name":"Original"},"sections":[]}'::jsonb,'contentHash','initial')));
+select is((select count(*)::int from resumes),2,'admission creates one clone');
+select is((select count(*)::int from agent_runs),1,'parsing is counted before model work');
+select is((select status from tailor_operations),'queued','admission persists queued state');
+select is((select requirements from job_targets),'{"mustHaves":[],"niceToHaves":[],"keywords":[]}'::jsonb,'unparsed requirements are valid');
+select is((tailor_admit(jsonb_build_object('platform','linkedin','externalJobId','123456','idempotencyKey','72000000-0000-4000-8000-000000000001'))->>'id'),(select op->>'id' from test_attempts where name='first'),'lost response replay returns same operation');
+select is((tailor_admit(jsonb_build_object('platform','linkedin','externalJobId','123456','idempotencyKey','72000000-0000-4000-8000-000000000002'))->>'id'),(select op->>'id' from test_attempts where name='first'),'another tab reuses live binding');
+select is((tailor_transition((select (op->>'id')::uuid from test_attempts where name='first'),'cancel')->>'status'),'cancelled','cancel is persisted first');
+select is((tailor_transition((select (op->>'id')::uuid from test_attempts where name='first'),'complete')->>'status'),'cancelled','late completion cannot win');
+insert into test_attempts values('retry',tailor_admit(jsonb_build_object('platform','linkedin','externalJobId','123456','expectedOperationId',(select op->>'id' from test_attempts where name='first'),'idempotencyKey','72000000-0000-4000-8000-000000000003','expectedRevision',1,'contentHash','initial')));
+select is((select op->>'resume_id' from test_attempts where name='retry'),(select op->>'resume_id' from test_attempts where name='first'),'retry retains resume');
+select is((select count(*)::int from agent_runs),2,'retry reserves quota');
+select is((tailor_admit(jsonb_build_object('platform','linkedin','externalJobId','123456','expectedOperationId',(select op->>'id' from test_attempts where name='first'),'idempotencyKey','72000000-0000-4000-8000-000000000003'))->>'id'),(select op->>'id' from test_attempts where name='retry'),'retry key is idempotent');
+select tailor_transition((select (op->>'id')::uuid from test_attempts where name='retry'),'stage','{"document":{"schemaVersion":1,"basics":{"name":"AI"},"sections":[]},"contentHash":"ai","title":"AI","subtitle":"Tailored","label":"Tailored"}');
+update resumes set data='{"schemaVersion":1,"basics":{"name":"Manual"},"sections":[]}' where id=(select (op->>'resume_id')::uuid from test_attempts where name='retry');
+select is((tailor_transition((select (op->>'id')::uuid from test_attempts where name='retry'),'complete')->>'error_class'),'conflict','manual revision fences commit');
+select is((select data->'basics'->>'name' from resumes where id=(select (op->>'resume_id')::uuid from test_attempts where name='retry')),'Manual','manual edit survives');
+select is((select count(*)::int from tailor_operation_artifacts),0,'terminal output is purged');
+update resumes set deleted_at=now() where id=(select (op->>'resume_id')::uuid from test_attempts where name='retry');
+select throws_ok($$select tailor_admit(jsonb_build_object('platform','linkedin','externalJobId','123456','idempotencyKey','72000000-0000-4000-8000-000000000001'))$$,'P0002',null,'an old submission cannot revive a deleted copy');
+select isnt((tailor_admit(jsonb_build_object('platform','linkedin','externalJobId','123456','sourceResumeId','71000000-0000-4000-8000-000000000001','sourceUrl','https://www.linkedin.com/jobs/view/123456','jobText',repeat('Job description ',20),'idempotencyKey','72000000-0000-4000-8000-000000000004','expectedRevision',1,'document','{"schemaVersion":1,"basics":{"name":"Original"},"sections":[]}'::jsonb,'contentHash','initial'))->>'resume_id'),(select op->>'resume_id' from test_attempts where name='retry'),'explicit create replaces a deleted copy');
+select set_config('request.jwt.claims','{"sub":"70000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
+select is((select count(*)::int from job_resume_bindings),0,'another user cannot list bindings');
+select is((select count(*)::int from tailor_operations),0,'another user cannot read operation state');
+select throws_ok($$select tailor_transition((select (op->>'id')::uuid from test_attempts where name='retry'),'cancel')$$,'P0002',null,'another user cannot cancel');
+select throws_ok($$insert into job_targets(user_id,platform,external_job_id,raw_text) values('70000000-0000-4000-8000-000000000002','linkedin',null,'text')$$,'23514',null,'identity pair is enforced');
+select throws_ok($$insert into job_resume_bindings(user_id,platform,external_job_id,resume_id,job_target_id) values('70000000-0000-4000-8000-000000000002','linkedin','123456','71000000-0000-4000-8000-000000000001',(select (op->>'job_target_id')::uuid from test_attempts where name='first'))$$,'42501',null,'forged links fail owner RLS');
+select set_config('request.jwt.claims','{"sub":"70000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
+insert into agent_runs(conversation_id,resume_id,hint_skill_id,model,status)
+select c.id,c.resume_id,'quota-test','stub','completed' from conversations c cross join generate_series(1,60-(select count(*)::int from agent_runs)) where c.resume_id=(select (op->>'resume_id')::uuid from test_attempts where name='first');
+select throws_ok($$select tailor_admit(jsonb_build_object('platform','linkedin','externalJobId','654321','sourceResumeId','71000000-0000-4000-8000-000000000001','sourceUrl','https://www.linkedin.com/jobs/view/654321','jobText',repeat('Job description ',20),'idempotencyKey','72000000-0000-4000-8000-000000000005','expectedRevision',1,'document','{"schemaVersion":1,"basics":{"name":"Original"},"sections":[]}'::jsonb,'contentHash','initial'))$$,'P0429',null,'admission quota includes failed and cancelled attempts');
+select is((select count(*)::int from resumes),3,'failed admission rolls back its clone and target');
+set local role anon;
+select throws_ok($$select * from tailor_operations$$,'42501',null,'anonymous access denied');
+reset role;
+select * from finish();
+rollback;

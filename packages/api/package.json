@@ -1,0 +1,27 @@
+{
+  "name": "@workspace/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./contract": "./src/contract/index.ts",
+    "./client": "./src/client.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@orpc/contract": "^1.13.0",
+    "@orpc/client": "^1.13.0",
+    "@orpc/openapi-client": "^1.13.0",
+    "@workspace/resume-core": "workspace:*",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "typescript": "^6",
+    "vitest": "^3.2.4"
+  }
+}

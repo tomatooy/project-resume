@@ -1,3 +1,4 @@
+import { listSharedResumes } from "./shared-api"
 import type { ResumeSummary } from "@workspace/resume-core"
 import type { Resume } from "@workspace/resume-schema"
 
@@ -6,7 +7,6 @@ import {
   deleteResume as deleteResumeFn,
   duplicateResume as duplicateResumeFn,
   getResume as getResumeFn,
-  listResumes as listResumesFn,
   renameResume as renameResumeFn,
   searchResumes as searchResumesFn,
   setTemplate as setTemplateFn,
@@ -119,7 +119,7 @@ function guardNullary<TOut>(fn: () => Promise<TOut>): () => Promise<TOut> {
 
 /* -------------------------------------------------------------- resumes */
 
-export const listResumes = guardNullary(listResumesFn)
+export const listResumes = guardNullary(listSharedResumes)
 export const searchResumes = guard(searchResumesFn)
 export const getResume = guard(getResumeFn)
 export const createResume = guard(createResumeFn)

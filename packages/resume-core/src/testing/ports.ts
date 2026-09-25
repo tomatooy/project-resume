@@ -1,3 +1,4 @@
+import { InMemoryTailorOperationRepository } from "./in-memory-tailor-operation-repository"
 import type { Ports } from "../services/container"
 import { InMemoryDb } from "./db"
 import { InMemoryAgentRunRepository } from "./in-memory-agent-run-repository"
@@ -23,6 +24,7 @@ import { StubSummarizer } from "./stub-summarizer"
 export function inMemoryPorts(db = new InMemoryDb()) {
   return {
     db,
+    operations: new InMemoryTailorOperationRepository(db),
     resumes: new InMemoryResumeRepository(db),
     versions: new InMemoryVersionRepository(db),
     runs: new InMemoryAgentRunRepository(db),

@@ -2,7 +2,7 @@
 
 Date: 2026-09-24
 
-Status: Implementation plan for the workflow agreed in the design interview. No application or extension code has been changed by this plan.
+Status: Implementation added on 2026-09-24. Automated checks and release instructions are documented in [the extension guide](../../extension/README.md). Deployment, real OAuth/Workflows execution, model latency, and the manual Chrome acceptance checklist remain release validation steps. The checkboxes below retain the original planned acceptance criteria rather than claiming unperformed runtime verification.
 
 ## Outcome and scope
 

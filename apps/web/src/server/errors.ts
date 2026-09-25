@@ -12,6 +12,8 @@ import { errorClassOf } from "./log"
  * row that failed and rows here hold resume text.
  */
 const PG_CODES: Record<string, AppError["code"]> = {
+  P0429: "RATE_LIMITED",
+  "22023": "VALIDATION",
   // Insufficient privilege. RLS refused the write. Reporting this as a 403
   // would tell the caller the row exists and belongs to someone else, so it is
   // deliberately flattened into the same answer as a missing row.
@@ -65,7 +67,13 @@ export function toAppError(error: unknown): AppError {
 
   if (isPostgrestError(error)) {
     const code = PG_CODES[error.code]
-    if (code) return new AppError(code, messageFor(code))
+    if (code)
+      return new AppError(
+        code,
+        messageFor(code),
+        undefined,
+        code === "RATE_LIMITED" ? 3600 : undefined
+      )
     return new AppError("INTERNAL", "Something went wrong")
   }
 

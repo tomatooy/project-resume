@@ -3,7 +3,7 @@
 Baseline guidance for coding agents working in this repository. These instructions
 override default behavior. Follow them exactly.
 
-Résumé Studio is an AI resume builder. A user keeps structured (JSON) resumes,
+VS:Résumé is an AI resume builder. A user keeps structured (JSON) resumes,
 edits them in a form editor beside a live PDF preview, and asks an AI assistant
 to improve them. The assistant never edits the resume directly: it proposes
 validated patches, the user accepts or rejects them, and accepted patches are
