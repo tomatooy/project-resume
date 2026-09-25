@@ -135,12 +135,10 @@ export class RunService {
    */
   async assertWithinHourlyLimit(limit = DEFAULT_HOURLY_LIMIT): Promise<void> {
     const now = this.clock()
-    const recent = await this.runs.createdSince(
-      new Date(now.getTime() - HOUR_MS)
-    )
-    if (recent.length < limit) return
+    const recent = await this.runs.usageSince(new Date(now.getTime() - HOUR_MS))
+    if (recent.count < limit) return
 
-    const oldest = recent[0]
+    const oldest = recent.oldest
     const resetAt = oldest
       ? new Date(oldest).getTime() + HOUR_MS
       : now.getTime() + HOUR_MS

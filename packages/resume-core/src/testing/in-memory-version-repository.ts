@@ -19,6 +19,17 @@ export class InMemoryVersionRepository implements VersionRepository {
       .map(toSummary)
   }
 
+  async page(resumeId: string, cursor?: number) {
+    const rows = (await this.list(resumeId)).filter(
+      (row) => cursor === undefined || row.versionNo < cursor
+    )
+    const items = rows.slice(0, 30)
+    return {
+      items,
+      nextCursor: rows.length > 30 ? (items.at(-1)?.versionNo ?? null) : null,
+    }
+  }
+
   async findById(id: string): Promise<VersionRecord | null> {
     const row = this.db.versions.find((v) => v.id === id)
     return row

@@ -9,12 +9,12 @@ const SessionContext = createContext<ResumeSession | null>(null)
 
 export function ResumeSessionProvider({
   record,
-  conversationId,
+  conversationId = null,
   children,
   session: supplied,
 }: {
   record: ResumeRecord
-  conversationId: string
+  conversationId?: string | null
   children: ReactNode
   session?: ResumeSession
 }) {

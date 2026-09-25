@@ -84,14 +84,10 @@ export function WorkspaceProvider({
         resumeChanged: (runtime) => {
           cacheWorkspaceResume(client, runtime.session.state)
           if (runtime.assistant) {
-            cacheWorkspaceMessages(
-              client,
-              runtime.session.state.conversationId,
-              {
-                messages: runtime.assistant.chat.messages,
-                suggestions: runtime.assistant.store.state.statuses,
-              }
-            )
+            cacheWorkspaceMessages(client, runtime.assistant.chat.id, {
+              messages: runtime.assistant.chat.messages,
+              suggestions: runtime.assistant.store.state.statuses,
+            })
           }
         },
         releaseResume: (runtime) =>

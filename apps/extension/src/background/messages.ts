@@ -4,7 +4,12 @@ import { JobPostingSchema } from "@workspace/api/contract"
 import { account, connect, disconnect } from "../lib/auth"
 import { api } from "../lib/api"
 import { config } from "../lib/config"
-import { MessageSchema, type Message, type Snapshot } from "../lib/messages"
+import {
+  MessageSchema,
+  ResumePageMessageSchema,
+  type Message,
+  type Snapshot,
+} from "../lib/messages"
 import { activePage } from "./navigation"
 
 export function trustedPanel(sender: chrome.runtime.MessageSender): boolean {
@@ -24,14 +29,32 @@ export async function snapshot(tabId?: number): Promise<Snapshot> {
     account: user,
     lookup: null,
     resumes: [],
+    nextResumeCursor: null,
     lastBaseId: null,
   }
   if (!user || page.kind !== "job") return result
   result.lookup = await api.jobs.lookup(page.identity)
   if (result.lookup.kind === "none") {
-    result.resumes = await api.resumes.list({})
+    const first = await api.resumes.page({})
+    result.resumes = first.items
+    result.nextResumeCursor = first.nextCursor
     const key = `base:${user.id}`
     const values = await chrome.storage.local.get(key)
+    const remembered = z.uuid().safeParse(values[key])
+    if (
+      remembered.success &&
+      !result.resumes.some((r) => r.id === remembered.data)
+    ) {
+      try {
+        result.resumes.push(await api.resumes.summary({ id: remembered.data }))
+      } catch (error) {
+        if (
+          !z.object({ code: z.literal("NOT_FOUND") }).safeParse(error).success
+        )
+          throw error
+        await chrome.storage.local.remove(key)
+      }
+    }
     result.lastBaseId =
       result.resumes.find((r) => r.id === values[key])?.id ?? null
   }
@@ -165,9 +188,32 @@ async function execute(
   }
   return snapshot(tabId)
 }
+export async function resumePageForAccount(
+  input: z.infer<typeof ResumePageMessageSchema>
+) {
+  if ((await account())?.id !== input.accountId)
+    throw new Error("Account changed. Try again.")
+  const page = await api.resumes.page({ cursor: input.cursor })
+  if ((await account())?.id !== input.accountId)
+    throw new Error("Account changed. Try again.")
+  return page
+}
 export function registerMessages() {
   chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
     if (!trustedPanel(sender)) return false
+    const pageRequest = ResumePageMessageSchema.safeParse(raw)
+    if (pageRequest.success) {
+      void resumePageForAccount(pageRequest.data).then(
+        (page) => respond({ ok: true, page }),
+        () =>
+          respond({
+            ok: false,
+            code: "unavailable",
+            message: "Could not load resumes. Try again.",
+          })
+      )
+      return true
+    }
     const parsed = MessageSchema.safeParse(raw)
     if (!parsed.success) return false
     handleMessage(parsed.data, sender.tab?.id).then(

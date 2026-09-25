@@ -1,3 +1,10 @@
+import {
+  PAGE_SIZE,
+  parseResumeCursor,
+  resumeCursor,
+  type ResumePageInput,
+} from "../domain/resume"
+import { matchTokens } from "../domain/search"
 import { migrateResume } from "@workspace/resume-schema"
 import type { TemplateId, TemplateOptions } from "@workspace/resume-schema"
 
@@ -20,15 +27,65 @@ export class InMemoryResumeRepository implements ResumeRepository {
   async list(): Promise<ResumeSummary[]> {
     return this.db.resumes
       .filter((r) => !r.deletedAt)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .sort(
+        (a, b) =>
+          b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id)
+      )
       .map(toSummary)
   }
 
   async listRecords(): Promise<ResumeRecord[]> {
     return this.db.resumes
       .filter((r) => !r.deletedAt)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .sort(
+        (a, b) =>
+          b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id)
+      )
       .map(toRecord)
+  }
+
+  async page(input: ResumePageInput) {
+    const all = await this.list()
+    const cursor = input.cursor ? parseResumeCursor(input.cursor) : null
+    const rows = all.filter(
+      (row) =>
+        !cursor ||
+        row.updatedAt < cursor.updatedAt ||
+        (row.updatedAt === cursor.updatedAt && row.id < cursor.id)
+    )
+    const items = rows.slice(0, PAGE_SIZE)
+    const last = items.at(-1)
+    return {
+      items,
+      nextCursor: rows.length > PAGE_SIZE && last ? resumeCursor(last) : null,
+      ...(!cursor ? { total: all.length } : {}),
+    }
+  }
+  async summary(id: string) {
+    return (await this.list()).find((row) => row.id === id) ?? null
+  }
+  async count() {
+    return (await this.list()).length
+  }
+  async searchCandidates(
+    tokens: string[],
+    phase: "title" | "body",
+    after?: string
+  ) {
+    const cursor = after ? parseResumeCursor(after) : null
+    const rows = (await this.listRecords()).filter(
+      (row) =>
+        (!cursor ||
+          row.updatedAt < cursor.updatedAt ||
+          (row.updatedAt === cursor.updatedAt && row.id < cursor.id)) &&
+        (phase === "body" || matchTokens(row.title, tokens).length > 0)
+    )
+    const records = rows.slice(0, 50)
+    const last = records.at(-1)
+    return {
+      records,
+      nextCursor: rows.length > 50 && last ? resumeCursor(last) : null,
+    }
   }
 
   async findById(id: string): Promise<ResumeRecord | null> {

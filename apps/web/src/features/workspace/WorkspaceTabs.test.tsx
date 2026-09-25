@@ -15,10 +15,18 @@ import { WorkspaceProvider } from "./context"
 import { WorkspaceTabs } from "./WorkspaceTabs"
 
 vi.mock("@/lib/api", () => ({
-  listResumes: async () => [
-    { id: "a", title: "Alpha" },
-    { id: "b", title: "Beta" },
-  ],
+  listResumePage: async () => ({
+    items: [
+      { id: "a", title: "Alpha" },
+      { id: "b", title: "Beta" },
+    ],
+    nextCursor: null,
+    total: 2,
+  }),
+  getResumeSummary: async ({ id }: { id: string }) => ({
+    id,
+    title: id === "a" ? "Alpha" : "Beta",
+  }),
   listSkills: async () => [],
 }))
 

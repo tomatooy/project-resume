@@ -18,8 +18,12 @@ export const searchResumes = createServerFn({ method: "POST" })
   .validator(z.object({ q: z.string().trim().min(2).max(120) }))
   .handler(
     serve(async ({ services, log, data }) => {
+      const start = Date.now()
       const result = await services.resumes.search(data.q)
-      log.info("resumes.search", { count: result.groups.length })
+      log.info("resumes.search", {
+        count: result.groups.length,
+        latencyMs: Date.now() - start,
+      })
       return result
     })
   )

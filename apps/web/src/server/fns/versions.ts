@@ -4,8 +4,23 @@ import { z } from "zod"
 import { serve } from "../handler"
 
 export const listVersions = createServerFn({ method: "GET" })
-  .validator(z.object({ resumeId: z.uuid() }))
-  .handler(serve(({ services, data }) => services.versions.list(data.resumeId)))
+  .validator(
+    z.object({
+      resumeId: z.uuid(),
+      cursor: z.number().int().positive().optional(),
+    })
+  )
+  .handler(
+    serve(async ({ services, data, log }) => {
+      const start = Date.now()
+      const page = await services.versions.page(data.resumeId, data.cursor)
+      log.info("versions.page", {
+        count: page.items.length,
+        latencyMs: Date.now() - start,
+      })
+      return page
+    })
+  )
 
 export const getVersion = createServerFn({ method: "GET" })
   .validator(z.object({ id: z.uuid() }))

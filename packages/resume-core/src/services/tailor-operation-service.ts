@@ -32,6 +32,10 @@ export class TailorOperationService {
   lookup(identity: JobIdentity): Promise<JobLookup> {
     return this.operations.lookup(identity)
   }
+  claimDispatch(id: string) {
+    return this.operations.claimDispatch(id)
+  }
+
   async admit(input: TailorAdmission): Promise<JobLookup> {
     const checked = TailorAdmissionSchema.safeParse(input)
     if (!checked.success)
@@ -55,6 +59,9 @@ export class TailorOperationService {
     const found = await this.lookup(input)
     if (found.kind === "none")
       throw new AppError("NOT_FOUND", "Resume not found")
+    // Persist the read-only legacy projection only when retrying.
+    if (found.operation.legacy && !isActive(found.operation))
+      await this.operations.transition(found.operation.id, "reconcile")
     const resume = await this.resumes.findById(found.resumeId)
     if (!resume) throw new AppError("NOT_FOUND", "Resume not found")
     return boundJob(

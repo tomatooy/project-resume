@@ -15,7 +15,12 @@
  * worthless against anything but 127.0.0.1.
  */
 import { createClient } from "@supabase/supabase-js"
-import { AppError } from "@workspace/resume-core"
+import {
+  AppError,
+  matchDocument,
+  matchTokens,
+  tokenize,
+} from "@workspace/resume-core"
 import { StubJobParser, StubResumeTailor } from "@workspace/resume-core/testing"
 
 import { createServices, supabasePorts } from "@/server/container"
@@ -63,11 +68,18 @@ async function mint(sub: string): Promise<string> {
   return `${header}.${payload}.${b64(new Uint8Array(sig))}`
 }
 
+let databaseRequests = 0
 async function clientFor(userId: string) {
   const token = await mint(userId)
   return createClient(URL_, ANON, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
+    global: {
+      headers: { Authorization: `Bearer ${token}` },
+      fetch: (...args: Parameters<typeof fetch>) => {
+        databaseRequests += 1
+        return fetch(...args)
+      },
+    },
   })
 }
 
@@ -602,6 +614,12 @@ check(
     (await durable.operations.get(pendingLegacy.operation.id)).status ===
       "cancelled"
 )
+const beforeLookup = databaseRequests
+await durable.operations.lookup(pendingIdentity)
+check(
+  "bound terminal lookup uses one database request",
+  databaseRequests - beforeLookup === 1
+)
 await durable.resumes.remove(stopped.resume.id)
 
 await a.resumes.remove(created.id)
@@ -612,6 +630,92 @@ try {
   goneAfterDelete = error instanceof AppError && error.code === "NOT_FOUND"
 }
 check("a soft-deleted resume reads as gone", goneAfterDelete)
+
+console.log("pagination and indexed search")
+const fixtures: string[] = []
+try {
+  for (let i = 0; i < 65; i++) {
+    const fixture = await a.resumes.create({
+      title: i % 9 === 0 ? "Typescript role" : `Fixture ${i}`,
+      document: {
+        schemaVersion: 1,
+        basics: {
+          id: "basics",
+          name: i % 3 === 0 ? "Kelvin" : "TypeScript",
+          summary: i % 5 === 0 ? "platform % data" : "unrelated",
+          links: [],
+        },
+        sections: [],
+      },
+    })
+    fixtures.push(fixture.id)
+  }
+  const first = await a.resumes.page()
+  const ids = first.items.map((row) => row.id)
+  let cursor = first.nextCursor
+  while (cursor) {
+    const next = await a.resumes.page({ cursor })
+    check(
+      "continuation is bounded without another total",
+      next.items.length <= 30 && next.total === undefined
+    )
+    ids.push(...next.items.map((row) => row.id))
+    cursor = next.nextCursor
+  }
+  check(
+    "real PostgREST cursor visits every row once",
+    ids.length === new Set(ids).size &&
+      ids.length === first.total &&
+      fixtures.every((id) => ids.includes(id))
+  )
+  check(
+    "summary by ID matches the page",
+    (await a.resumes.summary(first.items[0]?.id ?? "")).id ===
+      first.items[0]?.id
+  )
+  check(
+    "other account cannot page these fixtures",
+    !(await b.resumes.page()).items.some((row) => fixtures.includes(row.id))
+  )
+  const all = await supabasePorts(dbA, USER_A).resumes.listRecords()
+  for (const [index, q] of [
+    "typescript platform",
+    "kelvin",
+    "pl",
+    "% data",
+    "平台",
+    "typescript absent",
+  ].entries()) {
+    const tokens = tokenize(q)
+    const expected = all
+      .map((record) => {
+        const { id, title, subtitle, templateId, updatedAt } = record
+        const hits = matchDocument(record.data, tokens)
+        return {
+          resume: { id, title, subtitle, templateId, updatedAt },
+          titleRanges: matchTokens(title, tokens),
+          hits: hits.slice(0, 3),
+          totalHits: hits.length,
+        }
+      })
+      .filter((group) => group.hits.length || group.titleRanges.length)
+      .sort(
+        (left, right) =>
+          Number(Boolean(right.titleRanges.length)) -
+            Number(Boolean(left.titleRanges.length)) ||
+          right.resume.updatedAt.localeCompare(left.resume.updatedAt) ||
+          right.resume.id.localeCompare(left.resume.id)
+      )
+      .slice(0, 20)
+    const actual = await a.resumes.search(q)
+    check(
+      `indexed search parity ${index + 1}, including highlights`,
+      JSON.stringify(actual.groups) === JSON.stringify(expected)
+    )
+  }
+} finally {
+  for (const id of fixtures) await a.resumes.remove(id)
+}
 
 console.log(failures === 0 ? "\nALL PASSED" : `\n${failures} FAILED`)
 process.exit(failures === 0 ? 0 : 1)

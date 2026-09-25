@@ -89,10 +89,11 @@ export class InMemoryAgentRunRepository implements AgentRunRepository {
     return count
   }
 
-  async createdSince(since: Date): Promise<string[]> {
-    return this.db.runs
+  async usageSince(since: Date) {
+    const recent = this.db.runs
       .map((r) => r.createdAt)
       .filter((at) => new Date(at) >= since)
       .sort()
+    return { count: recent.length, oldest: recent[0] ?? null }
   }
 }

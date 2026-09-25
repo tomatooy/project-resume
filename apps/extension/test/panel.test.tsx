@@ -1,19 +1,23 @@
 import { afterEach, expect, it, vi } from "vitest"
 import {
   cleanup,
+  renderHook,
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
 } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { useOperationRecovery } from "../src/panel/queries"
 import { App } from "../src/panel/App"
 import type { Snapshot } from "../src/lib/messages"
-const mock = vi.hoisted(() => ({ send: vi.fn() }))
+const mock = vi.hoisted(() => ({ send: vi.fn(), page: vi.fn() }))
 let updateListener: ((message: { type: string }) => void) | undefined
 vi.mock("../src/lib/messages", async (original) => ({
   ...(await original<typeof import("../src/lib/messages")>()),
   send: mock.send,
+  sendResumePage: mock.page,
 }))
 const id = "00000000-0000-4000-8000-000000000001"
 function snapshot(
@@ -27,6 +31,7 @@ function snapshot(
     },
     account: { id, email: "test@example.test" },
     resumes: [],
+    nextResumeCursor: null,
     lastBaseId: null,
     lookup: {
       kind: "bound",
@@ -151,4 +156,99 @@ it("does not present a network failure as no resume or failed generation", async
   expect(screen.queryByRole("button", { name: "Tailor resume" })).toBeNull()
   expect(screen.queryByText("Could not finish tailoring")).toBeNull()
   client.clear()
+})
+
+it("uses a successful action snapshot without another state request", async () => {
+  mock.send.mockResolvedValue(snapshot("queued"))
+  const client = mount()
+  await screen.findByRole("button", { name: "Cancel" })
+  mock.send.mockResolvedValue(snapshot("cancelled"))
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+  await screen.findByRole("button", { name: "Retry" })
+  expect(
+    mock.send.mock.calls.filter(([request]) => request.type === "state")
+  ).toHaveLength(1)
+  client.clear()
+})
+it("coalesces a burst of Realtime notifications", async () => {
+  mock.send.mockResolvedValue(snapshot("queued"))
+  const client = mount()
+  await screen.findByRole("button", { name: "Cancel" })
+  updateListener?.({ type: "changed" })
+  updateListener?.({ type: "changed" })
+  updateListener?.({ type: "changed" })
+  await waitFor(() => expect(mock.send).toHaveBeenCalledTimes(2))
+  client.clear()
+})
+
+it("loads more bases without rereading job state and retains pages after unchanged refresh", async () => {
+  const first: Snapshot = {
+    ...snapshot("succeeded"),
+    lookup: { kind: "none" },
+    nextResumeCursor: "next",
+    resumes: [
+      {
+        id,
+        title: "First base",
+        subtitle: "",
+        templateId: "lisbon",
+        updatedAt: "2026-09-25T00:00:00Z",
+      },
+    ],
+  }
+  mock.send.mockResolvedValue(first)
+  mock.page.mockResolvedValue({
+    items: [
+      {
+        ...first.resumes[0],
+        id: "00000000-0000-4000-8000-000000000002",
+        title: "Older base",
+      },
+    ],
+    nextCursor: null,
+  })
+  const client = mount()
+  const more = await screen.findByRole("button", { name: "Load more" })
+  fireEvent.click(more)
+  await waitFor(() => expect(mock.page).toHaveBeenCalled())
+  fireEvent.click(screen.getByRole("combobox"))
+  await screen.findByRole("option", { name: "Older base" })
+  expect(mock.page).toHaveBeenCalledExactlyOnceWith(id, "next")
+  expect(mock.send).toHaveBeenCalledTimes(1)
+  updateListener?.({ type: "changed" })
+  await waitFor(() => expect(mock.send).toHaveBeenCalledTimes(2))
+  expect(screen.getByRole("option", { name: "Older base" })).toBeTruthy()
+  client.clear()
+})
+
+it("retries queued recovery after a failed refresh even with a healthy Realtime connection", async () => {
+  vi.useFakeTimers()
+  const client = new QueryClient()
+  const refresh = vi
+    .spyOn(client, "invalidateQueries")
+    .mockRejectedValueOnce(new Error("offline"))
+    .mockResolvedValue(undefined)
+  const state = snapshot("queued")
+  if (state.lookup?.kind !== "bound") throw new Error()
+  state.lookup.operation.dispatchAfter = new Date(
+    Date.now() + 1000
+  ).toISOString()
+  const hook = renderHook(() => useOperationRecovery(state), {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  })
+  try {
+    await act(() => vi.advanceTimersByTimeAsync(1100))
+    expect(refresh).toHaveBeenCalledTimes(1)
+    await act(() => vi.advanceTimersByTimeAsync(30_000))
+    expect(refresh).toHaveBeenCalledTimes(2)
+    hook.unmount()
+    await act(() => vi.advanceTimersByTimeAsync(30_000))
+    expect(refresh).toHaveBeenCalledTimes(2)
+  } finally {
+    hook.unmount()
+    client.clear()
+    vi.useRealTimers()
+  }
 })

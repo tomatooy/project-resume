@@ -29,7 +29,8 @@ import { ImportDialog } from "@/features/import/ImportDialog"
 import { absoluteTime, relativeTime } from "@/lib/format"
 import {
   SEARCH_MIN_QUERY,
-  resumesQuery,
+  useResumes,
+  useResumeSummaries,
   searchResumesQuery,
   useDeleteResume,
   useDuplicateResume,
@@ -42,6 +43,7 @@ import { RailSlotHost } from "./rail-slot"
 import { useOptionalWorkspace } from "@/features/workspace/context"
 import { SearchField, SearchResults } from "./ResumeSearch"
 import { SkillsRail } from "./SkillsRail"
+import { LoadMore } from "./LoadMore"
 import { RailSkeleton } from "./RailSkeleton"
 
 export function ResumeRail() {
@@ -91,9 +93,15 @@ function RailSwitch({
 
 /** The user's resumes, as the rail shows them when the library is not up. */
 function ResumeList() {
-  const { data, isPending } = useQuery(resumesQuery())
+  const resumes = useResumes()
+  const { isPending } = resumes
   const params = useParams({ strict: false })
   const activeId = "resumeId" in params ? params.resumeId : undefined
+  const [active] = useResumeSummaries(activeId ? [activeId] : [])
+  const data =
+    active?.data && !resumes.data?.some((row) => row.id === activeId)
+      ? [active.data, ...(resumes.data ?? [])]
+      : resumes.data
 
   // A row opens the tab the user is already on, so switching resumes from
   // Export does not throw them back to the editor.
@@ -156,7 +164,7 @@ function ResumeList() {
               <Skeleton className="h-4 w-5 bg-foreground/10 motion-reduce:animate-none" />
             ) : (
               <span className="rounded-[5px] bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                {data?.length ?? 0}
+                {resumes.total}
               </span>
             )}
           </div>
@@ -292,6 +300,7 @@ function ResumeList() {
             )
           })
         )}
+        {!searching && <LoadMore {...resumes} />}
         {/* The list is still the browsing list under the hint: one character
             is not a query yet. */}
         {!searching && typed.length > 0 && typed.length < SEARCH_MIN_QUERY && (

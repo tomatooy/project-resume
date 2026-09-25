@@ -8,6 +8,9 @@ const mock = vi.hoisted(() => ({
   fetchPosting: vi.fn(),
   tailor: vi.fn(),
   retry: vi.fn(),
+  page: vi.fn(),
+  summary: vi.fn(),
+  storageGet: vi.fn(),
 }))
 vi.mock("../src/lib/auth", () => ({
   account: mock.account,
@@ -22,15 +25,17 @@ vi.mock("../src/lib/api", () => ({
       tailor: mock.tailor,
       retry: mock.retry,
     },
-    resumes: { list: vi.fn(async () => []) },
+    resumes: {
+      page: mock.page,
+      summary: mock.summary,
+    },
   },
 }))
 vi.mock("../src/background/navigation", () => ({
   activePage: mock.activePage,
 }))
-const { handleMessage, trustedPanel } = await import(
-  "../src/background/messages"
-)
+const { handleMessage, trustedPanel, resumePageForAccount, snapshot } =
+  await import("../src/background/messages")
 const identity = {
   platform: "linkedin",
   externalJobId: "123456",
@@ -52,14 +57,16 @@ function page(jobId = identity.externalJobId, tabId = 1) {
 }
 beforeEach(() => {
   vi.resetAllMocks()
+  mock.storageGet.mockResolvedValue({})
   mock.account.mockResolvedValue({ id: "account", email: "user@example.test" })
   mock.activePage.mockResolvedValue(page())
   mock.lookup.mockResolvedValue({ kind: "none" })
+  mock.page.mockResolvedValue({ items: [], nextCursor: null, total: 0 })
   mock.fetchPosting.mockResolvedValue({ url, text })
   vi.stubGlobal("chrome", {
     storage: {
       local: {
-        get: vi.fn(async () => ({})),
+        get: mock.storageGet,
         set: vi.fn(),
         remove: vi.fn(),
       },
@@ -214,4 +221,46 @@ it("retries against the saved description without fetching again", async () => {
     })
   )
   expect(mock.fetchPosting).not.toHaveBeenCalled()
+})
+
+it("loads the first page only for an unbound job and validates the remembered resume by ID", async () => {
+  mock.storageGet.mockResolvedValue({
+    "base:account": sourceResumeId,
+  })
+  mock.summary.mockResolvedValue({ id: sourceResumeId, title: "Remembered" })
+  const result = await snapshot()
+  expect(mock.page).toHaveBeenCalledExactlyOnceWith({})
+  expect(mock.summary).toHaveBeenCalledExactlyOnceWith({ id: sourceResumeId })
+  expect(result.lastBaseId).toBe(sourceResumeId)
+  mock.page.mockClear()
+  mock.summary.mockClear()
+  mock.lookup.mockResolvedValue({ kind: "bound" })
+  await snapshot()
+  expect(mock.page).not.toHaveBeenCalled()
+  expect(mock.summary).not.toHaveBeenCalled()
+})
+it("forgets a deleted remembered resume", async () => {
+  mock.storageGet.mockResolvedValue({
+    "base:account": sourceResumeId,
+  })
+  mock.summary.mockRejectedValue({ code: "NOT_FOUND" })
+  expect((await snapshot()).lastBaseId).toBeNull()
+  expect(chrome.storage.local.remove).toHaveBeenCalledWith("base:account")
+})
+it("loads another resume page without repeating the job lookup", async () => {
+  await resumePageForAccount({
+    type: "resume-page",
+    accountId: "account",
+    cursor: "cursor",
+  })
+  expect(mock.page).toHaveBeenCalledExactlyOnceWith({ cursor: "cursor" })
+  expect(mock.lookup).not.toHaveBeenCalled()
+})
+it("discards a page when the account changes during loading", async () => {
+  mock.account
+    .mockResolvedValueOnce({ id: "account" })
+    .mockResolvedValue({ id: "other" })
+  await expect(
+    resumePageForAccount({ type: "resume-page", accountId: "account" })
+  ).rejects.toThrow("Account changed")
 })

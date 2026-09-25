@@ -11,6 +11,8 @@ import {
 import { Spinner } from "@workspace/ui/components/spinner"
 import {
   currentQuery,
+  useBaseResumes,
+  useOperationRecovery,
   useAction,
   useRoutingRefresh,
   useServerUpdates,
@@ -26,6 +28,8 @@ export function App() {
     id: string
   } | null>(null)
   const data = state.data
+  const resumes = useBaseResumes(data)
+  useOperationRecovery(data)
   useServerUpdates(
     data?.page.kind === "job" ? data.page.identity.externalJobId : undefined,
     data?.account?.id,
@@ -37,14 +41,14 @@ export function App() {
   const lookup = data?.lookup
   const page = data?.page
   const baseId =
-    data?.resumes.find(
+    resumes.rows.find(
       (r) =>
         r.id ===
-        (selection && selection.account === data.account?.id
+        (selection && selection.account === data?.account?.id
           ? selection.id
-          : data.lastBaseId)
+          : data?.lastBaseId)
     )?.id ??
-    data?.resumes[0]?.id ??
+    resumes.rows[0]?.id ??
     ""
   const message = action.error?.message ?? state.error?.message
   const pending = action.isPending
@@ -187,7 +191,7 @@ export function App() {
         </div>
       </>
     )
-  } else if (data?.resumes.length === 0)
+  } else if (resumes.rows.length === 0)
     content = (
       <>
         <h1>Start with your first resume</h1>
@@ -218,19 +222,32 @@ export function App() {
               if (id && data?.account)
                 setSelection({ account: data.account.id, id })
             }}
-            items={data?.resumes.map((r) => ({ value: r.id, label: r.title }))}
+            items={resumes.rows.map((r) => ({ value: r.id, label: r.title }))}
           >
             <SelectTrigger id="base" className="w-full" disabled={pending}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {data?.resumes.map((r) => (
+              {resumes.rows.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
                   {r.title}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {resumes.hasNextPage && (
+            <Button
+              variant="ghost"
+              disabled={resumes.isFetchingNextPage || pending}
+              onClick={() => void resumes.fetchNextPage()}
+            >
+              {resumes.isFetchingNextPage
+                ? "Loading…"
+                : resumes.isFetchNextPageError
+                  ? "Retry loading more"
+                  : "Load more"}
+            </Button>
+          )}
         </div>
         <Button
           className="w-full"

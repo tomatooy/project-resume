@@ -26,6 +26,7 @@ import { SupabaseSummaryRepository } from "./adapters/summary-repository"
 import { SupabaseVersionRepository } from "./adapters/version-repository"
 import { createModelsFromEnv } from "./ai"
 import type { Db } from "./auth/supabase"
+import { createLogger } from "./log"
 
 export type { Services } from "@workspace/resume-core"
 export { createServices }
@@ -46,11 +47,29 @@ const lazyResumeParser: ResumeParser = {
 
 /** Same reason as the summarizer: only tailoring needs the key. */
 const lazyJobParser: JobParser = {
-  parse: (input) => createJobParser(createModelsFromEnv()).parse(input),
+  async parse(input) {
+    const startedAt = Date.now()
+    try {
+      return await createJobParser(createModelsFromEnv()).parse(input)
+    } finally {
+      createLogger().info("tailor_job_parse_duration", {
+        latencyMs: Date.now() - startedAt,
+      })
+    }
+  },
 }
 
 const lazyResumeTailor: ResumeTailor = {
-  tailor: (input) => createResumeTailor(createModelsFromEnv()).tailor(input),
+  async tailor(input) {
+    const startedAt = Date.now()
+    try {
+      return await createResumeTailor(createModelsFromEnv()).tailor(input)
+    } finally {
+      createLogger().info("tailor_resume_generate_duration", {
+        latencyMs: Date.now() - startedAt,
+      })
+    }
+  },
 }
 
 const jobFetcher = new WorkerJobFetcher()

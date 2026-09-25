@@ -32,7 +32,11 @@ import { ClientOnly } from "@/lib/client-only"
 import { useThrottledValue } from "@/lib/use-throttled-value"
 import { useResumeState, useSession } from "../session-context"
 import { downloadPdf } from "./download"
-import { usePreview, usePreviewStore } from "./preview-context"
+import {
+  usePreview,
+  usePreviewStore,
+  usePreviewDemand,
+} from "./preview-context"
 import { clampZoom, ZOOM_MAX, ZOOM_MIN, ZOOM_STEPS } from "./preview-store"
 import { TemplateThumb } from "./TemplateThumb"
 import { usePinchZoom } from "./use-pinch-zoom"
@@ -91,10 +95,12 @@ export function PreviewPane({
   const templateId = useResumeState((s) => s.templateId)
   const options = useResumeState((s) => s.templateOptions)
   const store = usePreviewStore()
+  usePreviewDemand()
+  const stale = usePreview((s) => s.stale)
   const blob = usePreview((s) => s.blob)
   const loading = usePreview((s) => s.loading)
   const zoom = usePreview((s) => s.zoom)
-  const pageCount = usePreview((s) => s.pageCount)
+  const pageCount = usePreview((s) => (s.stale ? null : s.pageCount))
   const [menuOpen, setMenuOpen] = useState(false)
 
   // Every zoom change costs the viewer a fresh pdf.js render, which blanks the
@@ -113,9 +119,11 @@ export function PreviewPane({
   const onPageCount = useCallback(
     (pages: number) =>
       store.setState((s) =>
-        s.pageCount === pages ? s : { ...s, pageCount: pages }
+        s.stale || s.blob !== blob || s.pageCount === pages
+          ? s
+          : { ...s, pageCount: pages }
       ),
-    [store]
+    [store, blob]
   )
 
   const togglePageSize = () =>
@@ -190,7 +198,7 @@ export function PreviewPane({
               document, and everything else here touches that document. */}
           <IconButton
             label="Download the PDF"
-            disabled={!blob}
+            disabled={!blob || loading || stale}
             onClick={() =>
               blob &&
               toast.success(`Downloaded ${downloadPdf(blob, ownerName)}`)

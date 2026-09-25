@@ -3,7 +3,7 @@ import {
   UploadSimpleIcon,
   WarningIcon,
 } from "@phosphor-icons/react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -30,7 +30,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import type { ResumeSummary } from "@/lib/types"
-import { resumesQuery, useCreateResume } from "@/lib/queries"
+import { useResumes, invalidateResumes, useCreateResume } from "@/lib/queries"
 import { ImportProgressPanel } from "./ImportProgress"
 import { JobTab } from "./JobTab"
 import { useImport } from "./use-import"
@@ -61,7 +61,8 @@ export function ImportDialog({
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement | null>(null)
   const pasteBox = useRef<HTMLTextAreaElement | null>(null)
-  const { data: resumes } = useQuery(resumesQuery())
+  const resumeList = useResumes()
+  const resumes = resumeList.data
   const noResumes = (resumes?.length ?? 0) === 0
 
   // Reset whenever the dialog opens, so the rail's menu item lands on Job and
@@ -72,9 +73,7 @@ export function ImportDialog({
 
   const finish = useCallback(
     async (resume: ResumeSummary) => {
-      await queryClient.invalidateQueries({
-        queryKey: resumesQuery().queryKey,
-      })
+      await invalidateResumes(queryClient)
       onOpenChange(false)
       setPasted("")
       void navigate({

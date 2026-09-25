@@ -1,5 +1,4 @@
 import { FilePlusIcon } from "@phosphor-icons/react"
-import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { templates } from "@workspace/resume-render"
 import { Button } from "@workspace/ui/components/button"
@@ -9,14 +8,16 @@ import { useState } from "react"
 import { ImportDialog } from "@/features/import/ImportDialog"
 import { ResumeThumb } from "@/features/resume/preview/TemplateThumb"
 import { SKELETON_KEYS, relativeTime } from "@/lib/format"
-import { resumesQuery } from "@/lib/queries"
+import { LoadMore } from "@/features/shell/LoadMore"
+import { useResumes } from "@/lib/queries"
 
 export const Route = createFileRoute("/_app/dashboard")({
   component: Dashboard,
 })
 
 function Dashboard() {
-  const { data, isPending } = useQuery(resumesQuery())
+  const resumes = useResumes()
+  const { data, isPending } = resumes
   const [importing, setImporting] = useState(false)
 
   return (
@@ -69,6 +70,8 @@ function Dashboard() {
             Create a new resume
           </button>
         </div>
+
+        <LoadMore {...resumes} />
 
         <div className="mt-8 rounded-[10px] border border-border bg-card p-4">
           <div className="mb-2 text-[10.5px] font-bold tracking-[0.05em] text-muted-foreground uppercase">

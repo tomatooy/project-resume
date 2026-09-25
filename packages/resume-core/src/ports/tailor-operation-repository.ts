@@ -32,6 +32,7 @@ export type CreationCommit = TailorArtifact & {
 export interface TailorOperationRepository {
   commitCreation(input: CreationCommit): Promise<boolean>
   lookup(identity: JobIdentity): Promise<JobLookup>
+  claimDispatch(id: string): Promise<string | null>
   admit(input: PreparedAdmission): Promise<TailorOperation>
   recordModel(id: string, model: string): Promise<void>
   get(id: string): Promise<TailorOperation>

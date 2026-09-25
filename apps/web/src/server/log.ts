@@ -21,6 +21,8 @@ export type LogFields = {
   inputTokens?: number
   outputTokens?: number
   latencyMs?: number
+  /** Static contract path, never URL parameters or inputs. */
+  procedure?: string
   steps?: number
   outcome?: string
   /** Whether the user enabled removing and restructuring for the turn. */

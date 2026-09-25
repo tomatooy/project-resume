@@ -11,7 +11,7 @@ import { preflightChecks, type PreflightCheck } from "./preflight-checks"
 export function usePreflightChecks(): PreflightCheck[] {
   const doc = useResumeState((s) => s.doc)
   const templateId = useResumeState((s) => s.templateId)
-  const pageCount = usePreview((s) => s.pageCount)
+  const pageCount = usePreview((s) => (s.stale ? null : s.pageCount))
   const error = usePreview((s) => s.error)
 
   return preflightChecks({ doc, templateId, pageCount, error })

@@ -22,18 +22,14 @@ import { IconButton } from "@/features/shell/IconButton"
 import { ArrowsInSimpleIcon, ArrowsOutSimpleIcon } from "@phosphor-icons/react"
 import { useResumeTab } from "@/features/shell/resume-tabs"
 import { StatusBarExtra } from "@/features/shell/StatusBar"
-import { conversationQuery, resumeQuery, skillsQuery } from "@/lib/queries"
+import { resumeQuery } from "@/lib/queries"
 
 export const Route = createFileRoute("/_app/r/$resumeId")({
   loader: async ({ params, context }) => {
-    const [record, conversation] = await Promise.all([
-      context.queryClient.ensureQueryData(resumeQuery(params.resumeId)),
-      context.queryClient.ensureQueryData(conversationQuery(params.resumeId)),
-      // The assistant's chips are one of the first things this screen paints;
-      // having them cached already is what stops a flash of an empty row.
-      context.queryClient.ensureQueryData(skillsQuery()),
-    ])
-    return { record, conversationId: conversation.id }
+    const record = await context.queryClient.ensureQueryData(
+      resumeQuery(params.resumeId)
+    )
+    return { record }
   },
   component: ResumeShell,
   errorComponent: ResourceFailure,
@@ -41,16 +37,15 @@ export const Route = createFileRoute("/_app/r/$resumeId")({
 
 /** Binds the active route to its retained runtime and mounts its PDF engine. */
 function ResumeShell() {
-  const { record, conversationId } = Route.useLoaderData()
+  const { record } = Route.useLoaderData()
   const workspace = useWorkspace()
-  const runtime = workspace.ensureResume(record, conversationId)
+  const runtime = workspace.ensureResume(record)
 
   return (
     // Remount views when the resource changes; the registry retains the session.
     <ResumeSessionProvider
       key={record.id}
       record={record}
-      conversationId={conversationId}
       session={runtime.session}
     >
       <ResumeRuntimeProvider runtime={runtime}>

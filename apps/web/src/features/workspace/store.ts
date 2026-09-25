@@ -52,7 +52,10 @@ export type WorkspaceOptions = {
   resumeChanged: (runtime: ResumeRuntime) => void
   releaseResume: (runtime: ResumeRuntime) => Promise<void>
   assistantApi?: (resumeId: string) => AssistantApi
-  session?: (record: ResumeRecord, conversationId: string) => ResumeSession
+  session?: (
+    record: ResumeRecord,
+    conversationId: string | null
+  ) => ResumeSession
 }
 
 export class Workspace {
@@ -162,7 +165,10 @@ export class Workspace {
     this.ensureRouteTab(this.options.active())
   }
 
-  ensureResume(record: ResumeRecord, conversationId: string): ResumeRuntime {
+  ensureResume(
+    record: ResumeRecord,
+    conversationId: string | null = null
+  ): ResumeRuntime {
     const existing = this.resumes.get(record.id)
     if (existing) return existing
     const session =
@@ -197,8 +203,10 @@ export class Workspace {
 
   ensureAssistant(
     runtime: ResumeRuntime,
-    history: ChatHistory
+    history: ChatHistory,
+    conversationId?: string
   ): AssistantRuntime {
+    if (conversationId) runtime.session.attachConversation(conversationId)
     if (runtime.assistant) return runtime.assistant
     runtime.assistant = new AssistantRuntime(runtime.session, history, {
       api: this.options.assistantApi?.(runtime.session.state.resumeId),

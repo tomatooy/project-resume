@@ -1,0 +1,44 @@
+begin;
+select plan(22);
+insert into auth.users(id) values ('80000000-0000-4000-8000-000000000001'),('80000000-0000-4000-8000-000000000002');
+insert into resumes(id,user_id,title,data) values
+('81000000-0000-4000-8000-000000000001','80000000-0000-4000-8000-000000000001','Base','{"schemaVersion":1,"basics":{"name":"RareKeyword","summary":"platform"},"sections":[]}'),
+('81000000-0000-4000-8000-000000000002','80000000-0000-4000-8000-000000000001','Unicode','{"schemaVersion":1,"basics":{"name":"Kelvin"},"sections":[]}'),
+('81000000-0000-4000-8000-000000000003','80000000-0000-4000-8000-000000000002','Secret RareKeyword','{"schemaVersion":1,"basics":{"name":"RareKeyword"},"sections":[]}');
+create temporary table perf_attempt(op jsonb);
+grant all on perf_attempt to authenticated;
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"80000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
+select ok((select search_text like '%rarekeyword%' from resumes where id='81000000-0000-4000-8000-000000000001'),'generated search text lowercases ASCII');
+select is((select count(*)::int from resume_search_candidates(array['rarekeyword'],'body')),2,'candidates include own matches plus Unicode fallback');
+select is((select count(*)::int from private.resume_search_ids(array['rarekeyword'],'body',null,null)),2,'private candidate helper is also owner scoped');
+select is((select count(*)::int from resume_search_candidates(array['kelvin'],'body') where id='81000000-0000-4000-8000-000000000002'),1,'Unicode folding cannot remove a JS match');
+select is((select count(*)::int from resume_search_candidates(array['%'],'body')),2,'literal punctuation uses conservative fallback');
+update resumes set data='{"schemaVersion":1,"basics":{"name":"Changed"},"sections":[]}' where id='81000000-0000-4000-8000-000000000001';
+select is((select count(*)::int from resume_search_candidates(array['rarekeyword'],'body') where id='81000000-0000-4000-8000-000000000001'),0,'autosave replaces indexed text');
+select is((select revision::int from resumes where id='81000000-0000-4000-8000-000000000001'),2,'search maintenance adds no extra revision');
+update resumes set title='New needle' where id='81000000-0000-4000-8000-000000000001';
+select is((select count(*)::int from resume_search_candidates(array['needle','missing'],'title')),1,'any title token produces a candidate');
+select is((select revision::int from resumes where id='81000000-0000-4000-8000-000000000001'),2,'renaming does not change document revision');
+insert into perf_attempt select tailor_admit(jsonb_build_object('platform','linkedin','externalJobId','888888','sourceResumeId','81000000-0000-4000-8000-000000000001','sourceUrl','https://www.linkedin.com/jobs/view/888888','jobText',repeat('Description ',30),'idempotencyKey','82000000-0000-4000-8000-000000000001','expectedRevision',2,'document','{"schemaVersion":1,"basics":{"name":"Changed"},"sections":[]}'::jsonb,'contentHash','perf'));
+select is(lookup_tailor_job('linkedin','888888')->'operation'->>'id',(select op->>'id' from perf_attempt),'lookup returns current operation');
+select is((select count(*)::int from generate_series(1,50) where claim_tailor_dispatch((select (op->>'id')::uuid from perf_attempt)) is not null),1,'fifty recovery attempts receive one lease');
+select is((agent_usage_since(now()-interval '1 hour')->>'count')::int,1,'quota aggregation includes the admitted run');
+select ok(agent_usage_since(now()-interval '1 hour')->>'oldest' is not null,'quota aggregation returns reset timestamp');
+select tailor_transition((select (op->>'id')::uuid from perf_attempt),'claim');
+select is(claim_tailor_dispatch((select (op->>'id')::uuid from perf_attempt)),null::timestamptz,'running tasks cannot be dispatched again');
+select is(lookup_tailor_job('linkedin','888888')->'operation'->>'status','running','lookup reports running without transition');
+select is(lookup_tailor_job('linkedin','999999')->'operation','null'::jsonb,'missing job has no operation');
+update tailor_operations set legacy=true where id=(select (op->>'id')::uuid from perf_attempt);
+update agent_runs set status='failed' where id=(select (op->>'agent_run_id')::uuid from perf_attempt);
+select is(lookup_tailor_job('linkedin','888888')->'operation'->>'status','failed','legacy failure is projected without coordination');
+select is((select status from tailor_operations where id=(select (op->>'id')::uuid from perf_attempt)),'running','legacy lookup leaves the stored operation untouched');
+select set_config('request.jwt.claims','{"sub":"80000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
+select is(lookup_tailor_job('linkedin','888888')->'operation','null'::jsonb,'another user cannot read job state');
+select is(claim_tailor_dispatch((select (op->>'id')::uuid from perf_attempt)),null::timestamptz,'another user cannot claim dispatch');
+select is((agent_usage_since(now()-interval '1 hour')->>'count')::int,0,'quota counts only the caller');
+set local role anon;
+select throws_ok($$select * from private.resume_search_ids(array['rarekeyword'],'body',null,null)$$,'42501',null,'anonymous users cannot call candidate helper');
+reset role;
+select * from finish();
+rollback;

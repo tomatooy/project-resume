@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ResumeSession } from "@/features/resume/store"
 import type * as api from "./api"
 import {
+  invalidateResumes,
+  invalidateVersions,
+  resumesQuery,
   cacheWorkspaceMessages,
   cacheWorkspaceResume,
   messagesQuery,
@@ -53,7 +56,10 @@ describe("workspace cache", () => {
   it("keeps versions fresh when syncing autosaved documents and chat history", () => {
     const client = new QueryClient()
     const versions = versionsQuery(record.id).queryKey
-    client.setQueryData(versions, [])
+    client.setQueryData(versions, {
+      pages: [{ items: [], nextCursor: null }],
+      pageParams: [undefined],
+    })
     client.setQueryData(resumeQuery(record.id).queryKey, record)
     const session = new ResumeSession(record, "conversation-a")
     cacheWorkspaceResume(client, session.state)
@@ -70,8 +76,14 @@ describe("workspace cache", () => {
     const client = new QueryClient()
     const versions = versionsQuery(record.id).queryKey
     const other = versionsQuery("resume-b").queryKey
-    client.setQueryData(versions, [])
-    client.setQueryData(other, [])
+    client.setQueryData(versions, {
+      pages: [{ items: [], nextCursor: null }],
+      pageParams: [undefined],
+    })
+    client.setQueryData(other, {
+      pages: [{ items: [], nextCursor: null }],
+      pageParams: [undefined],
+    })
     const mutations = workspaceAssistantApi(client, record.id)
     server.decideSuggestions.mockResolvedValueOnce(decision)
     await mutations.decideSuggestions({ runId: "run-a", decisions: [] })
@@ -113,4 +125,32 @@ describe("workspace cache", () => {
       suggestions: {},
     })
   })
+})
+
+it("drops continuation pages before invalidating lists", async () => {
+  const client = new QueryClient()
+  client.setQueryData(resumesQuery().queryKey, {
+    pages: [
+      { items: [], nextCursor: "next", total: 60 },
+      { items: [], nextCursor: null },
+    ],
+    pageParams: [undefined, "next"],
+  })
+  client.setQueryData(versionsQuery("a").queryKey, {
+    pages: [
+      { items: [], nextCursor: 30 },
+      { items: [], nextCursor: null },
+    ],
+    pageParams: [undefined, 30],
+  })
+  await invalidateResumes(client)
+  await invalidateVersions(client, "a")
+  expect(client.getQueryData(resumesQuery().queryKey)?.pages).toHaveLength(1)
+  expect(client.getQueryData(versionsQuery("a").queryKey)?.pages).toHaveLength(
+    1
+  )
+  expect(client.getQueryState(resumesQuery().queryKey)?.isInvalidated).toBe(
+    true
+  )
+  client.clear()
 })

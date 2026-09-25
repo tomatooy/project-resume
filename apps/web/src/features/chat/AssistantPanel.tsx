@@ -12,7 +12,7 @@ import { toast } from "sonner"
 
 import { IconButton } from "@/features/shell/IconButton"
 import { PaneTitle } from "@/features/shell/PaneTitle"
-import { messagesQuery, skillsQuery } from "@/lib/queries"
+import { conversationQuery, messagesQuery, skillsQuery } from "@/lib/queries"
 import type { ChatHistory } from "@/lib/types"
 import { breadcrumbOf } from "../resume/breadcrumb"
 import { useResumeState, useSession } from "../resume/session-context"
@@ -29,21 +29,46 @@ export type AssistantPanelProps = {
   onToggleMaximize?: () => void
 }
 export function AssistantPanel(props: AssistantPanelProps) {
-  const conversationId = useResumeState((s) => s.conversationId)
-  const history = useQuery(messagesQuery(conversationId))
-  if (history.data)
+  const session = useSession()
+  const attachedId = useResumeState((s) => s.conversationId)
+  const resumeId = useResumeState((s) => s.resumeId)
+  const conversation = useQuery(conversationQuery(resumeId))
+  const conversationId = conversation.data?.id
+  const skills = useQuery(skillsQuery())
+  const history = useQuery({
+    ...messagesQuery(conversationId ?? ""),
+    enabled: Boolean(conversationId),
+  })
+  useEffect(() => {
+    if (conversationId) session.attachConversation(conversationId)
+  }, [session, conversationId])
+  if (
+    conversationId &&
+    attachedId === conversationId &&
+    history.data &&
+    skills.data
+  )
     return (
-      <Conversation key={conversationId} {...props} history={history.data} />
+      <Conversation
+        key={conversationId}
+        {...props}
+        conversationId={conversationId}
+        history={history.data}
+      />
     )
   return (
     <aside className="flex min-h-0 flex-1 flex-col bg-card p-3.5 text-xs text-muted-foreground">
-      {history.error ? (
+      {conversation.error || history.error || skills.error ? (
         <>
           <span>Could not load this conversation.</span>
           <Button
             size="sm"
             variant="outline"
-            onClick={() => void history.refetch()}
+            onClick={() => {
+              void conversation.refetch()
+              void skills.refetch()
+              if (conversationId) void history.refetch()
+            }}
           >
             Try again
           </Button>
@@ -60,13 +85,14 @@ export function AssistantPanel(props: AssistantPanelProps) {
 
 function Conversation({
   history,
+  conversationId,
   maximized = false,
   onClose,
   onToggleMaximize,
-}: AssistantPanelProps & { history: ChatHistory }) {
+}: AssistantPanelProps & { history: ChatHistory; conversationId: string }) {
   const workspace = useWorkspace()
   const resume = useResumeRuntime()
-  const runtime = workspace.ensureAssistant(resume, history)
+  const runtime = workspace.ensureAssistant(resume, history, conversationId)
   const assistant = useAssistant(runtime)
   const session = useSession()
   const doc = useResumeState((s) => s.doc)

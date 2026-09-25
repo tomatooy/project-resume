@@ -30,6 +30,10 @@ export class VersionService {
     return this.versions.list(resumeId)
   }
 
+  page(resumeId: string, cursor?: number) {
+    return this.versions.page(resumeId, cursor)
+  }
+
   async getContent(versionId: string): Promise<{ content: Resume }> {
     const version = await this.versions.findById(versionId)
     if (!version) throw new AppError("NOT_FOUND", "Version not found")

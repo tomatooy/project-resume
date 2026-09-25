@@ -1,4 +1,8 @@
-import { listSharedResumes } from "./shared-api"
+import {
+  listSharedResumes,
+  listSharedResumePage,
+  sharedResumeSummary,
+} from "./shared-api"
 import type { ResumeSummary } from "@workspace/resume-core"
 import type { Resume } from "@workspace/resume-schema"
 
@@ -120,6 +124,22 @@ function guardNullary<TOut>(fn: () => Promise<TOut>): () => Promise<TOut> {
 /* -------------------------------------------------------------- resumes */
 
 export const listResumes = guardNullary(listSharedResumes)
+export async function listResumePage(
+  input: import("@workspace/resume-core").ResumePageInput
+) {
+  try {
+    return await listSharedResumePage(input)
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+export async function getResumeSummary(input: { id: string }) {
+  try {
+    return await sharedResumeSummary(input)
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
 export const searchResumes = guard(searchResumesFn)
 export const getResume = guard(getResumeFn)
 export const createResume = guard(createResumeFn)

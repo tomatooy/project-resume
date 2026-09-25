@@ -75,22 +75,25 @@ const record: ResumeRecord = {
 }
 
 function renderPanel(content: Resume = older) {
-  listVersions.mockResolvedValue([
-    {
-      id: "ver_2",
-      versionNo: 2,
-      label: "Tightened the summary",
-      createdBy: "user",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: "ver_1",
-      versionNo: 1,
-      label: "First draft",
-      createdBy: "system",
-      createdAt: new Date().toISOString(),
-    },
-  ])
+  listVersions.mockResolvedValue({
+    items: [
+      {
+        id: "ver_2",
+        versionNo: 2,
+        label: "Tightened the summary",
+        createdBy: "user",
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: "ver_1",
+        versionNo: 1,
+        label: "First draft",
+        createdBy: "system",
+        createdAt: new Date().toISOString(),
+      },
+    ],
+    nextCursor: null,
+  })
   getVersion.mockResolvedValue({
     id: "ver_1",
     versionNo: 1,

@@ -21,6 +21,12 @@ If the OAuth window stays open on the main app and the extension still shows **C
 
 Successful authentication returns to `https://<extension-id>.chromiumapp.org/auth/callback`, closes the OAuth window, and persists a separate extension session in `chrome.storage.local`. Main-app cookies do not connect the extension. **Find your next role** only means the active tab is unsupported; the account email in the panel footer indicates a connected account.
 
+## Tailoring fails before generation
+
+If a saved attempt has `error_class=dispatch_failed`, check the Worker encryption configuration before retrying. `TAILOR_ENCRYPTION_KEY_V1` must be base64 encoding of exactly 32 random bytes, not a 32-character passphrase or 33 decoded bytes. Generate it with `openssl rand -base64 32` and store it only in `apps/web/.dev.vars` locally or the production Worker secret. Keep an existing valid key while attempts are in flight.
+
+After changing `.dev.vars`, restart the local web dev process so the Worker uses the new value. Retry the failed attempt from the extension using its saved description. Configuration validation now runs before admission or retry, logs `tailoring.configuration` with a fixed error class, and does not create another attempt or consume quota. `shared_api` / `jobs.lookup` info lines only measure status reads; they do not describe a generation failure.
+
 ## Behavior and boundaries
 
 Supported pages use HTTPS on `www.linkedin.com`: `/jobs/search-results/` with a query, or `/jobs/view/<numeric-id>` including slugged view paths. IDs have at least six digits. A view/query disagreement is rejected. A search page without a selected ID asks the user to select a job.

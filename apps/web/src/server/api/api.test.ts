@@ -8,11 +8,13 @@ import { WorkerJobFetcher } from "../adapters/job-fetcher"
 
 const deps = vi.hoisted(() => ({
   context: vi.fn(),
+  tailoringEnv: vi.fn(),
   getClaims: vi.fn(),
   getSession: vi.fn(),
   setCookie: vi.fn(),
 }))
 vi.mock("./context", () => ({ createApiContext: deps.context }))
+vi.mock("../tailoring/runtime", () => ({ tailoringEnv: deps.tailoringEnv }))
 const { handleApi, checkOrigin } = await import("./handler")
 const { router } = await import("./router")
 const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -114,6 +116,45 @@ describe("shared API HTTP and SSR", () => {
     )
     expect(response.headers.get("cache-control")).toBe("no-store")
   })
+  it("shares paginated contracts across HTTP and SSR without changing the legacy list", async () => {
+    const services = createServices(inMemoryPorts())
+    for (let i = 0; i < 35; i++)
+      await services.resumes.create({ title: `Resume ${i}` })
+    const context = {
+      services,
+      log,
+      userId: crypto.randomUUID(),
+      accessToken: "test",
+      expiresAt: Date.now() / 1000 + 3600,
+      authKind: "cookie",
+    }
+    deps.context.mockResolvedValue(context)
+    const http = createApiClient({
+      baseUrl: "https://app.example.test/api/v1",
+      fetch: (request, init) => handleApi(new Request(request, init)),
+    })
+    const direct = createRouterClient(router, { context })
+    const first = await http.resumes.page({})
+    expect(first).toEqual(await direct.resumes.page({}))
+    expect(first.items).toHaveLength(30)
+    expect(first.total).toBe(35)
+    const second = await http.resumes.page({
+      cursor: first.nextCursor ?? undefined,
+    })
+    expect(second.items).toHaveLength(5)
+    expect(second.nextCursor).toBeNull()
+    const row = second.items[0]
+    if (!row) throw new Error()
+    expect(await http.resumes.summary({ id: row.id })).toEqual(row)
+    expect(log.info).toHaveBeenCalledWith("shared_api", {
+      procedure: "resumes.summary",
+      latencyMs: expect.any(Number),
+    })
+    expect(await http.resumes.list({})).toHaveLength(35)
+    await expect(
+      http.resumes.page({ cursor: "invalid" })
+    ).rejects.toMatchObject({ code: "VALIDATION" })
+  })
   it("rejects cookie mutations without same-origin protection", () => {
     expect(
       checkOrigin(
@@ -181,4 +222,63 @@ describe("shared API HTTP and SSR", () => {
     expect(response.status).toBe(500)
     expect(await response.json()).toMatchObject({ code: "INTERNAL" })
   })
+})
+
+describe("tailoring configuration admission", () => {
+  it.each([btoa("x".repeat(33)), btoa("x".repeat(31)), "not-base64!"])(
+    "rejects an invalid key before admitting or retrying a task (%#)",
+    async (secret) => {
+      const services = createServices(inMemoryPorts())
+      const base = await services.resumes.create()
+      const admit = vi.spyOn(services.operations, "admit")
+      const retry = vi.spyOn(services.operations, "retry")
+      const create = vi.fn()
+      deps.tailoringEnv.mockResolvedValue({
+        TAILOR_ENCRYPTION_KEY_V1: secret,
+        TAILOR_WORKFLOW: {
+          get: vi.fn().mockRejectedValue(new Error("not found")),
+          create,
+        },
+      })
+      const client = createRouterClient(router, {
+        context: {
+          services,
+          log,
+          userId: crypto.randomUUID(),
+          accessToken: "test",
+          expiresAt: Date.now() / 1000 + 3600,
+          authKind: "bearer",
+        },
+      })
+      const identity = {
+        platform: "linkedin",
+        externalJobId: "123456",
+      } as const
+      await expect(
+        client.jobs.tailor({
+          ...identity,
+          sourceResumeId: base.id,
+          sourceUrl: "https://www.linkedin.com/jobs/view/123456/",
+          jobText:
+            "An engineering posting with enough detail to tailor. ".repeat(8),
+          idempotencyKey: crypto.randomUUID(),
+        })
+      ).rejects.toMatchObject({ code: "INTERNAL" })
+      await expect(
+        client.jobs.retry({
+          ...identity,
+          expectedOperationId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
+        })
+      ).rejects.toMatchObject({ code: "INTERNAL" })
+      expect(admit).not.toHaveBeenCalled()
+      expect(retry).not.toHaveBeenCalled()
+      expect(create).not.toHaveBeenCalled()
+      expect(await services.resumes.list()).toHaveLength(1)
+      expect(log.error).toHaveBeenCalledWith("tailoring.configuration", {
+        errorClass: "invalid_workflow_key",
+      })
+      expect(JSON.stringify(log.error.mock.calls)).not.toContain(secret)
+    }
+  )
 })

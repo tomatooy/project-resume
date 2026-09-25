@@ -1,5 +1,4 @@
 import { SparkleIcon } from "@phosphor-icons/react"
-import { useQuery } from "@tanstack/react-query"
 import { normalizeLinkedInJobUrl } from "@workspace/resume-core"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
@@ -14,7 +13,8 @@ import { Textarea } from "@workspace/ui/components/textarea"
 import { useState } from "react"
 import { z } from "zod"
 
-import { resumesQuery } from "@/lib/queries"
+import { LoadMore } from "@/features/shell/LoadMore"
+import { useResumes, useResumeSummaries } from "@/lib/queries"
 import type { TailorFromJobResult } from "@/lib/types"
 import { useLocalStorage } from "@/lib/use-local-storage"
 import { JobProgressPanel } from "./JobProgress"
@@ -43,7 +43,8 @@ export function JobTab({
   sourceResumeId?: string
   onDone: (result: TailorFromJobResult) => void
 }) {
-  const { data: resumes } = useQuery(resumesQuery())
+  const resumeList = useResumes()
+  const resumes = resumeList.data
   const [url, setUrl] = useState("")
   const [text, setText] = useState("")
   const [picked, setPicked] = useState<string | null>(null)
@@ -52,6 +53,15 @@ export function JobTab({
     LastSource,
     ""
   )
+  const selectedId = picked ?? sourceResumeId ?? lastSource
+  const [selected] = useResumeSummaries(selectedId ? [selectedId] : [])
+  const available = [
+    ...new Map(
+      [...(resumes ?? []), ...(selected?.data ? [selected.data] : [])].map(
+        (row) => [row.id, row]
+      )
+    ).values(),
+  ]
   const [touched, setTouched] = useState(false)
   const { progress, failure, fetching, busy, fetchPosting, run, cancel } =
     useTailor(onDone)
@@ -69,7 +79,7 @@ export function JobTab({
 
   // Item children are only rendered inside the popup. Without `items` on the
   // root, the trigger falls back to printing the raw value, which is an id.
-  const options = (resumes ?? []).map((resume) => ({
+  const options = available.map((resume) => ({
     label: resume.title,
     value: resume.id,
   }))
@@ -78,12 +88,14 @@ export function JobTab({
   // the resume it was opened from, then the one remembered from last time. A
   // remembered id missing from the list was deleted, so it is ignored rather
   // than cleared: the list is the authority.
-  const remembered = (resumes ?? []).some((resume) => resume.id === lastSource)
+  const remembered = available.some((resume) => resume.id === lastSource)
     ? lastSource
     : ""
   const source = picked ?? sourceResumeId ?? remembered
 
-  const ready = source !== "" && text.trim().length >= MIN_CHARS
+  const ready =
+    available.some((row) => row.id === source) &&
+    text.trim().length >= MIN_CHARS
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -175,6 +187,7 @@ export function JobTab({
             ))}
           </SelectContent>
         </Select>
+        <LoadMore {...resumeList} />
       </div>
 
       {failure ? (

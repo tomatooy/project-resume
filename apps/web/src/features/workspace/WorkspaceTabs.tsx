@@ -19,7 +19,6 @@ import {
   PlusIcon,
   XIcon,
 } from "@phosphor-icons/react"
-import { useQuery } from "@tanstack/react-query"
 import { useRouterState } from "@tanstack/react-router"
 import { useStore } from "@tanstack/react-store"
 import { Button } from "@workspace/ui/components/button"
@@ -45,7 +44,8 @@ import { createPortal } from "react-dom"
 import { toast } from "sonner"
 
 import { RESUME_TABS } from "@/features/shell/resume-tabs"
-import { resumesQuery, useSkillNames } from "@/lib/queries"
+import { LoadMore } from "@/features/shell/LoadMore"
+import { useResumes, useResumeSummaries, useSkillNames } from "@/lib/queries"
 import { useWorkspace } from "./context"
 import { routeTarget, tabKey, type TabTarget } from "./targets"
 import type { ResumeRuntime } from "./store"
@@ -59,7 +59,10 @@ export function WorkspaceTabs({ children }: { children: ReactNode }) {
   })
   const active = routeTarget(path)
   const activeKey = active ? tabKey(active) : "dashboard"
-  const resumes = useQuery(resumesQuery())
+  const resumes = useResumes()
+  const summaries = useResumeSummaries(
+    tabs.flatMap((tab) => (tab.kind === "resume" ? [tab.resumeId] : []))
+  )
   const names = useSkillNames()
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -80,7 +83,8 @@ export function WorkspaceTabs({ children }: { children: ReactNode }) {
         ? "New skill"
         : (names[target.skillId] ?? "Skill")
     const name =
-      resumes.data?.find((r) => r.id === target.resumeId)?.title ?? "Resume"
+      summaries.find((q) => q.data?.id === target.resumeId)?.data?.title ??
+      "Resume"
     return `${RESUME_TABS.find((t) => t.id === target.view)?.label ?? "Editor"} · ${name}`
   }
 
@@ -172,6 +176,7 @@ export function WorkspaceTabs({ children }: { children: ReactNode }) {
                     {resume.title}
                   </DropdownMenuItem>
                 ))}
+                <LoadMore {...resumes} />
                 {!resumes.data?.length ? (
                   <DropdownMenuItem disabled>No resumes yet</DropdownMenuItem>
                 ) : null}

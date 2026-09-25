@@ -9,6 +9,8 @@ import type {
   NewResume,
   ResumeRecord,
   ResumeSummary,
+  ResumePage,
+  ResumePageInput,
 } from "../domain/resume"
 
 /**
@@ -32,6 +34,14 @@ export type UpdateDataInput = {
 export interface ResumeRepository {
   /** Newest first, excluding soft-deleted rows. */
   list(): Promise<ResumeSummary[]>
+  page(input: ResumePageInput): Promise<ResumePage>
+  summary(id: string): Promise<ResumeSummary | null>
+  count(): Promise<number>
+  searchCandidates(
+    tokens: string[],
+    phase: "title" | "body",
+    cursor?: string
+  ): Promise<{ records: ResumeRecord[]; nextCursor: string | null }>
   /**
    * The same rows as `list()`, with their documents, for the rail search.
    *

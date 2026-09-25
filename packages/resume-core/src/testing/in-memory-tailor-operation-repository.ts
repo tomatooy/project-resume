@@ -48,14 +48,34 @@ export class InMemoryTailorOperationRepository
   async lookup(identity: JobIdentity): Promise<JobLookup> {
     const binding = this.bindings.get(identity.externalJobId)
     if (!binding) return { kind: "none" }
-    const operation = await this.transition(binding.operationId, "reconcile")
+    let operation = await this.get(binding.operationId)
+    if (
+      isActive(operation) &&
+      Date.parse(operation.deadline) <= this.db.now().getTime()
+    )
+      operation = await this.transition(binding.operationId, "reconcile")
     if (
       !this.db.resumes.some((r) => r.id === operation.resumeId && !r.deletedAt)
     ) {
-      await this.fail(operation.id, "deleted")
       return { kind: "none" }
     }
     return boundJob(identity, operation)
+  }
+  async claimDispatch(id: string): Promise<string | null> {
+    return this.locked(async () => {
+      const op = this.rows.find((row) => row.id === id)
+      if (!op) return null
+      const now = this.db.now().getTime()
+      if (
+        op.status !== "queued" ||
+        op.legacy ||
+        Date.parse(op.deadline) <= now ||
+        (op.dispatchAfter && Date.parse(op.dispatchAfter) > now)
+      )
+        return null
+      op.dispatchAfter = new Date(now + 30_000).toISOString()
+      return op.dispatchAfter
+    })
   }
   async commitCreation(input: CreationCommit): Promise<boolean> {
     return this.locked(async () => {

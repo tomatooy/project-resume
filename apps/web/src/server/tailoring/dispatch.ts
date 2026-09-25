@@ -1,7 +1,6 @@
 import {
   AppError,
   boundJob,
-  isActive,
   type JobLookup,
   type Services,
 } from "@workspace/resume-core"
@@ -20,10 +19,20 @@ export async function dispatch(
 ): Promise<JobLookup> {
   if (
     found.kind !== "bound" ||
-    !isActive(found.operation) ||
+    found.operation.status !== "queued" ||
     found.operation.legacy
   )
     return found
+  if (
+    found.operation.dispatchAfter &&
+    Date.parse(found.operation.dispatchAfter) > Date.now()
+  )
+    return found
+  const dispatchAfter = await services.operations.claimDispatch(
+    found.operation.id
+  )
+  if (!dispatchAfter) return found
+  found = { ...found, operation: { ...found.operation, dispatchAfter } }
   const op = found.operation
   try {
     const instance = await env.TAILOR_WORKFLOW.get(op.id)

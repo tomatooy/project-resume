@@ -44,6 +44,5 @@ export interface AgentRunRepository {
    * finishes its run; this is what stops it blocking the conversation.
    */
   failAbandoned(conversationId: string, olderThan: Date): Promise<number>
-  /** `createdAt` of every run by this user since `since`, oldest first. */
-  createdSince(since: Date): Promise<string[]>
+  usageSince(since: Date): Promise<{ count: number; oldest: string | null }>
 }

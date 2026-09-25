@@ -1,31 +1,28 @@
 import { useStore } from "@tanstack/react-store"
 import {
   createContext,
-  lazy,
-  Suspense,
   use,
+  useEffect,
   useMemo,
+  useState,
+  useRef,
   type ReactNode,
+  type Dispatch,
+  type SetStateAction,
 } from "react"
-
-import { ClientOnly } from "@/lib/client-only"
+import { useResumeState } from "../session-context"
 import {
   createPreviewStore,
   type PreviewState,
   type PreviewStore,
 } from "./preview-store"
-
-// Kept out of the SSR bundle: both @react-pdf/renderer's usePDF and pdf.js
-// assume a browser.
-const PdfEngine = lazy(() => import("./PdfEngine"))
+import { PreviewRenderQueue } from "./render-queue"
 
 const PreviewContext = createContext<PreviewStore | null>(null)
+const DemandContext = createContext<Dispatch<SetStateAction<number>> | null>(
+  null
+)
 
-/**
- * Owns the rendered PDF for the open resume. The engine lives here rather than
- * in the preview pane so the blob survives navigation between Editor, Export
- * and History, and so Export can download without re-rendering.
- */
 export function PreviewProvider({
   children,
   store: supplied,
@@ -35,25 +32,53 @@ export function PreviewProvider({
 }) {
   const local = useMemo(() => createPreviewStore(), [])
   const store = supplied ?? local
+  const [demand, setDemand] = useState(0)
+  const doc = useResumeState((s) => s.doc)
+  const templateId = useResumeState((s) => s.templateId)
+  const options = useResumeState((s) => s.templateOptions)
+  const patches = useResumeState((s) => s.previewPatches)
+  const input = useMemo(
+    () => ({ doc, templateId, options, patches }),
+    [doc, templateId, options, patches]
+  )
+  const queueRef = useRef<PreviewRenderQueue | null>(null)
+  useEffect(() => {
+    const queue = new PreviewRenderQueue(store, async (value) => {
+      const { renderPreview } = await import("./PdfEngine")
+      return renderPreview(value)
+    })
+    queueRef.current = queue
+    return () => {
+      queue.dispose()
+      queueRef.current = null
+    }
+  }, [store])
+  // Recreated queues also need the current input when the store changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: store recreates the queue above
+  useEffect(() => {
+    queueRef.current?.update(input, demand > 0)
+  }, [input, demand, store])
   return (
     <PreviewContext value={store}>
-      <ClientOnly>
-        <Suspense fallback={null}>
-          <PdfEngine store={store} />
-        </Suspense>
-      </ClientOnly>
-      {children}
+      <DemandContext value={setDemand}>{children}</DemandContext>
     </PreviewContext>
   )
 }
 
+export function usePreviewDemand(): void {
+  const setDemand = use(DemandContext)
+  useEffect(() => {
+    if (!setDemand) return
+    setDemand((count) => count + 1)
+    return () => setDemand((count) => count - 1)
+  }, [setDemand])
+}
 export function usePreviewStore(): PreviewStore {
   const store = use(PreviewContext)
   if (!store)
     throw new Error("usePreviewStore must be used inside a PreviewProvider")
   return store
 }
-
 export function usePreview<T>(select: (state: PreviewState) => T): T {
   return useStore(usePreviewStore(), select)
 }

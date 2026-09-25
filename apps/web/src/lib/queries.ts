@@ -1,5 +1,8 @@
 import {
   keepPreviousData,
+  infiniteQueryOptions,
+  useInfiniteQuery,
+  useQueries,
   queryOptions,
   useMutation,
   useQuery,
@@ -22,7 +25,8 @@ import {
   getVersion,
   importSkillMarkdown,
   listMessages,
-  listResumes,
+  listResumePage,
+  getResumeSummary,
   listSkills,
   listVersions,
   renameResume,
@@ -74,17 +78,19 @@ export function workspaceAssistantApi(client: QueryClient, resumeId: string) {
 export async function releaseWorkspaceResume(
   client: QueryClient,
   resumeId: string,
-  conversationId: string
+  conversationId: string | null
 ): Promise<void> {
   client.removeQueries({
     queryKey: resumeQuery(resumeId).queryKey,
     exact: true,
   })
   await Promise.all([
-    client.invalidateQueries({
-      queryKey: messagesQuery(conversationId).queryKey,
-    }),
-    client.invalidateQueries({ queryKey: resumesQuery().queryKey }),
+    conversationId
+      ? client.invalidateQueries({
+          queryKey: messagesQuery(conversationId).queryKey,
+        })
+      : Promise.resolve(),
+    invalidateResumes(client),
     invalidateVersions(client, resumeId),
   ])
 }
@@ -120,10 +126,57 @@ export async function saveWorkspaceSkill(
 /* -------------------------------------------------------------- queries */
 
 export const resumesQuery = () =>
-  queryOptions({
-    queryKey: ["resumes"] as const,
-    queryFn: listResumes,
+  infiniteQueryOptions({
+    queryKey: ["resumes", "pages"] as const,
+    queryFn: ({ pageParam }) => listResumePage({ cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
   })
+
+export function useResumes(enabled = true) {
+  const query = useInfiniteQuery({ ...resumesQuery(), enabled })
+  const data = query.data
+    ? [
+        ...new Map(
+          query.data.pages
+            .flatMap((page) => page.items)
+            .map((row) => [row.id, row])
+        ).values(),
+      ]
+    : undefined
+  return { ...query, data, total: query.data?.pages[0]?.total ?? 0 }
+}
+export const resumeSummaryQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["resumes", "summary", id] as const,
+    queryFn: () => getResumeSummary({ id }),
+    enabled: Boolean(id),
+  })
+export function useResumeSummaries(ids: string[]) {
+  const client = useQueryClient()
+  const cached =
+    client
+      .getQueryData(resumesQuery().queryKey)
+      ?.pages.flatMap((page) => page.items) ?? []
+  return useQueries({
+    queries: [...new Set(ids)].map((id) => ({
+      ...resumeSummaryQuery(id),
+      initialData: cached.find((row) => row.id === id),
+    })),
+  })
+}
+export async function invalidateResumes(client: QueryClient): Promise<void> {
+  await client.cancelQueries({ queryKey: resumesQuery().queryKey })
+  client.setQueryData(resumesQuery().queryKey, (data) =>
+    data
+      ? {
+          pages: data.pages.slice(0, 1),
+          pageParams: data.pageParams.slice(0, 1),
+        }
+      : data
+  )
+  await client.invalidateQueries({ queryKey: ["resumes"] })
+}
 
 /** The rail waits for a real word before it asks the server. */
 export const SEARCH_MIN_QUERY = 2
@@ -162,9 +215,11 @@ export const conversationQuery = (resumeId: string) =>
   })
 
 export const versionsQuery = (resumeId: string) =>
-  queryOptions({
+  infiniteQueryOptions({
     queryKey: ["versions", resumeId] as const,
-    queryFn: () => listVersions({ resumeId }),
+    queryFn: ({ pageParam }) => listVersions({ resumeId, cursor: pageParam }),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
   })
 
 export const versionQuery = (versionId: string) =>
@@ -229,13 +284,21 @@ export const userSkillQuery = (id: string) =>
 /* ------------------------------------------------------------ cache ops */
 
 /** After anything that may have written a version: accept, save, restore. */
-export function invalidateVersions(
+export async function invalidateVersions(
   queryClient: QueryClient,
   resumeId: string
 ): Promise<void> {
-  return queryClient.invalidateQueries({
-    queryKey: versionsQuery(resumeId).queryKey,
-  })
+  const queryKey = versionsQuery(resumeId).queryKey
+  await queryClient.cancelQueries({ queryKey })
+  queryClient.setQueryData(queryKey, (data) =>
+    data
+      ? {
+          pages: data.pages.slice(0, 1),
+          pageParams: data.pageParams.slice(0, 1),
+        }
+      : data
+  )
+  await queryClient.invalidateQueries({ queryKey })
 }
 
 /* ------------------------------------------------------------ mutations */
@@ -246,8 +309,7 @@ function useResumeListMutation<TVars, TOut>(
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn,
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: resumesQuery().queryKey }),
+    onSuccess: () => invalidateResumes(queryClient),
   })
 }
 
@@ -284,7 +346,11 @@ export function useRestoreVersion(resumeId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (versionId: string) => restoreVersion({ resumeId, versionId }),
-    onSuccess: () => invalidateVersions(queryClient, resumeId),
+    onSuccess: () =>
+      Promise.all([
+        invalidateVersions(queryClient, resumeId),
+        invalidateResumes(queryClient),
+      ]),
   })
 }
 
@@ -306,7 +372,11 @@ async function decideResumeSuggestions(
   input: Parameters<typeof decideSuggestions>[0]
 ) {
   const result = await decideSuggestions(input)
-  if (result.version) await invalidateVersions(client, resumeId)
+  if (result.version)
+    await Promise.all([
+      invalidateVersions(client, resumeId),
+      invalidateResumes(client),
+    ])
   return result
 }
 

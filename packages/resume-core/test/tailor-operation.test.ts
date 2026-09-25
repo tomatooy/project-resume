@@ -21,6 +21,17 @@ async function setup() {
   return { ports, services, base, input, op: found.operation }
 }
 describe("durable tailoring", () => {
+  it("leases one dispatch across simultaneous recovery requests", async () => {
+    const { services, ports, op } = await setup()
+    const claims = await Promise.all(
+      Array.from({ length: 50 }, () => services.operations.claimDispatch(op.id))
+    )
+    expect(claims.filter(Boolean)).toHaveLength(1)
+    for (let i = 0; i < 31; i++) ports.db.advance()
+    expect(await services.operations.claimDispatch(op.id)).not.toBeNull()
+    await services.operations.claim(op.id)
+    expect(await services.operations.claimDispatch(op.id)).toBeNull()
+  })
   it("admits one copy across concurrent submissions before any model call", async () => {
     const { services, ports, input, op } = await setup()
     const results = await Promise.all([

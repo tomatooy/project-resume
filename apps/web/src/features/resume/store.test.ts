@@ -360,3 +360,25 @@ describe("conflict", () => {
     expect(session.canUndo).toBe(false)
   })
 })
+
+it("keeps unsaved edits and undo when the conversation attaches later", () => {
+  const session = new ResumeSession(record(), null, {
+    api: fakeApi().api,
+    clock: fakeClock().clock,
+  })
+  session.replaceDocument({
+    ...session.state.doc,
+    basics: { ...session.state.doc.basics, name: "Edited before chat" },
+  })
+  const edited = session.state.doc
+  expect(session.state.conversationId).toBeNull()
+  session.attachConversation("conversation-a")
+  expect(session.state.doc).toBe(edited)
+  expect(session.state.saveStatus).toBe("dirty")
+  session.undo()
+  expect(session.state.doc.basics.name).toBe("Jo Rivera")
+  expect(() => session.attachConversation("conversation-b")).toThrow(
+    "already attached"
+  )
+  session.dispose()
+})

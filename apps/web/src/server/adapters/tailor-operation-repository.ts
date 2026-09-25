@@ -4,6 +4,7 @@ import {
   ParsedJobPostingSchema,
   TailorOperationSchema,
   boundJob,
+  isActive,
   type JobIdentity,
   type JobLookup,
   type OperationError,
@@ -17,7 +18,6 @@ import { contentHash } from "@workspace/resume-schema"
 import { z } from "zod"
 import type { Db } from "../auth/supabase"
 import { toJson } from "./json"
-import { SupabaseJobTargetRepository } from "./job-target-repository"
 import { SupabaseResumeRepository } from "./resume-repository"
 
 const RowSchema = z
@@ -33,6 +33,7 @@ const RowSchema = z
     input_version_id: z.string(),
     idempotency_key: z.string(),
     deadline: z.string(),
+    dispatch_after: z.string().nullable().optional(),
     error_class: z.string().nullable(),
     agent_run_id: z.string().nullable(),
   })
@@ -49,6 +50,7 @@ const RowSchema = z
       inputVersionId: r.input_version_id,
       idempotencyKey: r.idempotency_key,
       deadline: r.deadline,
+      dispatchAfter: r.dispatch_after,
       errorClass: r.error_class,
       agentRunId: r.agent_run_id,
     })
@@ -62,71 +64,48 @@ export class SupabaseTailorOperationRepository
     private readonly userId: string
   ) {}
   async lookup(identity: JobIdentity): Promise<JobLookup> {
-    const read = () =>
-      this.db
-        .from("job_resume_bindings")
-        .select("current_operation_id,resume_id")
-        .eq("platform", identity.platform)
-        .eq("external_job_id", identity.externalJobId)
-        .maybeSingle()
+    const read = async () => {
+      const { data, error } = await this.db.rpc("lookup_tailor_job", {
+        p_platform: identity.platform,
+        p_external_job_id: identity.externalJobId,
+      })
+      if (error) throw error
+      return z
+        .object({
+          operation: RowSchema.nullable(),
+          legacy_resume_id: z.uuid().nullable(),
+        })
+        .parse(data)
+    }
     let result = await read()
-    if (result.error) throw result.error
-    if (!result.data) {
-      const targets = await new SupabaseJobTargetRepository(
+    if (!result.operation && result.legacy_resume_id) {
+      const resume = await new SupabaseResumeRepository(
         this.db,
         this.userId
-      ).findByIdentity(identity)
-      if (targets.length) {
-        const links = await this.db
-          .from("resume_job_targets")
-          .select(
-            "resume_id,job_target_id,created_at,resumes!inner(deleted_at)"
-          )
-          .in(
-            "job_target_id",
-            targets.map((t) => t.id)
-          )
-          .eq("is_origin", true)
-          .is("resumes.deleted_at", null)
-          .order("created_at", { ascending: false })
-          .order("resume_id", { ascending: false })
-          .order("job_target_id", { ascending: false })
-          .limit(1)
-        if (links.error) throw links.error
-        const candidate = links.data[0]
-        if (candidate) {
-          const resume = await new SupabaseResumeRepository(
-            this.db,
-            this.userId
-          ).findById(candidate.resume_id)
-          if (resume) {
-            const adopted = await this.db.rpc("tailor_adopt", {
-              p_platform: identity.platform,
-              p_external_job_id: identity.externalJobId,
-              p_resume_id: resume.id,
-              p_content_hash: await contentHash(resume.data),
-            })
-            if (adopted.error) throw adopted.error
-          }
-        }
+      ).findById(result.legacy_resume_id)
+      if (resume) {
+        const { error } = await this.db.rpc("tailor_adopt", {
+          p_platform: identity.platform,
+          p_external_job_id: identity.externalJobId,
+          p_resume_id: resume.id,
+          p_content_hash: await contentHash(resume.data),
+        })
+        if (error) throw error
+        result = await read()
       }
-      result = await read()
-      if (result.error) throw result.error
     }
-    if (!result.data?.current_operation_id) return { kind: "none" }
-    const operation = await this.transition(
-      result.data.current_operation_id,
-      "reconcile"
-    )
-    const live = await this.db
-      .from("resumes")
-      .select("id")
-      .eq("id", result.data.resume_id)
-      .is("deleted_at", null)
-      .maybeSingle()
-    if (live.error) throw live.error
-    if (!live.data) return { kind: "none" }
+    let operation = result.operation
+    if (!operation) return { kind: "none" }
+    if (isActive(operation) && Date.parse(operation.deadline) <= Date.now())
+      operation = await this.transition(operation.id, "reconcile")
     return boundJob(identity, operation)
+  }
+  async claimDispatch(id: string): Promise<string | null> {
+    const { data, error } = await this.db.rpc("claim_tailor_dispatch", {
+      p_id: id,
+    })
+    if (error) throw error
+    return data
   }
   async admit(input: PreparedAdmission) {
     const { data, error } = await this.db.rpc("tailor_admit", {

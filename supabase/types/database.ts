@@ -461,6 +461,8 @@ export type Database = {
           id: string
           revision: number
           schema_version: number
+          search_text: string | null
+          search_unicode: boolean | null
           subtitle: string
           template_id: string
           template_options: Json
@@ -476,6 +478,8 @@ export type Database = {
           id?: string
           revision?: number
           schema_version?: number
+          search_text?: string | null
+          search_unicode?: boolean | null
           subtitle?: string
           template_id?: string
           template_options?: Json
@@ -491,6 +495,8 @@ export type Database = {
           id?: string
           revision?: number
           schema_version?: number
+          search_text?: string | null
+          search_unicode?: boolean | null
           subtitle?: string
           template_id?: string
           template_options?: Json
@@ -613,6 +619,7 @@ export type Database = {
           binding_id: string
           created_at: string
           deadline: string
+          dispatch_after: string | null
           error_class: string | null
           expected_revision: number
           finished_at: string | null
@@ -632,6 +639,7 @@ export type Database = {
           binding_id: string
           created_at?: string
           deadline: string
+          dispatch_after?: string | null
           error_class?: string | null
           expected_revision: number
           finished_at?: string | null
@@ -651,6 +659,7 @@ export type Database = {
           binding_id?: string
           created_at?: string
           deadline?: string
+          dispatch_after?: string | null
           error_class?: string | null
           expected_revision?: number
           finished_at?: string | null
@@ -770,6 +779,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      agent_usage_since: { Args: { p_since: string }; Returns: Json }
+      claim_tailor_dispatch: { Args: { p_id: string }; Returns: string }
       commit_tailor_creation: { Args: { p_input: Json }; Returns: boolean }
       create_memory_summary: {
         Args: {
@@ -819,6 +830,42 @@ export type Database = {
         }
         Returns: Json
       }
+      lookup_tailor_job: {
+        Args: { p_external_job_id: string; p_platform: string }
+        Returns: Json
+      }
+      resume_search_candidates: {
+        Args: {
+          p_before_at?: string
+          p_before_id?: string
+          p_phase: string
+          p_tokens: string[]
+        }
+        Returns: {
+          created_at: string
+          current_version_id: string | null
+          data: Json
+          deleted_at: string | null
+          id: string
+          revision: number
+          schema_version: number
+          search_text: string | null
+          search_unicode: boolean | null
+          subtitle: string
+          template_id: string
+          template_options: Json
+          title: string
+          updated_at: string
+          user_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "resumes"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      resume_search_text: { Args: { p_data: Json }; Returns: string }
       tailor_admit: { Args: { p_input: Json }; Returns: Json }
       tailor_adopt: {
         Args: {

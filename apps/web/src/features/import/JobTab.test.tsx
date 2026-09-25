@@ -10,7 +10,18 @@ const tailorFromJob = vi.fn()
 const fetchJobPosting = vi.fn()
 
 vi.mock("@/lib/api", () => ({
-  listResumes: (...args: unknown[]) => listResumes(...args),
+  listResumePage: async () => ({
+    items: await listResumes(),
+    nextCursor: null,
+    total: 2,
+  }),
+  getResumeSummary: async ({ id }: { id: string }) => {
+    const row = (await listResumes()).find(
+      (row: ResumeSummary) => row.id === id
+    )
+    if (!row) throw new Error("Not found")
+    return row
+  },
   tailorFromJob: (...args: unknown[]) => tailorFromJob(...args),
   fetchJobPosting: (...args: unknown[]) => fetchJobPosting(...args),
 }))

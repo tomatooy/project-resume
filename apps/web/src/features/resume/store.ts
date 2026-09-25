@@ -40,7 +40,7 @@ export type ResumeState = {
   /** Display only. `revision` is what guards a save. */
   updatedAt: string
   /** The conversation this resume's assistant runs belong to. */
-  conversationId: string
+  conversationId: string | null
   templateId: TemplateId
   templateOptions: TemplateOptions
   saveStatus: SaveStatus
@@ -98,6 +98,13 @@ export class ResumeSession {
   readonly store: Store<ResumeState>
   private pendingWrites = new Set<Promise<void>>()
 
+  attachConversation(id: string): void {
+    const current = this.state.conversationId
+    if (current === id) return
+    if (current) throw new Error("Conversation already attached")
+    this.store.setState((state) => ({ ...state, conversationId: id }))
+  }
+
   get hasPendingWrites(): boolean {
     return this.pendingWrites.size > 0
   }
@@ -125,7 +132,7 @@ export class ResumeSession {
 
   constructor(
     record: ResumeRecord,
-    conversationId: string,
+    conversationId: string | null = null,
     opts: SessionOptions = {}
   ) {
     this.api = opts.api ?? api

@@ -25,9 +25,21 @@ function encode(bytes: Uint8Array): string {
 function decode(value: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(value), (c) => c.charCodeAt(0))
 }
+function workflowKeyBytes(secret: string | undefined): Uint8Array<ArrayBuffer> {
+  try {
+    if (!secret) throw new Error()
+    const raw = decode(secret)
+    if (raw.byteLength !== 32) throw new Error()
+    return raw
+  } catch {
+    throw new Error("TAILOR_ENCRYPTION_KEY_V1 must encode exactly 32 bytes")
+  }
+}
+export function assertWorkflowKey(secret: string | undefined): void {
+  workflowKeyBytes(secret)
+}
 async function key(secret: string) {
-  const raw = decode(secret)
-  if (raw.byteLength !== 32) throw new Error("Invalid workflow key")
+  const raw = workflowKeyBytes(secret)
   return crypto.subtle.importKey("raw", raw, "AES-GCM", false, [
     "encrypt",
     "decrypt",

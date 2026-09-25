@@ -1,3 +1,4 @@
+import { z } from "zod"
 import {
   type AgentRun,
   type AgentRunRepository,
@@ -155,17 +156,16 @@ export class SupabaseAgentRunRepository implements AgentRunRepository {
     return data.length
   }
 
-  /**
-   * No user filter in the query: RLS already narrows `agent_runs` to the
-   * caller's resumes, which is exactly the population the hourly limit counts.
-   */
-  async createdSince(since: Date): Promise<string[]> {
-    const { data, error } = await this.db
-      .from("agent_runs")
-      .select("created_at")
-      .gte("created_at", since.toISOString())
-      .order("created_at", { ascending: true })
+  async usageSince(since: Date) {
+    const { data, error } = await this.db.rpc("agent_usage_since", {
+      p_since: since.toISOString(),
+    })
     if (error) throw error
-    return data.map((row) => row.created_at)
+    return z
+      .object({
+        count: z.number().int().nonnegative(),
+        oldest: z.string().nullable(),
+      })
+      .parse(data)
   }
 }

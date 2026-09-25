@@ -9,3 +9,18 @@ export async function listResumesDirect() {
     context: await createApiContext(),
   }).resumes.list({})
 }
+
+export async function resumePageDirect(
+  input: import("@workspace/resume-core").ResumePageInput
+) {
+  setResponseHeader("Cache-Control", "no-store")
+  return createRouterClient(router, {
+    context: await createApiContext(),
+  }).resumes.page(input)
+}
+export async function resumeSummaryDirect(input: { id: string }) {
+  setResponseHeader("Cache-Control", "no-store")
+  return createRouterClient(router, {
+    context: await createApiContext(),
+  }).resumes.summary(input)
+}

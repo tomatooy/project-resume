@@ -72,6 +72,7 @@ export class AssistantRuntime {
       structural: false,
     })
     const { conversationId, resumeId } = session.state
+    if (!conversationId) throw new Error("Conversation is not ready")
     this.chat = new Chat<ChatUIMessage>({
       id: conversationId,
       messages: history.messages,
@@ -237,7 +238,7 @@ export class AssistantRuntime {
       await this.stop()
       await this.decision
       await this.api.clearConversation({
-        conversationId: this.session.state.conversationId,
+        conversationId: this.chat.id,
       })
       this.chat.messages = []
       this.session.previewPatches([])

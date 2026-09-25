@@ -4,6 +4,7 @@ import type {
   CreatedByKind,
   VersionRecord,
   VersionSummary,
+  VersionPage,
 } from "../domain/version"
 
 export type CreateVersionInput = {
@@ -35,6 +36,7 @@ export type CreateVersionResult = {
 export interface VersionRepository {
   /** Newest first. */
   list(resumeId: string): Promise<VersionSummary[]>
+  page(resumeId: string, cursor?: number): Promise<VersionPage>
   findById(id: string): Promise<VersionRecord | null>
   create(input: CreateVersionInput): Promise<CreateVersionResult>
 }

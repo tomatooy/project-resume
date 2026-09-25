@@ -10,6 +10,8 @@ export type VersionSummary = {
   createdAt: string
 }
 
+export type VersionPage = { items: VersionSummary[]; nextCursor: number | null }
+
 export type VersionRecord = VersionSummary & {
   resumeId: string
   content: Resume

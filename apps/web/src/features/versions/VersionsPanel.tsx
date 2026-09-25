@@ -1,5 +1,6 @@
+import { LoadMore } from "@/features/shell/LoadMore"
 import { ArrowUUpLeftIcon } from "@phosphor-icons/react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query"
 import {
   diffDocuments,
   formatYearMonth,
@@ -52,7 +53,8 @@ export function VersionsPanel() {
     ui.setState((s) => ({ ...s, versionId }))
   const scroll = useTabScroll(`resume:${resumeId}:versions`)
 
-  const versions = useQuery(versionsQuery(resumeId))
+  const versions = useInfiniteQuery(versionsQuery(resumeId))
+  const rows = versions.data?.pages.flatMap((page) => page.items)
   const selected = useQuery({
     ...versionQuery(selectedId ?? ""),
     enabled: Boolean(selectedId),
@@ -82,7 +84,7 @@ export function VersionsPanel() {
             <Skeleton key={key} className="h-[58px] rounded-[10px]" />
           ))}
         </div>
-      ) : versions.data?.length === 0 ? (
+      ) : rows?.length === 0 ? (
         <Empty className="rounded-[10px] border border-dashed border-border py-12">
           <EmptyHeader>
             <EmptyTitle className="text-[13.5px]">No versions yet</EmptyTitle>
@@ -94,7 +96,7 @@ export function VersionsPanel() {
         </Empty>
       ) : (
         <ul className="flex flex-col gap-2">
-          {versions.data?.map((version) => {
+          {rows?.map((version) => {
             const active = version.id === selectedId
             return (
               <li key={version.id} className="flex flex-col">
@@ -220,6 +222,7 @@ export function VersionsPanel() {
           })}
         </ul>
       )}
+      <LoadMore {...versions} />
     </div>
   )
 }

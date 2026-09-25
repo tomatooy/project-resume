@@ -11,6 +11,7 @@ import {
 } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
 
+import { usePreview } from "../resume/preview/preview-context"
 import { pluralize } from "@/lib/format"
 import { PreflightList, usePreflightChecks } from "./Preflight"
 import { preflightWarnCount } from "./preflight-checks"
@@ -21,6 +22,8 @@ import { preflightWarnCount } from "./preflight-checks"
  * are the ones `Preflight` renders, read through the same hook.
  */
 export function PreflightIndicator() {
+  const stale = usePreview((s) => s.stale)
+  const loading = usePreview((s) => s.loading)
   const checks = usePreflightChecks()
   const warns = preflightWarnCount(checks)
   const label =
@@ -48,6 +51,11 @@ export function PreflightIndicator() {
               <span className="text-[11px] font-semibold tabular-nums">
                 {warns}
               </span>
+              {stale ? (
+                <span className="text-[11px] text-muted-foreground">
+                  {loading ? "Measuring pages" : "Pages not measured"}
+                </span>
+              ) : null}
             </PopoverTrigger>
           }
         />

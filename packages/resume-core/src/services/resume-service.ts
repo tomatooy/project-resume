@@ -11,7 +11,12 @@ import {
 import { starter } from "@workspace/resume-schema/fixtures"
 
 import { AppError } from "../domain/errors"
-import type { HeadWrite, ResumeRecord, ResumeSummary } from "../domain/resume"
+import type {
+  HeadWrite,
+  ResumeRecord,
+  ResumeSummary,
+  ResumePageInput,
+} from "../domain/resume"
 import {
   HITS_PER_RESUME,
   MAX_SEARCH_RESULTS,
@@ -58,6 +63,16 @@ export class ResumeService {
     return this.resumes.list()
   }
 
+  page(input: ResumePageInput = {}) {
+    return this.resumes.page(input)
+  }
+
+  async summary(id: string): Promise<ResumeSummary> {
+    const found = await this.resumes.summary(id)
+    if (!found) throw new AppError("NOT_FOUND", "Resume not found")
+    return found
+  }
+
   /**
    * Title and body search across every resume, for the rail.
    *
@@ -72,32 +87,32 @@ export class ResumeService {
       return { groups: [], scanned: 0 }
     }
 
-    const records = await this.resumes.listRecords()
     const groups: ResumeSearchGroup[] = []
-    for (const record of records) {
-      const hits = matchDocument(record.data, tokens)
-      const titleRanges = matchTokens(record.title, tokens)
-      if (hits.length === 0 && titleRanges.length === 0) continue
-      groups.push({
-        resume: toSummary(record),
-        titleRanges,
-        hits: hits.slice(0, HITS_PER_RESUME),
-        totalHits: hits.length,
-      })
+    const seen = new Set<string>()
+    const scanned = await this.resumes.count()
+    for (const phase of ["title", "body"] as const) {
+      let cursor: string | undefined
+      do {
+        const page = await this.resumes.searchCandidates(tokens, phase, cursor)
+        for (const record of page.records) {
+          if (seen.has(record.id)) continue
+          const titleRanges = matchTokens(record.title, tokens)
+          if ((phase === "title") !== titleRanges.length > 0) continue
+          const hits = matchDocument(record.data, tokens)
+          if (hits.length === 0 && titleRanges.length === 0) continue
+          seen.add(record.id)
+          groups.push({
+            resume: toSummary(record),
+            titleRanges,
+            hits: hits.slice(0, HITS_PER_RESUME),
+            totalHits: hits.length,
+          })
+          if (groups.length === MAX_SEARCH_RESULTS) return { groups, scanned }
+        }
+        cursor = page.nextCursor ?? undefined
+      } while (cursor)
     }
-
-    // A title hit is a stronger signal than a body hit, so those resumes come
-    // first; inside a tier the order stays the rail's own, newest first.
-    groups.sort(
-      (a, b) =>
-        titleTier(a) - titleTier(b) ||
-        b.resume.updatedAt.localeCompare(a.resume.updatedAt)
-    )
-
-    return {
-      groups: groups.slice(0, MAX_SEARCH_RESULTS),
-      scanned: records.length,
-    }
+    return { groups, scanned }
   }
 
   async get(id: string): Promise<ResumeRecord> {
@@ -196,9 +211,4 @@ export class ResumeService {
 function toSummary(record: ResumeRecord): ResumeSummary {
   const { id, title, subtitle, templateId, updatedAt } = record
   return { id, title, subtitle, templateId, updatedAt }
-}
-
-/** 0 for a resume whose title matched, 1 for body-only. */
-function titleTier(group: ResumeSearchGroup): number {
-  return group.titleRanges.length > 0 ? 0 : 1
 }

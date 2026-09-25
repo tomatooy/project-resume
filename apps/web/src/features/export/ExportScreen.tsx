@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { useShellLayout } from "@/features/shell/shell-layout"
 import { pluralize } from "@/lib/format"
 import { downloadPdf } from "../resume/preview/download"
-import { usePreview } from "../resume/preview/preview-context"
+import { usePreview, usePreviewDemand } from "../resume/preview/preview-context"
 import { useResumeState } from "../resume/session-context"
 import { useTabScroll } from "../workspace/use-tab-scroll"
 import { Preflight } from "./Preflight"
@@ -62,9 +62,11 @@ export function ExportScreen() {
   const doc = useResumeState((s) => s.doc)
   const templateId = useResumeState((s) => s.templateId)
   const options = useResumeState((s) => s.templateOptions)
+  usePreviewDemand()
+  const stale = usePreview((s) => s.stale)
   const blob = usePreview((s) => s.blob)
   const loading = usePreview((s) => s.loading)
-  const pageCount = usePreview((s) => s.pageCount)
+  const pageCount = usePreview((s) => (s.stale ? null : s.pageCount))
   const { panels, togglePanel } = useShellLayout()
 
   // Inactive tabs unmount, so mounting is the same event as entering the tab.
@@ -79,7 +81,7 @@ export function ExportScreen() {
   const template = templates[templateId]
 
   const download = () => {
-    if (!blob) return
+    if (!blob || stale || loading) return
     toast.success(`Downloaded ${downloadPdf(blob, doc.basics.name)}`)
   }
 
@@ -130,7 +132,7 @@ export function ExportScreen() {
               {format.available ? (
                 <Button
                   className="mt-3.5 w-full"
-                  disabled={!blob || loading}
+                  disabled={!blob || loading || stale}
                   onClick={download}
                 >
                   {loading && !blob ? "Rendering…" : format.action}

@@ -25,6 +25,23 @@ export class SupabaseVersionRepository implements VersionRepository {
     return data.map(toVersionSummary)
   }
 
+  async page(resumeId: string, cursor?: number) {
+    let query = this.db
+      .from("resume_versions")
+      .select(SUMMARY_COLUMNS)
+      .eq("resume_id", resumeId)
+    if (cursor !== undefined) query = query.lt("version_no", cursor)
+    const { data, error } = await query
+      .order("version_no", { ascending: false })
+      .limit(31)
+    if (error) throw error
+    const items = data.slice(0, 30).map(toVersionSummary)
+    return {
+      items,
+      nextCursor: data.length > 30 ? (items.at(-1)?.versionNo ?? null) : null,
+    }
+  }
+
   async findById(id: string): Promise<VersionRecord | null> {
     const { data, error } = await this.db
       .from("resume_versions")

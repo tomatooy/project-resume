@@ -3,6 +3,8 @@ import {
   JobIdentitySchema,
   JobLookupSchema,
   ResumeSummarySchema,
+  ResumePageInputSchema,
+  ResumePageSchema,
   TailorAdmissionSchema,
   TailorRetrySchema,
   MIN_JOB_CHARS,
@@ -28,6 +30,14 @@ export const JobPostingSchema = z.object({
 })
 export const contract = {
   resumes: {
+    page: base
+      .route({ method: "GET", path: "/resumes/page" })
+      .input(ResumePageInputSchema)
+      .output(ResumePageSchema),
+    summary: base
+      .route({ method: "GET", path: "/resumes/{id}/summary" })
+      .input(z.object({ id: z.uuid() }))
+      .output(ResumeSummarySchema),
     list: base
       .route({ method: "GET", path: "/resumes" })
       .input(z.object({}))

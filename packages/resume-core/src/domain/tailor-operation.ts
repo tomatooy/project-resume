@@ -32,6 +32,7 @@ export const TailorOperationSchema = z.object({
   inputVersionId: z.uuid(),
   idempotencyKey: z.uuid(),
   deadline: z.iso.datetime({ offset: true }),
+  dispatchAfter: z.iso.datetime({ offset: true }).nullable().optional(),
   errorClass: OperationErrorSchema.nullable(),
   agentRunId: z.uuid().nullable(),
 })
