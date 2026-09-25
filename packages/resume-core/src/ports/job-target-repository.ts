@@ -1,3 +1,4 @@
+import type { JobIdentity } from "../domain/job-identity"
 import type { JobTarget, NewJobTarget } from "../domain/job-target"
 
 export type LinkJobTargetInput = {
@@ -8,6 +9,7 @@ export type LinkJobTargetInput = {
 }
 
 export interface JobTargetRepository {
+  findByIdentity(identity: JobIdentity): Promise<JobTarget[]>
   create(input: NewJobTarget): Promise<JobTarget>
   findById(id: string): Promise<JobTarget | null>
   /** Idempotent: linking the same pair twice is not an error. */

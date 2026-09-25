@@ -1,4 +1,4 @@
-# Résumé Studio 界面重构设计简报
+# VS:Résumé 界面重构设计简报
 
 > 用途：把当前真实实现的结构、约束与改造方向一次性交代清楚，交给设计工具产出可落地的高保真效果图。
 > 版本：2026-09-11，对应代码 `main` 上编辑器与助手面板的现状。
@@ -20,7 +20,7 @@
 
 ## 1. 产品与用户
 
-Résumé Studio 是一款 AI 简历编辑器。用户手里有一份结构化简历（JSON，不是富文本），在左侧表单里编辑，右侧实时看 PDF 成品，需要改进时把 AI 助手叫出来提建议。
+VS:Résumé 是一款 AI 简历编辑器。用户手里有一份结构化简历（JSON，不是富文本），在左侧表单里编辑，右侧实时看 PDF 成品，需要改进时把 AI 助手叫出来提建议。
 
 目标用户：正在找工作、需要针对不同岗位反复改简历的人。使用场景往往是连续 30 到 90 分钟的高强度编辑，期间会反复在「改文字」和「看排版」之间来回。
 
@@ -130,7 +130,7 @@ alert-dialog、avatar、badge、button、calendar、card、checkbox、collapsibl
 
 ```text
 ┌───────────────────────────────────────────────────────────────────────────────┐
-│ [R] Résumé Studio                                                   [ avatar ] │ 56px, bg-paper
+│ [R] VS:Résumé                                                       [ avatar ] │ 56px, bg-paper
 ├──────────────────┬────────────────────────────────────────────────────────────┤
 │ MY RESUMES   12  │ Editor │ Versions │ Export │ Interview                    │ 44px, bg-canvas
 │ ┌──────────────┐ ├────────────────────────────────────────────────────────────┤
@@ -571,7 +571,7 @@ AI 一次可能返回 5 条建议，散落在消息流里。用户容易漏掉�
 
 ## 附录 A：现有界面文案（请沿用）
 
-**全局**：Résumé Studio、My resumes、Create a new resume、Getting started、Editor、Export、Interview、Versions、Sections、Side panels、Preview、Assistant、Add section、Add link、No links yet.
+**全局**：VS:Résumé、My resumes、Create a new resume、Getting started、Editor、Export、Interview、Versions、Sections、Side panels、Preview、Assistant、Add section、Add link、No links yet.
 
 **表单**：Contact、Contact details、Full name、Headline、Email、Phone、Location、Links、Professional summary、Summary、Job title、Company、School、Degree、Field of study、Project、Link、Group name、Title、Subtitle、Skills、Achievements、Start、End、Present、Month、Remove link、Delete entry、Delete achievement、Rename section、Delete section、Section title、Done、Nothing here yet、Add a skill.
 

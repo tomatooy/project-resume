@@ -4,14 +4,16 @@ import type {
   TemplateOptions,
 } from "@workspace/resume-schema"
 
-export type ResumeSummary = {
-  id: string
-  title: string
-  /** Short line under the title in the rail, e.g. "Tailored · Senior PD". */
-  subtitle: string
-  templateId: TemplateId
-  updatedAt: string
-}
+import { z } from "zod"
+import { TemplateIdSchema } from "@workspace/resume-schema"
+export const ResumeSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  subtitle: z.string(),
+  templateId: TemplateIdSchema,
+  updatedAt: z.string(),
+})
+export type ResumeSummary = z.infer<typeof ResumeSummarySchema>
 
 export type ResumeRecord = ResumeSummary & {
   data: Resume

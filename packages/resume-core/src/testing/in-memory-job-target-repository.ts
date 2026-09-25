@@ -1,3 +1,4 @@
+import { jobIdentityFromUrl, type JobIdentity } from "../domain/job-identity"
 import type { JobTarget, NewJobTarget } from "../domain/job-target"
 import type {
   JobTargetRepository,
@@ -8,6 +9,19 @@ import type { InMemoryDb } from "./db"
 export class InMemoryJobTargetRepository implements JobTargetRepository {
   constructor(private readonly db: InMemoryDb) {}
 
+  async findByIdentity(identity: JobIdentity): Promise<JobTarget[]> {
+    for (const row of this.db.jobTargets) {
+      if (row.platform === null && row.sourceUrl) {
+        const found = jobIdentityFromUrl(row.sourceUrl)
+        if (found) Object.assign(row, found)
+      }
+    }
+    return this.db.jobTargets.filter(
+      (r) =>
+        r.platform === identity.platform &&
+        r.externalJobId === identity.externalJobId
+    )
+  }
   async create(input: NewJobTarget): Promise<JobTarget> {
     const row: JobTarget = {
       ...input,

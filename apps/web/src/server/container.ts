@@ -1,3 +1,4 @@
+import { SupabaseTailorOperationRepository } from "./adapters/tailor-operation-repository"
 import {
   createJobParser,
   createResumeParser,
@@ -68,6 +69,7 @@ export function supabasePorts(
   over: Partial<Ports> = {}
 ): Ports {
   return {
+    operations: new SupabaseTailorOperationRepository(db, userId),
     resumes: new SupabaseResumeRepository(db, userId),
     versions: new SupabaseVersionRepository(db),
     runs: new SupabaseAgentRunRepository(db),

@@ -1,18 +1,12 @@
-import {
-  assembleResume,
-  regenerateIds,
-  ResumeSchema,
-} from "@workspace/resume-schema"
+import type { TailorOperationRepository } from "../ports/tailor-operation-repository"
+import { contentHash, ResumeSchema } from "@workspace/resume-schema"
 
 import { AppError } from "../domain/errors"
-import {
-  MAX_JOB_CHARS,
-  MIN_JOB_CHARS,
-  type ParsedJobPosting,
-} from "../domain/job-target"
+import { MAX_JOB_CHARS, MIN_JOB_CHARS } from "../domain/job-target"
 import { normalizeLinkedInJobUrl } from "../domain/linkedin"
 import type { ResumeSummary } from "../domain/resume"
-import { enforceTailorRules } from "../domain/tailor"
+import { jobIdentityFromUrl } from "../domain/job-identity"
+import { finishTailoredDocument, tailorNames } from "./tailor-generation"
 import type { JobFetcher } from "../ports/job-fetcher"
 import type { JobParser } from "../ports/job-parser"
 import type { JobTargetRepository } from "../ports/job-target-repository"
@@ -64,7 +58,8 @@ export class TailorService {
     private readonly versions: VersionService,
     private readonly runs: RunService,
     private readonly memory: MemoryService,
-    private readonly jobFetcher: JobFetcher
+    private readonly jobFetcher: JobFetcher,
+    private readonly operations: TailorOperationRepository
   ) {}
 
   /**
@@ -124,6 +119,10 @@ export class TailorService {
     })
 
     const target = await this.jobTargets.create({
+      ...((input.sourceUrl ? jobIdentityFromUrl(input.sourceUrl) : null) ?? {
+        platform: null,
+        externalJobId: null,
+      }),
       sourceUrl: input.sourceUrl ?? null,
       rawText: text,
       title: posting.title,
@@ -140,7 +139,7 @@ export class TailorService {
     // written. A resume that never got tailored must not say that it was.
     const created = await this.resumes.create({
       fromResumeId: source.id,
-      title: titleFor(posting, source.title),
+      title: tailorNames(posting, source.title).title,
       subtitle: NEW_SUBTITLE,
     })
 
@@ -172,9 +171,7 @@ export class TailorService {
       // `assembleResume` mints ids for the model's id-free output; restoring a
       // source item reintroduces the source's ids, so the whole document is
       // renumbered once before it is validated.
-      const merged = regenerateIds(
-        enforceTailorRules(source.data, assembleResume(parsed))
-      )
+      const merged = finishTailoredDocument(source.data, parsed)
       const checked = ResumeSchema.safeParse(merged)
       if (!checked.success) {
         throw new AppError(
@@ -183,18 +180,20 @@ export class TailorService {
         )
       }
 
-      await this.resumes.update({ id: created.id, data: checked.data })
-      const subtitle = subtitleFor(posting)
-      await this.resumes.setSubtitle(created.id, subtitle)
-      await this.runs.finish(run.id, {
-        status: "completed",
+      const names = tailorNames(posting, source.title)
+      const committed = await this.operations.commitCreation({
+        ...names,
+        resumeId: created.id,
+        runId: run.id,
+        expectedRevision: 1,
+        document: checked.data,
+        contentHash: await contentHash(checked.data),
+        model,
         latencyMs: Date.now() - startedAt,
       })
-      await this.versions.snapshot(created.id, {
-        label: labelFor(posting),
-        createdBy: "system",
-        agentRunId: run.id,
-      })
+      if (!committed)
+        throw new DOMException("Creation was stopped", "AbortError")
+      const subtitle = names.subtitle
 
       return {
         resume: { ...created, subtitle },
@@ -204,18 +203,20 @@ export class TailorService {
       }
     } catch (error) {
       const cancelled = isAbort(error)
-      await this.runs.finish(run.id, {
-        status: cancelled ? "cancelled" : "failed",
-        errorClass: cancelled ? "aborted" : "tailor_failed",
-        latencyMs: Date.now() - startedAt,
-      })
+      if (await this.runs.findRunning(conversation.id))
+        await this.runs.finish(run.id, {
+          status: cancelled ? "cancelled" : "failed",
+          errorClass: cancelled ? "aborted" : "tailor_failed",
+          latencyMs: Date.now() - startedAt,
+        })
       // The duplicate stands. One version either way, so History reads the
       // same whichever path ran, and only the label says which.
-      await this.versions.snapshot(created.id, {
-        label: `Assembled from ${source.title}`,
-        createdBy: "system",
-        agentRunId: run.id,
-      })
+      if (!(await this.resumes.get(created.id)).currentVersionId)
+        await this.versions.snapshot(created.id, {
+          label: `Assembled from ${source.title}`,
+          createdBy: "system",
+          agentRunId: run.id,
+        })
 
       return {
         resume: created,
@@ -225,26 +226,6 @@ export class TailorService {
       }
     }
   }
-}
-
-/** Static, set once. Deriving it from a join would rename the resume whenever
- *  the user attached another posting to it. */
-function titleFor(posting: ParsedJobPosting, fallback: string): string {
-  const company = posting.company.trim()
-  const role = posting.title.trim()
-  if (company && role) return `${company} - ${role}`
-  return company || role || `${fallback} copy`
-}
-
-function subtitleFor(posting: ParsedJobPosting): string {
-  const company = posting.company.trim()
-  return company ? `Tailored for ${company}` : "Tailored for this role"
-}
-
-function labelFor(posting: ParsedJobPosting): string {
-  const role = posting.title.trim() || "this role"
-  const company = posting.company.trim()
-  return company ? `Tailored for ${role} at ${company}` : `Tailored for ${role}`
 }
 
 function isAbort(error: unknown): boolean {

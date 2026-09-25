@@ -1,3 +1,5 @@
+import type { TailorOperationRepository } from "../ports/tailor-operation-repository"
+import { TailorOperationService } from "./tailor-operation-service"
 import type { AgentRunRepository } from "../ports/agent-run-repository"
 import type { ConversationRepository } from "../ports/conversation-repository"
 import type { JobFetcher } from "../ports/job-fetcher"
@@ -36,6 +38,7 @@ export type Ports = {
   jobParser: JobParser
   resumeTailor: ResumeTailor
   jobFetcher: JobFetcher
+  operations: TailorOperationRepository
   skills: SkillRepository
   /** Injected so a test can move time; wall clock otherwise. */
   clock?: () => Date
@@ -50,6 +53,7 @@ export type Services = {
   runs: RunService
   memory: MemoryService
   tailor: TailorService
+  operations: TailorOperationService
   skills: SkillService
 }
 
@@ -87,7 +91,17 @@ export function createServices(ports: Ports): Services {
       versions,
       runs,
       memory,
-      ports.jobFetcher
+      ports.jobFetcher,
+      ports.operations
+    ),
+    operations: new TailorOperationService(
+      ports.operations,
+      ports.resumes,
+      ports.versions,
+      ports.jobTargets,
+      ports.jobParser,
+      ports.resumeTailor,
+      ports.clock
     ),
     skills: new SkillService(ports.skills),
   }

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest"
 import { InMemoryDb, InMemoryJobTargetRepository } from "../src/testing/index"
 
 const POSTING = {
+  platform: null,
+  externalJobId: null,
   sourceUrl: "https://www.linkedin.com/jobs/view/4456278957/",
   rawText: "We are hiring a Senior Engineer.",
   title: "Senior Engineer",

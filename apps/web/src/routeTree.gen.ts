@@ -20,6 +20,7 @@ import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AppRResumeIdRouteImport } from './routes/_app.r.$resumeId'
 import { Route as AppSkillsIndexRouteImport } from './routes/_app.skills.index'
 import { Route as AppSkillsSkillIdRouteImport } from './routes/_app.skills.$skillId'
+import { Route as ApiV1SplatRouteImport } from './routes/api.v1.$'
 import { Route as AppRResumeIdIndexRouteImport } from './routes/_app.r.$resumeId.index'
 import { Route as AppRResumeIdEditRouteImport } from './routes/_app.r.$resumeId.edit'
 import { Route as AppRResumeIdExportRouteImport } from './routes/_app.r.$resumeId.export'
@@ -81,6 +82,11 @@ const AppSkillsSkillIdRoute = AppSkillsSkillIdRouteImport.update({
   path: '/$skillId',
   getParentRoute: () => AppSkillsRoute,
 } as any)
+const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
+  id: '/api/v1/$',
+  path: '/api/v1/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppRResumeIdIndexRoute = AppRResumeIdIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -122,6 +128,7 @@ export interface FileRoutesByFullPath {
   '/auth/callback': typeof AuthCallbackRoute
   '/r/$resumeId': typeof AppRResumeIdRouteWithChildren
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/skills/': typeof AppSkillsIndexRoute
   '/r/$resumeId/edit': typeof AppRResumeIdEditRoute
   '/r/$resumeId/export': typeof AppRResumeIdExportRoute
@@ -138,6 +145,7 @@ export interface FileRoutesByTo {
   '/api/chat': typeof ApiChatRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/skills': typeof AppSkillsIndexRoute
   '/r/$resumeId/edit': typeof AppRResumeIdEditRoute
   '/r/$resumeId/export': typeof AppRResumeIdExportRoute
@@ -158,6 +166,7 @@ export interface FileRoutesById {
   '/auth/callback': typeof AuthCallbackRoute
   '/_app/r/$resumeId': typeof AppRResumeIdRouteWithChildren
   '/_app/skills/$skillId': typeof AppSkillsSkillIdRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/_app/skills/': typeof AppSkillsIndexRoute
   '/_app/r/$resumeId/edit': typeof AppRResumeIdEditRoute
   '/_app/r/$resumeId/export': typeof AppRResumeIdExportRoute
@@ -178,6 +187,7 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/r/$resumeId'
     | '/skills/$skillId'
+    | '/api/v1/$'
     | '/skills/'
     | '/r/$resumeId/edit'
     | '/r/$resumeId/export'
@@ -194,6 +204,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/auth/callback'
     | '/skills/$skillId'
+    | '/api/v1/$'
     | '/skills'
     | '/r/$resumeId/edit'
     | '/r/$resumeId/export'
@@ -213,6 +224,7 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/_app/r/$resumeId'
     | '/_app/skills/$skillId'
+    | '/api/v1/$'
     | '/_app/skills/'
     | '/_app/r/$resumeId/edit'
     | '/_app/r/$resumeId/export'
@@ -229,6 +241,7 @@ export interface RootRouteChildren {
   LogoutRoute: typeof LogoutRoute
   ApiChatRoute: typeof ApiChatRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
+  ApiV1SplatRoute: typeof ApiV1SplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -309,6 +322,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/skills/$skillId'
       preLoaderRoute: typeof AppSkillsSkillIdRouteImport
       parentRoute: typeof AppSkillsRoute
+    }
+    '/api/v1/$': {
+      id: '/api/v1/$'
+      path: '/api/v1/$'
+      fullPath: '/api/v1/$'
+      preLoaderRoute: typeof ApiV1SplatRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/r/$resumeId/': {
       id: '/_app/r/$resumeId/'
@@ -412,6 +432,7 @@ const rootRouteChildren: RootRouteChildren = {
   LogoutRoute: LogoutRoute,
   ApiChatRoute: ApiChatRoute,
   AuthCallbackRoute: AuthCallbackRoute,
+  ApiV1SplatRoute: ApiV1SplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

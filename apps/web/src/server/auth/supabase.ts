@@ -28,7 +28,7 @@ export type Db = SupabaseClient<Database>
  * Read on call rather than at module scope: a missing variable should fail
  * the request that needed it, not the import graph.
  */
-function connection(): { url: string; key: string } {
+export function connection(): { url: string; key: string } {
   return {
     url: required("PUBLIC_SUPABASE_URL", import.meta.env.PUBLIC_SUPABASE_URL),
     key: required(

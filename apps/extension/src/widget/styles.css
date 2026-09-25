@@ -1,0 +1,99 @@
+@import "tailwindcss";
+@import "@workspace/ui/globals.css";
+@source "../../../../packages/ui/src";
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+.edge-widget {
+  position: relative;
+  width: 96px;
+  height: 88px;
+}
+.edge-surface {
+  position: absolute;
+  top: 16px;
+  right: 0;
+  display: flex;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  border-radius: 14px 0 0 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-right: 0;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--foreground) 18%, transparent);
+  transition: width 160ms ease;
+}
+.edge-widget:is(:hover, :focus-within, [data-dragging="true"]) .edge-surface {
+  width: 80px;
+}
+.edge-open {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px 0 0 14px;
+  padding: 12px;
+}
+.edge-open,
+.edge-drag,
+.edge-close {
+  background: var(--card);
+  color: var(--foreground);
+}
+.edge-open:hover,
+.edge-drag:hover,
+.edge-close:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.edge-open img {
+  filter: grayscale(1);
+}
+.edge-control {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+.edge-widget:is(:hover, :focus-within, [data-dragging="true"]) .edge-control {
+  opacity: 1;
+  pointer-events: auto;
+}
+.edge-drag {
+  width: 24px;
+  height: 56px;
+  padding: 0 6px 0 0;
+  border-radius: 0;
+  cursor: grab;
+  touch-action: none;
+}
+.edge-widget[data-dragging="true"] .edge-drag {
+  cursor: grabbing;
+}
+.edge-close {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  border: 2px solid var(--card);
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .edge-surface,
+  .edge-control {
+    transition: none;
+  }
+}
+@media (hover: none) {
+  .edge-surface {
+    width: 80px;
+  }
+  .edge-control {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}

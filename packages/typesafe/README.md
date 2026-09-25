@@ -79,7 +79,7 @@ of this package's API. Custom transports must also avoid logging request bodies.
 The SDK supplies compile-time answer types, not runtime response-schema
 validation. Validate at the consuming boundary if a use case requires it.
 
-## Résumé Studio configuration
+## VS:Résumé configuration
 
 The app's server-only module `apps/web/src/server/typesafe.ts` exports
 `createTypeSafeClientFromEnv()`. It reads configuration on each factory call,

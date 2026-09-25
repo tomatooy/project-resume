@@ -50,7 +50,11 @@
     "sonner": "^2.0.8",
     "streamdown": "^2.6.0",
     "tailwindcss": "^4",
-    "zod": "^4.5.4"
+    "zod": "^4.5.4",
+    "@workspace/api": "workspace:*",
+    "@orpc/server": "^1.13.0",
+    "@orpc/openapi": "^1.13.0",
+    "@orpc/zod": "^1.13.0"
   },
   "devDependencies": {
     "@ai-sdk/provider": "4.0.10",
@@ -67,6 +71,7 @@
     "typescript": "^6",
     "vite": "^8",
     "vitest": "^3",
-    "wrangler": "^4.128.0"
+    "wrangler": "^4.128.0",
+    "@cloudflare/workers-types": "latest"
   }
 }

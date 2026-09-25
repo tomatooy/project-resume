@@ -27,6 +27,7 @@ export function createJobParser(models: Models): JobParser {
         prompt: `Job posting:\n\n${input.text}`,
         providerOptions: models.providerOptions,
         abortSignal: input.signal,
+        maxRetries: 1,
       })
       return { parsed: result.output, model: models.ids.smart }
     },
@@ -64,6 +65,7 @@ export function createResumeTailor(models: Models): ResumeTailor {
           .join("\n"),
         providerOptions: models.providerOptions,
         abortSignal: input.signal,
+        maxRetries: 1,
       })
       return { parsed: result.output, model: models.ids.smart }
     },

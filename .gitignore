@@ -31,3 +31,5 @@ ds-bundle/
 packages/ui/.ds-css/ds.css
 
 .pi
+
+!apps/extension/.env.example

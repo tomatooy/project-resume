@@ -11,7 +11,8 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "db:test": "bun run --filter @workspace/supabase test:db",
-    "db:check": "bun run --filter web db:check"
+    "db:check": "bun run --filter web db:check",
+    "build:extension": "bun run --filter @workspace/extension build"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",
