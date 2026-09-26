@@ -4,6 +4,7 @@ import { contentHash, ResumeSchema } from "@workspace/resume-schema"
 import { AppError } from "../domain/errors"
 import { MAX_JOB_CHARS, MIN_JOB_CHARS } from "../domain/job-target"
 import { normalizeLinkedInJobUrl } from "../domain/linkedin"
+import { TailorOptionsSchema, type TailorOptions } from "../domain/tailor-input"
 import type { ResumeSummary } from "../domain/resume"
 import { jobIdentityFromUrl } from "../domain/job-identity"
 import { finishTailoredDocument, tailorNames } from "./tailor-generation"
@@ -24,7 +25,7 @@ import type { VersionService } from "./version-service"
  */
 export const TAILOR_SKILL_ID = "tailor_from_job"
 
-export type TailorFromJobInput = {
+export type TailorFromJobInput = TailorOptions & {
   sourceResumeId: string
   jobText: string
   /** The canonical LinkedIn URL, when the text was fetched rather than pasted. */
@@ -93,6 +94,12 @@ export class TailorService {
   }
 
   async tailorFromJob(input: TailorFromJobInput): Promise<TailorFromJobResult> {
+    const options = TailorOptionsSchema.safeParse(input)
+    if (!options.success)
+      throw new AppError(
+        "VALIDATION",
+        "Invalid tailoring instructions or application link"
+      )
     const text = input.jobText.trim()
     if (text.length < MIN_JOB_CHARS) {
       throw new AppError(
@@ -124,6 +131,7 @@ export class TailorService {
         externalJobId: null,
       }),
       sourceUrl: input.sourceUrl ?? null,
+      applyUrl: options.data.applyUrl ?? null,
       rawText: text,
       title: posting.title,
       company: posting.company,
@@ -165,6 +173,7 @@ export class TailorService {
       const { parsed, model } = await this.resumeTailor.tailor({
         resume: source.data,
         posting,
+        additionalInstruction: options.data.additionalInstruction,
         signal: input.signal,
       })
 

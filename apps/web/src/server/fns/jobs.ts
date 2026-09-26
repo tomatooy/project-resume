@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start"
-import { MAX_JOB_CHARS } from "@workspace/resume-core"
+import { MAX_JOB_CHARS, TailorOptionsSchema } from "@workspace/resume-core"
 import { z } from "zod"
 
 import { serve } from "../handler"
@@ -39,7 +39,7 @@ export const fetchJobPosting = createServerFn({ method: "POST" })
  */
 export const tailorFromJob = createServerFn({ method: "POST" })
   .validator(
-    z.object({
+    TailorOptionsSchema.extend({
       sourceResumeId: z.uuid(),
       jobText: z.string().max(MAX_JOB_CHARS),
       sourceUrl: z.string().max(2000).optional(),

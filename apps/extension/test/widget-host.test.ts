@@ -64,4 +64,26 @@ it("pins to the right, clamps movement, ignores other frames and hides on dismis
   expect(frame.src).toBe("chrome-extension://extension/widget.html")
   expect(host.style.width).toBe("96px")
   expect(host.style.display).toBe("block")
+  const link = document.createElement("a")
+  link.setAttribute("aria-label", "Apply on company website")
+  link.href =
+    "https://www.linkedin.com/safety/go/?url=https%3A%2F%2Fjobs.example.test%2F123"
+  document.body.append(link)
+  const capture = vi.fn()
+  listener.mock.calls[0]?.[0](
+    { type: "capture-apply-link", jobId: "123456" },
+    { id: "other" },
+    capture
+  )
+  expect(capture).not.toHaveBeenCalled()
+  listener.mock.calls[0]?.[0](
+    { type: "capture-apply-link", jobId: "123456" },
+    { id: "extension" },
+    capture
+  )
+  expect(capture).toHaveBeenCalledWith({
+    sourceUrl: document.location.href,
+    applyUrl: "https://jobs.example.test/123",
+  })
+  link.remove()
 })

@@ -2,6 +2,7 @@ import { z } from "zod"
 import { JobIdentitySchema } from "./job-identity"
 import { MAX_JOB_CHARS, MIN_JOB_CHARS } from "./job-target"
 import { matchesJobUrl } from "./linkedin-extension"
+import { AdditionalInstructionSchema, ApplyUrlSchema } from "./tailor-input"
 
 export const ATTEMPT_MS = 5 * 60_000
 export const CREDENTIAL_MARGIN_MS = 60_000
@@ -35,6 +36,7 @@ export const TailorOperationSchema = z.object({
   dispatchAfter: z.iso.datetime({ offset: true }).nullable().optional(),
   errorClass: OperationErrorSchema.nullable(),
   agentRunId: z.uuid().nullable(),
+  additionalInstruction: AdditionalInstructionSchema.default(""),
 })
 export type TailorOperation = z.infer<typeof TailorOperationSchema>
 export type OperationError = z.infer<typeof OperationErrorSchema>
@@ -44,6 +46,7 @@ export const JobLookupSchema = z.discriminatedUnion("kind", [
     kind: z.literal("bound"),
     identity: JobIdentitySchema,
     resumeId: z.uuid(),
+    applyUrl: ApplyUrlSchema.nullable().default(null),
     operation: TailorOperationSchema,
     canRetry: z.boolean(),
     canCancel: z.boolean(),
@@ -54,12 +57,15 @@ export const TailorAdmissionSchema = JobIdentitySchema.extend({
   sourceResumeId: z.uuid(),
   jobText: z.string().trim().min(MIN_JOB_CHARS).max(MAX_JOB_CHARS),
   sourceUrl: z.url().max(2000),
+  applyUrl: ApplyUrlSchema.nullable().optional(),
+  additionalInstruction: AdditionalInstructionSchema.optional(),
   idempotencyKey: z.uuid(),
 }).refine((input) => matchesJobUrl(input, input.sourceUrl), {
   message: "Job identity does not match the selected page",
 })
 export type TailorAdmission = z.infer<typeof TailorAdmissionSchema>
 export const TailorRetrySchema = JobIdentitySchema.extend({
+  additionalInstruction: AdditionalInstructionSchema.optional(),
   expectedOperationId: z.uuid(),
   idempotencyKey: z.uuid(),
 })
@@ -69,12 +75,14 @@ export function isActive(operation: TailorOperation): boolean {
 }
 export function boundJob(
   identity: z.infer<typeof JobIdentitySchema>,
-  operation: TailorOperation
+  operation: TailorOperation,
+  applyUrl: string | null = null
 ): JobLookup {
   return {
     kind: "bound",
     identity,
     resumeId: operation.resumeId,
+    applyUrl,
     operation,
     canRetry: operation.status === "failed" || operation.status === "cancelled",
     canCancel: isActive(operation),

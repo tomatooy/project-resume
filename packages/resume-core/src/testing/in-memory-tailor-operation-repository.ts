@@ -59,7 +59,10 @@ export class InMemoryTailorOperationRepository
     ) {
       return { kind: "none" }
     }
-    return boundJob(identity, operation)
+    const target = this.db.jobTargets.find(
+      (row) => row.id === operation.jobTargetId
+    )
+    return boundJob(identity, operation, target?.applyUrl ?? null)
   }
   async claimDispatch(id: string): Promise<string | null> {
     return this.locked(async () => {
@@ -190,6 +193,7 @@ export class InMemoryTailorOperationRepository
           platform: input.platform,
           externalJobId: input.externalJobId,
           sourceUrl: input.sourceUrl,
+          applyUrl: input.applyUrl ?? null,
           rawText: input.jobText,
           title: "",
           company: "",
@@ -228,6 +232,10 @@ export class InMemoryTailorOperationRepository
         structural: false,
       })
       const row: TailorOperation = {
+        additionalInstruction:
+          input.additionalInstruction ??
+          (retry ? old?.additionalInstruction : "") ??
+          "",
         legacy: false,
         id: this.db.uuid(),
         bindingId: old?.bindingId ?? this.db.uuid(),

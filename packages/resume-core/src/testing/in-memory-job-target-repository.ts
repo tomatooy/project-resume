@@ -25,6 +25,7 @@ export class InMemoryJobTargetRepository implements JobTargetRepository {
   async create(input: NewJobTarget): Promise<JobTarget> {
     const row: JobTarget = {
       ...input,
+      applyUrl: input.applyUrl ?? null,
       id: this.db.uuid(),
       createdAt: this.db.now().toISOString(),
     }

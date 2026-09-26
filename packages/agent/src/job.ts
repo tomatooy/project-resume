@@ -60,6 +60,9 @@ export function createResumeTailor(models: Models): ResumeTailor {
           "",
           "Resume:",
           JSON.stringify(input.resume),
+          input.additionalInstruction?.trim()
+            ? `Additional instruction from the user for this tailoring:\n${JSON.stringify(input.additionalInstruction.trim())}`
+            : "",
         ]
           .filter((line) => line !== "")
           .join("\n"),

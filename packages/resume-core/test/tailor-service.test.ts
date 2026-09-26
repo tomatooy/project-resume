@@ -67,11 +67,17 @@ describe("TailorService", () => {
       sourceResumeId: base.id,
       jobText: POSTING,
       sourceUrl: "https://www.linkedin.com/jobs/view/4456278957/",
+      applyUrl: "https://jobs.example.test/123",
+      additionalInstruction: "  Emphasize infrastructure work.  ",
     })
 
     const target = await h.jobTargets.findById(result.jobTargetId)
     expect(target?.company).toBe("Acme")
     expect(target?.rawText).toBe(POSTING)
+    expect(target?.applyUrl).toBe("https://jobs.example.test/123")
+    expect(h.resumeTailor.calls[0]?.additionalInstruction).toBe(
+      "Emphasize infrastructure work."
+    )
     expect(await h.jobTargets.listForResume(result.resume.id)).toEqual([target])
   })
 
@@ -144,5 +150,23 @@ describe("TailorService", () => {
     expect(runs).toHaveLength(1)
     expect(runs[0]?.resumeId).toBe(result.resume.id)
     expect(runs[0]?.hintSkillId).toBe("tailor_from_job")
+  })
+
+  it.each([
+    { additionalInstruction: "x".repeat(4001) },
+    { applyUrl: "javascript:alert(1)" },
+    { applyUrl: "not a URL" },
+  ])("rejects invalid tailoring options before model work", async (options) => {
+    const h = harness()
+    const base = await seed(h)
+    await expect(
+      h.tailorService.tailorFromJob({
+        sourceResumeId: base.id,
+        jobText: POSTING,
+        ...options,
+      })
+    ).rejects.toMatchObject({ code: "VALIDATION" })
+    expect(h.jobParser.calls).toHaveLength(0)
+    expect(await h.resumeService.list()).toHaveLength(1)
   })
 })

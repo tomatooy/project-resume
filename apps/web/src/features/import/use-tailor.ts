@@ -5,11 +5,7 @@ import { ApiError, type TailorFromJobResult } from "@/lib/types"
 
 export type TailorStage = "reading" | "writing"
 
-export type TailorInput = {
-  sourceResumeId: string
-  jobText: string
-  sourceUrl?: string
-}
+export type TailorInput = Parameters<typeof tailorFromJob>[0]
 
 /**
  * One generation, start to finish, inside the dialog.

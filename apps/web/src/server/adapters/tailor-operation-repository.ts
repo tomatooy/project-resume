@@ -1,5 +1,6 @@
 import {
   AppError,
+  ApplyUrlSchema,
   JobIdentitySchema,
   ParsedJobPostingSchema,
   TailorOperationSchema,
@@ -36,6 +37,7 @@ const RowSchema = z
     dispatch_after: z.string().nullable().optional(),
     error_class: z.string().nullable(),
     agent_run_id: z.string().nullable(),
+    additional_instruction: z.string().default(""),
   })
   .transform((r) =>
     TailorOperationSchema.parse({
@@ -53,6 +55,7 @@ const RowSchema = z
       dispatchAfter: r.dispatch_after,
       errorClass: r.error_class,
       agentRunId: r.agent_run_id,
+      additionalInstruction: r.additional_instruction,
     })
   )
 
@@ -73,6 +76,7 @@ export class SupabaseTailorOperationRepository
       return z
         .object({
           operation: RowSchema.nullable(),
+          apply_url: ApplyUrlSchema.nullable(),
           legacy_resume_id: z.uuid().nullable(),
         })
         .parse(data)
@@ -98,7 +102,7 @@ export class SupabaseTailorOperationRepository
     if (!operation) return { kind: "none" }
     if (isActive(operation) && Date.parse(operation.deadline) <= Date.now())
       operation = await this.transition(operation.id, "reconcile")
-    return boundJob(identity, operation)
+    return boundJob(identity, operation, result.apply_url)
   }
   async claimDispatch(id: string): Promise<string | null> {
     const { data, error } = await this.db.rpc("claim_tailor_dispatch", {

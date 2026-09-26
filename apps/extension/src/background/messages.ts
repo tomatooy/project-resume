@@ -1,11 +1,15 @@
 import { z } from "zod"
-import { linkedinExtensionPage } from "@workspace/resume-core/contracts"
+import {
+  ApplyUrlSchema,
+  linkedinExtensionPage,
+} from "@workspace/resume-core/contracts"
 import { JobPostingSchema } from "@workspace/api/contract"
 import { account, connect, disconnect } from "../lib/auth"
 import { api } from "../lib/api"
 import { config } from "../lib/config"
 import {
   MessageSchema,
+  ApplyLinkCaptureSchema,
   ResumePageMessageSchema,
   type Message,
   type Snapshot,
@@ -112,7 +116,19 @@ async function execute(
   )
     throw new Error("The selected job changed. Try again.")
   const found = await api.jobs.lookup(message.identity)
-  if (message.type === "edit") {
+  if (message.type === "apply") {
+    if (
+      found.kind !== "bound" ||
+      found.resumeId !== message.resumeId ||
+      found.operation.status !== "succeeded"
+    )
+      throw new Error("Resume is not ready")
+    const link = ApplyUrlSchema.safeParse(found.applyUrl)
+    if (!link.success) throw new Error("Application link is unavailable")
+    if ((await account())?.id !== user.id)
+      throw new Error("Account changed. Try again.")
+    await chrome.tabs.create({ url: link.data })
+  } else if (message.type === "edit") {
     if (found.kind !== "bound" || found.resumeId !== message.resumeId)
       throw new Error("Resume is no longer available")
     await chrome.tabs.create({
@@ -131,6 +147,7 @@ async function execute(
     await api.jobs.retry({
       ...message.identity,
       expectedOperationId: message.operationId,
+      additionalInstruction: message.additionalInstruction,
       idempotencyKey: request.key,
     })
     await chrome.storage.local.remove(request.storageKey)
@@ -152,6 +169,23 @@ async function execute(
       })
     const fetched = JobPostingSchema.safeParse(posting)
     if (!fetched.success) throw new CaptureError()
+    const capture = ApplyLinkCaptureSchema.safeParse(
+      await chrome.tabs
+        .sendMessage(
+          current.tab.id,
+          { type: "capture-apply-link", jobId: message.identity.externalJobId },
+          { frameId: 0 }
+        )
+        .catch(() => null)
+    )
+    if (capture.success) {
+      const capturedPage = linkedinExtensionPage(capture.data.sourceUrl)
+      if (
+        capturedPage.kind !== "job" ||
+        capturedPage.identity.externalJobId !== message.identity.externalJobId
+      )
+        throw new CaptureError()
+    }
     const latest = await activePage()
     const fetchedPage = linkedinExtensionPage(fetched.data.url)
     if (
@@ -170,6 +204,8 @@ async function execute(
         ...message.identity,
         sourceResumeId: message.sourceResumeId,
         sourceUrl: fetched.data.url,
+        applyUrl: capture.success ? capture.data.applyUrl : null,
+        additionalInstruction: message.additionalInstruction,
         jobText: fetched.data.text,
         idempotencyKey: request.key,
       })

@@ -1,6 +1,7 @@
 export * from "./domain/job-identity"
 export * from "./domain/linkedin-extension"
 export * from "./domain/tailor-operation"
+export * from "./domain/tailor-input"
 export * from "./domain/job-target"
 export {
   ResumeSummarySchema,

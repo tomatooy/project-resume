@@ -14,6 +14,8 @@ async function setup() {
     sourceResumeId: base.id,
     sourceUrl: "https://www.linkedin.com/jobs/view/123456",
     jobText: "A detailed description for an engineering position. ".repeat(8),
+    applyUrl: "https://jobs.example.test/123",
+    additionalInstruction: "Emphasize backend work.",
     idempotencyKey: crypto.randomUUID(),
   }
   const found = await services.operations.admit(input)
@@ -21,6 +23,57 @@ async function setup() {
   return { ports, services, base, input, op: found.operation }
 }
 describe("durable tailoring", () => {
+  it("persists the application link and delivers saved instructions after restarting services", async () => {
+    const { ports, op } = await setup()
+    const resumed = createServices(ports)
+    await resumed.operations.parse(op.id)
+    await resumed.operations.generate(op.id)
+    expect(ports.resumeTailor.calls[0]?.additionalInstruction).toBe(
+      "Emphasize backend work."
+    )
+    expect(await ports.jobTargets.findById(op.jobTargetId)).toMatchObject({
+      applyUrl: "https://jobs.example.test/123",
+    })
+    expect(await resumed.operations.lookup(identity)).toMatchObject({
+      applyUrl: "https://jobs.example.test/123",
+    })
+    await resumed.operations.cancel(op.id)
+    const retry = await resumed.operations.retry({
+      ...identity,
+      expectedOperationId: op.id,
+      idempotencyKey: crypto.randomUUID(),
+      additionalInstruction: "Keep every project.",
+    })
+    if (retry.kind !== "bound") throw new Error("Missing retry")
+    expect(retry.applyUrl).toBe("https://jobs.example.test/123")
+    await resumed.operations.generate(retry.operation.id)
+    expect(ports.resumeTailor.calls[1]?.additionalInstruction).toBe(
+      "Keep every project."
+    )
+    expect((await resumed.operations.get(op.id)).additionalInstruction).toBe(
+      "Emphasize backend work."
+    )
+  })
+
+  it("preserves instructions when a retry omits them and allows explicitly clearing them", async () => {
+    const { services, op } = await setup()
+    await services.operations.cancel(op.id)
+    const retry = await services.operations.retry({
+      ...identity,
+      expectedOperationId: op.id,
+      idempotencyKey: crypto.randomUUID(),
+    })
+    if (retry.kind !== "bound") throw new Error("Missing retry")
+    expect(retry.operation.additionalInstruction).toBe(op.additionalInstruction)
+    await services.operations.cancel(retry.operation.id)
+    const cleared = await services.operations.retry({
+      ...identity,
+      expectedOperationId: retry.operation.id,
+      idempotencyKey: crypto.randomUUID(),
+      additionalInstruction: "",
+    })
+    expect(cleared).toMatchObject({ operation: { additionalInstruction: "" } })
+  })
   it("leases one dispatch across simultaneous recovery requests", async () => {
     const { services, ports, op } = await setup()
     const claims = await Promise.all(

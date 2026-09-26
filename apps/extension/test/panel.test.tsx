@@ -37,9 +37,11 @@ function snapshot(
       kind: "bound",
       identity: { platform: "linkedin", externalJobId: "123456" },
       resumeId: id,
+      applyUrl: "https://jobs.example.test/123456",
       canRetry: status === "failed" || status === "cancelled",
       canCancel: status === "queued",
       operation: {
+        additionalInstruction: "",
         legacy: false,
         id,
         bindingId: id,
@@ -112,6 +114,109 @@ it("reopens a saved success without offering generation", async () => {
   await waitFor(() =>
     expect(mock.send).toHaveBeenCalledWith(
       expect.objectContaining({ type: "edit", resumeId: id })
+    )
+  )
+  client.clear()
+})
+
+it("shows Go apply beside Edit resume and sends the bound resume identity", async () => {
+  mock.send.mockResolvedValue(snapshot("succeeded"))
+  const client = mount()
+  const apply = await screen.findByRole("button", { name: "Go apply →" })
+  expect(apply.parentElement).toBe(
+    screen.getByRole("button", { name: "Edit resume" }).parentElement
+  )
+  fireEvent.click(apply)
+  await waitFor(() =>
+    expect(mock.send).toHaveBeenCalledWith({
+      type: "apply",
+      resumeId: id,
+      identity: { platform: "linkedin", externalJobId: "123456" },
+    })
+  )
+  client.clear()
+})
+
+it("disables Go apply when a ready resume has no saved application link", async () => {
+  const ready = snapshot("succeeded")
+  if (ready.lookup?.kind !== "bound") throw new Error("Missing binding")
+  ready.lookup.applyUrl = null
+  mock.send.mockResolvedValue(ready)
+  const client = mount()
+  expect(
+    await screen.findByRole("button", { name: "Go apply →" })
+  ).toHaveProperty("disabled", true)
+  client.clear()
+})
+
+it("submits per-job instructions and clears the draft when the selected job changes", async () => {
+  const first: Snapshot = {
+    ...snapshot("succeeded"),
+    lookup: { kind: "none" },
+    resumes: [
+      {
+        id,
+        title: "Base",
+        subtitle: "",
+        templateId: "lisbon",
+        updatedAt: "2026-09-25T00:00:00Z",
+      },
+    ],
+  }
+  mock.send.mockResolvedValue(first)
+  const client = mount()
+  const field = await screen.findByLabelText(/Additional instruction/)
+  fireEvent.change(field, { target: { value: "Keep the resume concise." } })
+  fireEvent.click(screen.getByRole("button", { name: "Tailor resume" }))
+  await waitFor(() =>
+    expect(mock.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "tailor",
+        additionalInstruction: "Keep the resume concise.",
+      })
+    )
+  )
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Tailor resume" })
+    ).toHaveProperty("disabled", false)
+  )
+  mock.send.mockResolvedValue({
+    ...first,
+    page: {
+      kind: "job",
+      identity: { platform: "linkedin", externalJobId: "654321" },
+      sourceUrl: "https://www.linkedin.com/jobs/view/654321/",
+    },
+  })
+  await act(async () => {
+    await client.invalidateQueries()
+  })
+  await waitFor(() =>
+    expect(screen.getByLabelText(/Additional instruction/)).toHaveProperty(
+      "value",
+      ""
+    )
+  )
+  client.clear()
+})
+
+it("restores saved instructions for retry and submits an edited requirement", async () => {
+  const failed = snapshot("failed")
+  if (failed.lookup?.kind !== "bound") throw new Error("Missing operation")
+  failed.lookup.operation.additionalInstruction = "Emphasize backend work."
+  mock.send.mockResolvedValue(failed)
+  const client = mount()
+  const field = await screen.findByLabelText(/Additional instruction/)
+  expect(field).toHaveProperty("value", "Emphasize backend work.")
+  fireEvent.change(field, { target: { value: "Keep all projects." } })
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+  await waitFor(() =>
+    expect(mock.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "retry",
+        additionalInstruction: "Keep all projects.",
+      })
     )
   )
   client.clear()

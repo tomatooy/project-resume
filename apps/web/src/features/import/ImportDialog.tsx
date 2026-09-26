@@ -117,7 +117,10 @@ export function ImportDialog({
         onOpenChange(next)
       }}
     >
-      <DialogContent className="sm:max-w-[520px]" showCloseButton={!busy}>
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[520px]"
+        showCloseButton={!busy}
+      >
         <DialogHeader>
           <DialogTitle>New resume</DialogTitle>
           <DialogDescription>

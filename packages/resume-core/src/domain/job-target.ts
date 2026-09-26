@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { NullableJobIdentitySchema } from "./job-identity"
+import { ApplyUrlSchema } from "./tailor-input"
 
 /**
  * The model's reading of a posting. Flat arrays of short strings, for the same
@@ -31,6 +32,7 @@ export const JobTargetSchema = z
   .object({
     id: z.string(),
     sourceUrl: z.string().nullable(),
+    applyUrl: ApplyUrlSchema.nullable().default(null),
     rawText: z.string(),
     title: z.string(),
     company: z.string(),
@@ -43,6 +45,7 @@ export type JobTarget = z.infer<typeof JobTargetSchema>
 export const NewJobTargetSchema = z
   .object({
     sourceUrl: z.string().nullable(),
+    applyUrl: ApplyUrlSchema.nullable().optional(),
     rawText: z.string(),
     title: z.string(),
     company: z.string(),

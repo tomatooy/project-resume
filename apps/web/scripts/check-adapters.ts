@@ -425,9 +425,10 @@ check(
 )
 
 console.log("durable tailoring")
+const tailorWriter = new StubResumeTailor()
 const operationPorts = supabasePorts(dbA, USER_A, {
   jobParser: new StubJobParser(),
-  resumeTailor: new StubResumeTailor(),
+  resumeTailor: tailorWriter,
 })
 const durable = createServices(operationPorts)
 const identity = {
@@ -438,6 +439,8 @@ const admission = {
   ...identity,
   sourceResumeId: created.id,
   sourceUrl: `https://www.linkedin.com/jobs/view/${identity.externalJobId}`,
+  applyUrl: `https://jobs.example.test/${identity.externalJobId}`,
+  additionalInstruction: "Emphasize backend work.",
   jobText:
     "An engineering role building useful products with a collaborative team. ".repeat(
       8
@@ -454,6 +457,27 @@ const simultaneous = await Promise.all([
 const initial = simultaneous[0]
 if (initial?.kind !== "bound") throw new Error("Admission did not bind")
 check(
+  "admission returns its application URL",
+  initial.applyUrl === admission.applyUrl
+)
+const applyLookupRequests = databaseRequests
+const reopened = await durable.operations.lookup(identity)
+check(
+  "reopened lookup returns the saved application URL in one request",
+  reopened.kind === "bound" &&
+    reopened.applyUrl === admission.applyUrl &&
+    databaseRequests - applyLookupRequests === 1
+)
+check(
+  "admission instruction survives the row mapper",
+  initial.operation.additionalInstruction === admission.additionalInstruction
+)
+check(
+  "the clone retains its application URL",
+  (await operationPorts.jobTargets.listForResume(initial.resumeId))[0]
+    ?.applyUrl === admission.applyUrl
+)
+check(
   "concurrent admission creates one resume",
   simultaneous.every(
     (r) => r.kind === "bound" && r.resumeId === initial.resumeId
@@ -465,6 +489,11 @@ check(
 )
 await durable.operations.parse(initial.operation.id)
 await durable.operations.generate(initial.operation.id)
+check(
+  "generation receives the saved instruction",
+  tailorWriter.calls.at(-1)?.additionalInstruction ===
+    admission.additionalInstruction
+)
 await durable.operations.cancel(initial.operation.id)
 await durable.operations.complete(initial.operation.id)
 check(
@@ -493,6 +522,10 @@ check(
   )
 )
 check("retry keeps clone", retried.resumeId === initial.resumeId)
+check(
+  "retry retains its instruction",
+  retried.operation.additionalInstruction === admission.additionalInstruction
+)
 await durable.operations.parse(retried.operation.id)
 await durable.operations.generate(retried.operation.id)
 const copy = await durable.resumes.get(retried.resumeId)
@@ -510,11 +543,16 @@ check(
 const recovery = await durable.operations.retry({
   ...identity,
   expectedOperationId: retried.operation.id,
+  additionalInstruction: "Keep all projects.",
   idempotencyKey: crypto.randomUUID(),
 })
 if (recovery.kind !== "bound") throw new Error("Missing recovery")
 await durable.operations.parse(recovery.operation.id)
 await durable.operations.generate(recovery.operation.id)
+check(
+  "retry can replace the instruction passed to the model",
+  tailorWriter.calls.at(-1)?.additionalInstruction === "Keep all projects."
+)
 await durable.operations.complete(recovery.operation.id)
 check(
   "recovery commits a version and readiness",
@@ -551,8 +589,20 @@ const legacyIdentity = {
 const legacy = await durable.tailor.tailorFromJob({
   sourceResumeId: created.id,
   sourceUrl: `https://www.linkedin.com/jobs/view/${legacyIdentity.externalJobId}`,
+  applyUrl: `https://jobs.example.test/${legacyIdentity.externalJobId}`,
+  additionalInstruction: "Keep the summary concise.",
   jobText: admission.jobText,
 })
+check(
+  "web creation writes the application URL through the target adapter",
+  (await operationPorts.jobTargets.listForResume(legacy.resume.id))[0]
+    ?.applyUrl === `https://jobs.example.test/${legacyIdentity.externalJobId}`
+)
+check(
+  "web creation passes its instruction to the model",
+  tailorWriter.calls.at(-1)?.additionalInstruction ===
+    "Keep the summary concise."
+)
 const adopted = await durable.operations.lookup(legacyIdentity)
 check(
   "legacy completed run with a version is adopted",

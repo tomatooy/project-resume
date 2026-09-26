@@ -237,13 +237,14 @@ export type Database = {
       }
       job_targets: {
         Row: {
+          apply_url: string | null
           company: string
           created_at: string
           external_job_id: string | null
           id: string
           location: string | null
           parsed_at: string | null
-          platform: string | null
+          platform: Database["public"]["Enums"]["job_platform"] | null
           raw_text: string
           requirements: Json
           source_url: string | null
@@ -251,13 +252,14 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          apply_url?: string | null
           company?: string
           created_at?: string
           external_job_id?: string | null
           id?: string
           location?: string | null
           parsed_at?: string | null
-          platform?: string | null
+          platform?: Database["public"]["Enums"]["job_platform"] | null
           raw_text: string
           requirements?: Json
           source_url?: string | null
@@ -265,13 +267,14 @@ export type Database = {
           user_id: string
         }
         Update: {
+          apply_url?: string | null
           company?: string
           created_at?: string
           external_job_id?: string | null
           id?: string
           location?: string | null
           parsed_at?: string | null
-          platform?: string | null
+          platform?: Database["public"]["Enums"]["job_platform"] | null
           raw_text?: string
           requirements?: Json
           source_url?: string | null
@@ -614,6 +617,7 @@ export type Database = {
       }
       tailor_operations: {
         Row: {
+          additional_instruction: string
           agent_run_id: string | null
           attempt: number
           binding_id: string
@@ -634,6 +638,7 @@ export type Database = {
           workflow_id: string
         }
         Insert: {
+          additional_instruction?: string
           agent_run_id?: string | null
           attempt: number
           binding_id: string
@@ -654,6 +659,7 @@ export type Database = {
           workflow_id: string
         }
         Update: {
+          additional_instruction?: string
           agent_run_id?: string | null
           attempt?: number
           binding_id?: string
@@ -883,6 +889,7 @@ export type Database = {
     }
     Enums: {
       created_by_kind: "user" | "agent" | "system"
+      job_platform: "linkedin" | "indeed"
       message_role: "user" | "assistant" | "system"
       patch_op:
         | "replace_text"
@@ -1023,6 +1030,7 @@ export const Constants = {
   public: {
     Enums: {
       created_by_kind: ["user", "agent", "system"],
+      job_platform: ["linkedin", "indeed"],
       message_role: ["user", "assistant", "system"],
       patch_op: [
         "replace_text",

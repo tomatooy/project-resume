@@ -5,6 +5,8 @@ import {
 import { z } from "zod"
 import {
   JobIdentitySchema,
+  ApplyUrlSchema,
+  AdditionalInstructionSchema,
   JobLookupSchema,
   ResumeSummarySchema,
 } from "@workspace/resume-core/contracts"
@@ -27,17 +29,24 @@ export const SnapshotSchema = z.object({
   lastBaseId: z.string().nullable(),
 })
 export type Snapshot = z.infer<typeof SnapshotSchema>
+export const ApplyLinkCaptureSchema = z.object({
+  sourceUrl: z.url(),
+  applyUrl: ApplyUrlSchema.nullable(),
+})
+export type ApplyLinkCapture = z.infer<typeof ApplyLinkCaptureSchema>
 export const MessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("state") }),
   z.object({ type: z.literal("connect") }),
   z.object({ type: z.literal("disconnect") }),
   z.object({
     type: z.literal("tailor"),
+    additionalInstruction: AdditionalInstructionSchema.optional(),
     sourceResumeId: z.uuid(),
     identity: JobIdentitySchema,
   }),
   z.object({
     type: z.literal("retry"),
+    additionalInstruction: AdditionalInstructionSchema.optional(),
     operationId: z.uuid(),
     identity: JobIdentitySchema,
   }),
@@ -48,6 +57,11 @@ export const MessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("edit"),
+    resumeId: z.uuid(),
+    identity: JobIdentitySchema,
+  }),
+  z.object({
+    type: z.literal("apply"),
     resumeId: z.uuid(),
     identity: JobIdentitySchema,
   }),

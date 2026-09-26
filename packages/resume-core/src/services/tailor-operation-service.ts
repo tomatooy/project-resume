@@ -3,6 +3,7 @@ import { AppError } from "../domain/errors"
 import type { JobIdentity } from "../domain/job-identity"
 import {
   TailorAdmissionSchema,
+  TailorRetrySchema,
   boundJob,
   isActive,
   type TailorAdmission,
@@ -45,7 +46,7 @@ export class TailorOperationService {
     const source = await this.resumes.findById(input.sourceResumeId)
     if (!source) throw new AppError("NOT_FOUND", "Base resume not found")
     const document = regenerateIds(source.data)
-    return boundJob(
+    return this.bound(
       input,
       await this.operations.admit({
         ...checked.data,
@@ -56,6 +57,9 @@ export class TailorOperationService {
     )
   }
   async retry(input: TailorRetry): Promise<JobLookup> {
+    const checked = TailorRetrySchema.safeParse(input)
+    if (!checked.success)
+      throw new AppError("VALIDATION", "Invalid retry instructions")
     const found = await this.lookup(input)
     if (found.kind === "none")
       throw new AppError("NOT_FOUND", "Resume not found")
@@ -64,10 +68,13 @@ export class TailorOperationService {
       await this.operations.transition(found.operation.id, "reconcile")
     const resume = await this.resumes.findById(found.resumeId)
     if (!resume) throw new AppError("NOT_FOUND", "Resume not found")
-    return boundJob(
+    return this.bound(
       input,
       await this.operations.admit({
-        ...input,
+        ...checked.data,
+        additionalInstruction:
+          checked.data.additionalInstruction ??
+          found.operation.additionalInstruction,
         expectedRevision: resume.revision,
         document: resume.data,
         contentHash: await contentHash(resume.data),
@@ -75,13 +82,20 @@ export class TailorOperationService {
     )
   }
   async cancel(id: string): Promise<JobLookup> {
-    return boundJob(
+    return this.bound(
       await this.operations.identity(id),
       await this.operations.transition(id, "cancel")
     )
   }
   get(id: string) {
     return this.operations.get(id)
+  }
+  private async bound(
+    identity: JobIdentity,
+    operation: TailorOperation
+  ): Promise<JobLookup> {
+    const target = await this.targets.findById(operation.jobTargetId)
+    return boundJob(identity, operation, target?.applyUrl ?? null)
   }
   fail(id: string, reason: OperationError) {
     return this.operations.fail(id, reason)
@@ -122,6 +136,7 @@ export class TailorOperationService {
     const { parsed, model } = await this.writer.tailor({
       resume: snapshot.content,
       posting,
+      additionalInstruction: operation.additionalInstruction,
       signal: this.signal(operation),
     })
     await this.operations.recordModel(id, model)

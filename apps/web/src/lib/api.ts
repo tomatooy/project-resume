@@ -174,7 +174,7 @@ export async function importResume(
 export async function fetchJobPosting(
   input: { url: string },
   signal?: AbortSignal
-): Promise<{ url: string; text: string }> {
+): Promise<Awaited<ReturnType<typeof fetchJobPostingFn>>> {
   try {
     return await fetchJobPostingFn({ data: input, signal })
   } catch (error) {
@@ -188,7 +188,7 @@ export async function fetchJobPosting(
  * dialog says which one they got.
  */
 export async function tailorFromJob(
-  input: { sourceResumeId: string; jobText: string; sourceUrl?: string },
+  input: Parameters<typeof tailorFromJobFn>[0]["data"],
   signal?: AbortSignal
 ): Promise<TailorFromJobResult> {
   try {

@@ -68,6 +68,48 @@ describe("shared API HTTP and SSR", () => {
       )
     )
   })
+  it("stores the extension application link with the fetched job and tailored copy", async () => {
+    const applyUrl = "https://jobs.example.test/engineering/123?source=linkedin"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            `<p>${"Build software. ".repeat(30)}</p><a href="${applyUrl}" aria-label="Apply on company website">Apply</a>`
+          )
+      )
+    )
+    const ports = inMemoryPorts()
+    const services = createServices({
+      ...ports,
+      jobFetcher: new WorkerJobFetcher(),
+    })
+    const base = await services.resumes.create({ title: "Base" })
+    const posting = await services.tailor.fetchPosting(
+      "https://www.linkedin.com/jobs/view/123456/"
+    )
+    const result = await services.operations.admit({
+      sourceResumeId: base.id,
+      sourceUrl: posting.url,
+      jobText: posting.text,
+      platform: "linkedin",
+      externalJobId: "123456",
+      idempotencyKey: crypto.randomUUID(),
+      applyUrl,
+      additionalInstruction: "Emphasize backend engineering.",
+    })
+    expect(posting).not.toHaveProperty("applyUrl")
+    if (result.kind !== "bound") throw new Error("Missing binding")
+    expect(result.applyUrl).toBe(applyUrl)
+    await services.operations.parse(result.operation.id)
+    await services.operations.generate(result.operation.id)
+    expect(await ports.jobTargets.listForResume(result.resumeId)).toEqual([
+      expect.objectContaining({ applyUrl, sourceUrl: posting.url }),
+    ])
+    expect(ports.resumeTailor.calls[0]?.additionalInstruction).toBe(
+      "Emphasize backend engineering."
+    )
+  })
   it("preserves the web service's unreadable-posting failure", async () => {
     deps.context.mockResolvedValue({
       services: createServices(inMemoryPorts()),

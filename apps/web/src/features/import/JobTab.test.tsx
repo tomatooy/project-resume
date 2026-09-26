@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -67,6 +67,7 @@ async function expectBase(label: string): Promise<void> {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks()
   localStorage.clear()
   listResumes.mockResolvedValue([
     summary("a", "Base A"),
@@ -75,6 +76,97 @@ beforeEach(() => {
 })
 
 describe("JobTab", () => {
+  it("submits the fetched description and this tailoring's additional instruction", async () => {
+    const url = "https://www.linkedin.com/jobs/view/123456/"
+    fetchJobPosting.mockResolvedValue({
+      url,
+      text: "x".repeat(MIN_TEXT),
+    })
+    tailorFromJob.mockResolvedValue({ tailored: true })
+    renderTab({ sourceResumeId: "b" })
+    fireEvent.change(await screen.findByLabelText("LinkedIn job link"), {
+      target: { value: url },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Fetch" }))
+    await waitFor(() =>
+      expect(screen.getByLabelText("Job description")).toHaveValue(
+        "x".repeat(MIN_TEXT)
+      )
+    )
+    fireEvent.change(screen.getByLabelText(/Additional instruction/), {
+      target: { value: "Keep my research projects." },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Create resume" }))
+    await waitFor(() =>
+      expect(tailorFromJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceUrl: url,
+          additionalInstruction: "Keep my research projects.",
+        }),
+        expect.any(AbortSignal)
+      )
+    )
+  })
+
+  it("discards a fetch response after the job URL changes", async () => {
+    let finish: ((value: { url: string; text: string }) => void) | undefined
+    fetchJobPosting.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    )
+    renderTab({ sourceResumeId: "b" })
+    const input = await screen.findByLabelText("LinkedIn job link")
+    fireEvent.change(input, {
+      target: { value: "https://www.linkedin.com/jobs/view/123456/" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Fetch" }))
+    fireEvent.change(input, {
+      target: { value: "https://www.linkedin.com/jobs/view/654321/" },
+    })
+    await act(async () =>
+      finish?.({
+        url: "https://www.linkedin.com/jobs/view/123456/",
+        text: "x".repeat(MIN_TEXT),
+      })
+    )
+    expect(screen.getByLabelText("Job description")).toHaveValue("")
+    expect(screen.queryByRole("link", { name: /Application page/ })).toBeNull()
+  })
+
+  it("requires a fresh description before associating a fetched posting with another URL", async () => {
+    const url = "https://www.linkedin.com/jobs/view/123456/"
+    fetchJobPosting.mockResolvedValue({
+      url,
+      text: "x".repeat(MIN_TEXT),
+    })
+    tailorFromJob.mockResolvedValue({ tailored: true })
+    renderTab({ sourceResumeId: "b" })
+    const input = await screen.findByLabelText("LinkedIn job link")
+    fireEvent.change(input, { target: { value: url } })
+    fireEvent.click(screen.getByRole("button", { name: "Fetch" }))
+    await waitFor(() =>
+      expect(screen.getByLabelText("Job description")).toHaveValue(
+        "x".repeat(MIN_TEXT)
+      )
+    )
+    fireEvent.change(input, {
+      target: { value: "https://www.linkedin.com/jobs/view/654321/" },
+    })
+    expect(screen.getByRole("button", { name: "Create resume" })).toBeDisabled()
+    fireEvent.change(screen.getByLabelText("Job description"), {
+      target: { value: "New description ".repeat(30) },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Create resume" }))
+    await waitFor(() =>
+      expect(tailorFromJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceUrl: "https://www.linkedin.com/jobs/view/654321/",
+        }),
+        expect.any(AbortSignal)
+      )
+    )
+  })
   it("opens on the base resume used last time", async () => {
     localStorage.setItem(KEY, JSON.stringify("b"))
 

@@ -18,6 +18,7 @@ type Row = {
   platform: string | null
   external_job_id: string | null
   source_url: string | null
+  apply_url: string | null
   raw_text: string
   title: string
   company: string
@@ -27,7 +28,7 @@ type Row = {
 }
 
 const COLUMNS =
-  "id, platform, external_job_id, source_url, raw_text, title, company, location, requirements, created_at"
+  "id, platform, external_job_id, source_url, apply_url, raw_text, title, company, location, requirements, created_at"
 
 /** Empty rather than throwing: a posting whose requirements did not survive a
  *  schema change is still a posting, and the text is the part that matters. */
@@ -40,6 +41,7 @@ function toJobTarget(row: Row): JobTarget {
     externalJobId: row.external_job_id,
     id: row.id,
     sourceUrl: row.source_url,
+    applyUrl: row.apply_url,
     rawText: row.raw_text,
     title: row.title,
     company: row.company,
@@ -64,6 +66,7 @@ export class SupabaseJobTargetRepository implements JobTargetRepository {
         external_job_id: input.externalJobId,
         parsed_at: new Date().toISOString(),
         source_url: input.sourceUrl,
+        apply_url: input.applyUrl ?? null,
         raw_text: input.rawText,
         title: input.title,
         company: input.company,

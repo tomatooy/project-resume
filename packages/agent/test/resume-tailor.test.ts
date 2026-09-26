@@ -26,6 +26,7 @@ describe("createResumeTailor", () => {
     const result = await createResumeTailor(models).tailor({
       resume: starter,
       posting: POSTING,
+      additionalInstruction: "Emphasize backend work and write in Chinese.",
     })
 
     expect(result.model).toBe(models.ids.smart)
@@ -33,6 +34,8 @@ describe("createResumeTailor", () => {
     expect(prompt).toContain("Senior Engineer")
     expect(prompt).toContain("TypeScript")
     expect(prompt).toContain(starter.basics.name ?? "")
+    expect(prompt).toContain("Emphasize backend work and write in Chinese.")
+    expect(prompt).toContain("Additional instruction from the user")
   })
 
   it("tells the model how to name a skills group", async () => {

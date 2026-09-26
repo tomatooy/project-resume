@@ -29,6 +29,7 @@ These cover what lives in SQL and therefore cannot be reached from
 | `040_grants.test.sql` | `anon` and `service_role` are refused before RLS is consulted |
 | `060_skills.test.sql` | Description is required; when-to-use guidance is optional |
 | `050_memory.test.sql` | `create_memory_summary` inserts and activates in one call, and only for the owner |
+| `090_tailoring_inputs.test.sql` | Platform enum, application URL association, per-attempt instructions, retry semantics, and RLS |
 
 ## Two things to know before adding a test
 

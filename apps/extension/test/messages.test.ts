@@ -11,6 +11,8 @@ const mock = vi.hoisted(() => ({
   page: vi.fn(),
   summary: vi.fn(),
   storageGet: vi.fn(),
+  capture: vi.fn(),
+  openTab: vi.fn(),
 }))
 vi.mock("../src/lib/auth", () => ({
   account: mock.account,
@@ -63,7 +65,9 @@ beforeEach(() => {
   mock.lookup.mockResolvedValue({ kind: "none" })
   mock.page.mockResolvedValue({ items: [], nextCursor: null, total: 0 })
   mock.fetchPosting.mockResolvedValue({ url, text })
+  mock.capture.mockResolvedValue({ sourceUrl: url, applyUrl: null })
   vi.stubGlobal("chrome", {
+    tabs: { sendMessage: mock.capture, create: mock.openTab },
     storage: {
       local: {
         get: mock.storageGet,
@@ -154,10 +158,78 @@ it("fetches through the shared API and submits its canonical URL and text", asyn
     ...identity,
     sourceResumeId,
     sourceUrl: url,
+    applyUrl: null,
+    additionalInstruction: undefined,
     jobText: text,
     idempotencyKey: expect.any(String),
   })
 })
+it("passes the captured application link and the user's instruction to durable tailoring", async () => {
+  const applyUrl = "https://jobs.example.test/123"
+  mock.capture.mockResolvedValue({ sourceUrl: url, applyUrl })
+  await handleMessage({
+    ...message,
+    additionalInstruction: "Focus on leadership.",
+  })
+  expect(mock.tailor).toHaveBeenCalledWith(
+    expect.objectContaining({
+      applyUrl,
+      additionalInstruction: "Focus on leadership.",
+    })
+  )
+  expect(mock.capture).toHaveBeenCalledWith(
+    1,
+    { type: "capture-apply-link", jobId: identity.externalJobId },
+    { frameId: 0 }
+  )
+})
+it("rejects a capture from a different job", async () => {
+  mock.capture.mockResolvedValue({
+    sourceUrl: "https://www.linkedin.com/jobs/view/654321/",
+    applyUrl: "https://jobs.example.test/other",
+  })
+  await expect(handleMessage(message)).rejects.toThrow()
+  expect(mock.tailor).not.toHaveBeenCalled()
+})
+it("continues without an application URL if the content script is unavailable", async () => {
+  mock.capture.mockRejectedValue(new Error("No receiver"))
+  await handleMessage(message)
+  expect(mock.tailor).toHaveBeenCalledWith(
+    expect.objectContaining({ applyUrl: null })
+  )
+})
+it("opens the server's saved link for the ready resume", async () => {
+  mock.lookup.mockResolvedValue({
+    kind: "bound",
+    resumeId: sourceResumeId,
+    applyUrl: "https://jobs.example.test/saved",
+    operation: { status: "succeeded" },
+  })
+  await handleMessage({ type: "apply", identity, resumeId: sourceResumeId })
+  expect(mock.openTab).toHaveBeenCalledExactlyOnceWith({
+    url: "https://jobs.example.test/saved",
+  })
+  expect(mock.capture).not.toHaveBeenCalled()
+})
+it.each([
+  { status: "running", applyUrl: "https://jobs.example.test/saved" },
+  { status: "succeeded", applyUrl: null },
+  { status: "succeeded", applyUrl: "javascript:alert(1)" },
+])(
+  "does not open an unavailable application: %j",
+  async ({ status, applyUrl }) => {
+    mock.lookup.mockResolvedValue({
+      kind: "bound",
+      resumeId: sourceResumeId,
+      applyUrl,
+      operation: { status },
+    })
+    await expect(
+      handleMessage({ type: "apply", identity, resumeId: sourceResumeId })
+    ).rejects.toThrow()
+    expect(mock.openTab).not.toHaveBeenCalled()
+  }
+)
 it.each([
   ["654321", 1],
   ["123456", 2],

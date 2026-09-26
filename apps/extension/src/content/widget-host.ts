@@ -1,5 +1,84 @@
-// A classic content-script entry, kept free of module imports by the build.
+// The build keeps this classic content script self-contained.
 ;(() => {
+  function destination(href: string): string | null {
+    try {
+      let url = new URL(href, "https://www.linkedin.com")
+      const linkedin = () =>
+        url.hostname === "linkedin.com" ||
+        url.hostname.endsWith(".linkedin.com")
+      if (linkedin() && /^\/safety\/go\/?$/.test(url.pathname)) {
+        const targets = url.searchParams.getAll("url")
+        if (targets.length !== 1 || !targets[0]) return null
+        url = new URL(targets[0])
+      }
+      if (
+        linkedin() ||
+        !["https:", "http:"].includes(url.protocol) ||
+        url.username ||
+        url.password ||
+        url.href.length > 4_000
+      )
+        return null
+      return url.href
+    } catch {
+      return null
+    }
+  }
+
+  function available(anchor: HTMLAnchorElement, jobId: string): boolean {
+    for (let node: Element | null = anchor; node; node = node.parentElement) {
+      if (
+        node.hasAttribute("hidden") ||
+        node.hasAttribute("inert") ||
+        node.getAttribute("aria-hidden") === "true" ||
+        node.getAttribute("aria-disabled") === "true"
+      )
+        return false
+      const scopedJob = node.getAttribute("data-job-id")
+      if (scopedJob && scopedJob !== jobId) return false
+      const style = anchor.ownerDocument.defaultView?.getComputedStyle(node)
+      if (style?.display === "none" || style?.visibility === "hidden")
+        return false
+    }
+    return true
+  }
+
+  function captureApplyLink(
+    document: Document,
+    jobId: string
+  ): { sourceUrl: string; applyUrl: string | null } {
+    const candidates = new Map<string, number>()
+    for (const anchor of document.querySelectorAll<HTMLAnchorElement>(
+      "a[href]"
+    )) {
+      const label = (
+        anchor.getAttribute("aria-label") ||
+        anchor.textContent ||
+        ""
+      )
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase()
+      const tracking = anchor.getAttribute("data-tracking-control-name") ?? ""
+      const explicit =
+        /apply (?:directly )?on (?:the )?company website/.test(label) ||
+        tracking.endsWith("apply-link-offsite")
+      if ((!explicit && label !== "apply") || !available(anchor, jobId))
+        continue
+      const url = destination(anchor.getAttribute("href") ?? "")
+      if (url)
+        candidates.set(
+          url,
+          Math.max(candidates.get(url) ?? 0, explicit ? 2 : 1)
+        )
+    }
+    const best = Math.max(0, ...candidates.values())
+    const matches = [...candidates].filter(([, priority]) => priority === best)
+    return {
+      sourceUrl: document.location.href,
+      applyUrl: matches.length === 1 ? (matches[0]?.[0] ?? null) : null,
+    }
+  }
   if (document.getElementById("vs-resume-widget")) return
   const host = document.createElement("div")
   host.id = "vs-resume-widget"
@@ -100,6 +179,13 @@
       else if (message.type === "panel-open") {
         setExpanded(true)
         respond({ ok: true })
+      } else if (
+        message.type === "capture-apply-link" &&
+        "jobId" in message &&
+        typeof message.jobId === "string" &&
+        /^\d{6,}$/.test(message.jobId)
+      ) {
+        respond(captureApplyLink(document, message.jobId))
       }
     }
   })

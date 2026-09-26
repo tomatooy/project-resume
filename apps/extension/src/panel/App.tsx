@@ -9,6 +9,8 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import { Spinner } from "@workspace/ui/components/spinner"
+import { Textarea } from "@workspace/ui/components/textarea"
+import { MAX_ADDITIONAL_INSTRUCTION_CHARS } from "@workspace/resume-core/contracts"
 import {
   currentQuery,
   useBaseResumes,
@@ -23,6 +25,10 @@ export function App() {
   useRoutingRefresh()
   const state = useQuery(currentQuery())
   const action = useAction()
+  const [instructionDraft, setInstructionDraft] = useState<{
+    key: string
+    value: string
+  } | null>(null)
   const [selection, setSelection] = useState<{
     account: string
     id: string
@@ -40,6 +46,13 @@ export function App() {
   }
   const lookup = data?.lookup
   const page = data?.page
+  const instructionKey = `${data?.account?.id ?? ""}:${page?.kind === "job" ? page.identity.externalJobId : ""}:${lookup?.kind === "bound" ? lookup.operation.id : "new"}`
+  const additionalInstruction =
+    instructionDraft?.key === instructionKey
+      ? instructionDraft.value
+      : lookup?.kind === "bound"
+        ? lookup.operation.additionalInstruction
+        : ""
   const baseId =
     resumes.rows.find(
       (r) =>
@@ -52,6 +65,29 @@ export function App() {
     ""
   const message = action.error?.message ?? state.error?.message
   const pending = action.isPending
+  const instructionField = (
+    <div className="space-y-2">
+      <label htmlFor="additional-instruction" className="text-xs font-medium">
+        Additional instruction{" "}
+        <span className="font-normal text-muted-foreground">(optional)</span>
+      </label>
+      <Textarea
+        id="additional-instruction"
+        rows={3}
+        maxLength={MAX_ADDITIONAL_INSTRUCTION_CHARS}
+        disabled={pending}
+        value={additionalInstruction}
+        onChange={(event) =>
+          setInstructionDraft({
+            key: instructionKey,
+            value: event.target.value,
+          })
+        }
+        placeholder="For example, emphasize my backend work and keep the summary concise."
+        className="max-h-36 text-xs"
+      />
+    </div>
+  )
   let content: ReactNode
   if (state.isPending)
     content = (
@@ -160,6 +196,7 @@ export function App() {
               ? "Review your tailored resume in VS:Résumé."
               : "You can retry with the saved job description, or edit your copy."}
         </p>
+        {lookup.canRetry && instructionField}
         <div className="flex gap-2">
           {lookup.canRetry && (
             <Button
@@ -167,6 +204,7 @@ export function App() {
               onClick={() =>
                 act({
                   type: "retry",
+                  additionalInstruction,
                   operationId: op.id,
                   identity: page.identity,
                 })
@@ -188,7 +226,27 @@ export function App() {
           >
             Edit resume
           </Button>
+          {op.status === "succeeded" && (
+            <Button
+              variant="outline"
+              disabled={pending || !lookup.applyUrl}
+              onClick={() =>
+                act({
+                  type: "apply",
+                  resumeId: lookup.resumeId,
+                  identity: page.identity,
+                })
+              }
+            >
+              Go apply →
+            </Button>
+          )}
         </div>
+        {op.status === "succeeded" && !lookup.applyUrl && (
+          <p className="text-xs text-muted-foreground">
+            No external application link was found for this job.
+          </p>
+        )}
       </>
     )
   } else if (resumes.rows.length === 0)
@@ -249,6 +307,7 @@ export function App() {
             </Button>
           )}
         </div>
+        {instructionField}
         <Button
           className="w-full"
           disabled={!baseId || pending}
@@ -256,6 +315,7 @@ export function App() {
             if (page?.kind === "job")
               act({
                 type: "tailor",
+                additionalInstruction,
                 sourceResumeId: baseId,
                 identity: page.identity,
               })

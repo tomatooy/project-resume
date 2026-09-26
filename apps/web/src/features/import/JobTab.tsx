@@ -1,5 +1,8 @@
 import { SparkleIcon } from "@phosphor-icons/react"
-import { normalizeLinkedInJobUrl } from "@workspace/resume-core"
+import {
+  MAX_ADDITIONAL_INSTRUCTION_CHARS,
+  normalizeLinkedInJobUrl,
+} from "@workspace/resume-core"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import {
@@ -10,7 +13,7 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import { Textarea } from "@workspace/ui/components/textarea"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { z } from "zod"
 
 import { LoadMore } from "@/features/shell/LoadMore"
@@ -47,6 +50,11 @@ export function JobTab({
   const resumes = resumeList.data
   const [url, setUrl] = useState("")
   const [text, setText] = useState("")
+  const [additionalInstruction, setAdditionalInstruction] = useState("")
+  const [fetched, setFetched] = useState<{
+    url: string
+  } | null>(null)
+  const fetchSequence = useRef(0)
   const [picked, setPicked] = useState<string | null>(null)
   const [lastSource, rememberSource] = useLocalStorage(
     LAST_SOURCE_KEY,
@@ -95,7 +103,9 @@ export function JobTab({
 
   const ready =
     available.some((row) => row.id === source) &&
-    text.trim().length >= MIN_CHARS
+    text.trim().length >= MIN_CHARS &&
+    !fetching &&
+    (!fetched || fetched.url === target)
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -110,7 +120,10 @@ export function JobTab({
           <Input
             id="job-url"
             value={url}
-            onChange={(event) => setUrl(event.target.value)}
+            onChange={(event) => {
+              fetchSequence.current += 1
+              setUrl(event.target.value)
+            }}
             onBlur={() => setTouched(true)}
             onPaste={() => setTouched(true)}
             placeholder="https://www.linkedin.com/jobs/view/..."
@@ -123,8 +136,12 @@ export function JobTab({
             size="sm"
             disabled={target === null || fetching}
             onClick={() => {
+              const sequence = ++fetchSequence.current
               void fetchPosting(url).then((result) => {
-                if (result) setText(result.text)
+                if (result && sequence === fetchSequence.current) {
+                  setText(result.text)
+                  setFetched({ url: result.url })
+                }
               })
             }}
           >
@@ -134,6 +151,12 @@ export function JobTab({
         {badLink ? (
           <p id="job-url-error" className="mt-1 text-[11px] text-destructive">
             That is not a LinkedIn job link. Paste the description instead.
+          </p>
+        ) : null}
+        {fetched && fetched.url !== target ? (
+          <p className="mt-1.5 text-[11px] text-warning">
+            Fetch this job to update its description, or paste a new
+            description.
           </p>
         ) : null}
       </div>
@@ -149,9 +172,31 @@ export function JobTab({
           id="job-text"
           rows={6}
           value={text}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            setText(event.target.value)
+            if (fetched && fetched.url !== target) setFetched(null)
+          }}
           placeholder="Paste the description, or fetch it from the link above."
           className="mt-1.5 max-h-48 text-[12.5px]"
+        />
+      </div>
+
+      <div>
+        <label
+          htmlFor="job-instruction"
+          className="text-[11px] font-semibold tracking-[0.04em] text-muted-foreground uppercase"
+        >
+          Additional instruction{" "}
+          <span className="font-normal normal-case">(optional)</span>
+        </label>
+        <Textarea
+          id="job-instruction"
+          rows={3}
+          maxLength={MAX_ADDITIONAL_INSTRUCTION_CHARS}
+          value={additionalInstruction}
+          onChange={(event) => setAdditionalInstruction(event.target.value)}
+          placeholder="For example, emphasize my backend work and keep the summary concise."
+          className="mt-1.5 max-h-36 text-[12.5px]"
         />
       </div>
 
@@ -208,7 +253,8 @@ export function JobTab({
             void run({
               sourceResumeId: source,
               jobText: text,
-              sourceUrl: url.trim() || undefined,
+              sourceUrl: target ?? undefined,
+              additionalInstruction,
             })
           }
         >
