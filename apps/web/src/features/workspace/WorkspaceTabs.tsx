@@ -77,6 +77,7 @@ export function WorkspaceTabs({ children }: { children: ReactNode }) {
   }, [activeKey, tabs])
 
   function label(target: TabTarget): string {
+    if (target.kind === "autofill-profile") return "Autofill Profile"
     if (target.kind === "skills") return "All skills"
     if (target.kind === "skill")
       return target.skillId === "new"

@@ -16,3 +16,5 @@ export * from "./stub-resume-tailor"
 export * from "./stub-summarizer"
 export * from "./ports"
 export * from "./in-memory-tailor-operation-repository"
+
+export * from "./autofill"

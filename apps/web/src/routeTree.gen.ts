@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LogoutRouteImport } from './routes/logout'
+import { Route as AppAutofillProfileRouteImport } from './routes/_app.autofill-profile'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppSkillsRouteImport } from './routes/_app.skills'
 import { Route as ApiChatRouteImport } from './routes/api.chat'
@@ -46,6 +47,11 @@ const LogoutRoute = LogoutRouteImport.update({
   id: '/logout',
   path: '/logout',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppAutofillProfileRoute = AppAutofillProfileRouteImport.update({
+  id: '/autofill-profile',
+  path: '/autofill-profile',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
@@ -122,6 +128,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
+  '/autofill-profile': typeof AppAutofillProfileRoute
   '/dashboard': typeof AppDashboardRoute
   '/skills': typeof AppSkillsRouteWithChildren
   '/api/chat': typeof ApiChatRoute
@@ -141,6 +148,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
+  '/autofill-profile': typeof AppAutofillProfileRoute
   '/dashboard': typeof AppDashboardRoute
   '/api/chat': typeof ApiChatRoute
   '/auth/callback': typeof AuthCallbackRoute
@@ -160,6 +168,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
+  '/_app/autofill-profile': typeof AppAutofillProfileRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/skills': typeof AppSkillsRouteWithChildren
   '/api/chat': typeof ApiChatRoute
@@ -181,6 +190,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/logout'
+    | '/autofill-profile'
     | '/dashboard'
     | '/skills'
     | '/api/chat'
@@ -200,6 +210,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/logout'
+    | '/autofill-profile'
     | '/dashboard'
     | '/api/chat'
     | '/auth/callback'
@@ -218,6 +229,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/login'
     | '/logout'
+    | '/_app/autofill-profile'
     | '/_app/dashboard'
     | '/_app/skills'
     | '/api/chat'
@@ -273,6 +285,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/logout'
       preLoaderRoute: typeof LogoutRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/autofill-profile': {
+      id: '/_app/autofill-profile'
+      path: '/autofill-profile'
+      fullPath: '/autofill-profile'
+      preLoaderRoute: typeof AppAutofillProfileRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/dashboard': {
       id: '/_app/dashboard'
@@ -412,12 +431,14 @@ const AppRResumeIdRouteWithChildren = AppRResumeIdRoute._addFileChildren(
 )
 
 interface AppRouteChildren {
+  AppAutofillProfileRoute: typeof AppAutofillProfileRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppSkillsRoute: typeof AppSkillsRouteWithChildren
   AppRResumeIdRoute: typeof AppRResumeIdRouteWithChildren
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAutofillProfileRoute: AppAutofillProfileRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppSkillsRoute: AppSkillsRouteWithChildren,
   AppRResumeIdRoute: AppRResumeIdRouteWithChildren,

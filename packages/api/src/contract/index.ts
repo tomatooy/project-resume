@@ -1,3 +1,19 @@
+import {
+  AutofillProfileSchema,
+  ProfileUpdateSchema,
+  PrepareInputSchema,
+  PrepareOutputSchema,
+  PlanInputSchema,
+  AutofillPlanOutputSchema,
+  PolicySchema,
+  AutofillDocumentInputSchema,
+  AutofillDocumentSchema,
+  ScopedAnswerSchema,
+  SaveScopedAnswerSchema,
+  DeleteScopedAnswerSchema,
+  DraftAnswerInputSchema,
+  AutofillDraftSchema,
+} from "@workspace/resume-core/contracts"
 import { oc } from "@orpc/contract"
 import {
   JobIdentitySchema,
@@ -12,16 +28,30 @@ import {
 } from "@workspace/resume-core/contracts"
 import { z } from "zod"
 
+const recoveryData = z
+  .object({
+    reasonCode: z
+      .enum([
+        "source_changed",
+        "invalid_snapshot",
+        "profile_conflict",
+        "autofill_quota",
+        "policy_disabled",
+      ])
+      .optional(),
+    retryAfterSeconds: z.number().optional(),
+  })
+  .optional()
 export const apiErrors = {
-  UNAUTHENTICATED: { status: 401 },
-  NOT_FOUND: { status: 404 },
-  CONFLICT: { status: 409 },
-  VALIDATION: { status: 400 },
+  UNAUTHENTICATED: { status: 401, data: recoveryData },
+  NOT_FOUND: { status: 404, data: recoveryData },
+  CONFLICT: { status: 409, data: recoveryData },
+  VALIDATION: { status: 400, data: recoveryData },
   RATE_LIMITED: {
     status: 429,
-    data: z.object({ retryAfterSeconds: z.number().optional() }),
+    data: recoveryData,
   },
-  INTERNAL: { status: 500 },
+  INTERNAL: { status: 500, data: recoveryData },
 }
 const base = oc.errors(apiErrors)
 export const JobPostingSchema = z.object({
@@ -29,6 +59,52 @@ export const JobPostingSchema = z.object({
   text: z.string().min(MIN_JOB_CHARS).max(MAX_JOB_CHARS),
 })
 export const contract = {
+  autofillProfile: {
+    get: base
+      .route({ method: "GET", path: "/autofill-profile" })
+      .input(z.strictObject({}))
+      .output(AutofillProfileSchema),
+    update: base
+      .route({ method: "POST", path: "/autofill-profile" })
+      .input(ProfileUpdateSchema)
+      .output(AutofillProfileSchema),
+  },
+  autofill: {
+    draft: base
+      .route({ method: "POST", path: "/autofill/draft" })
+      .input(DraftAnswerInputSchema)
+      .output(AutofillDraftSchema),
+    document: base
+      .route({ method: "POST", path: "/autofill/document" })
+      .input(AutofillDocumentInputSchema)
+      .output(AutofillDocumentSchema),
+    prepare: base
+      .route({ method: "POST", path: "/autofill/prepare" })
+      .input(PrepareInputSchema)
+      .output(PrepareOutputSchema),
+    plan: base
+      .route({ method: "POST", path: "/autofill/plan" })
+      .input(PlanInputSchema)
+      .output(AutofillPlanOutputSchema),
+    policy: base
+      .route({ method: "GET", path: "/autofill/policy" })
+      .input(z.strictObject({}))
+      .output(PolicySchema),
+  },
+  autofillAnswers: {
+    list: base
+      .route({ method: "GET", path: "/autofill/answers" })
+      .input(z.strictObject({}))
+      .output(z.array(ScopedAnswerSchema).max(500)),
+    save: base
+      .route({ method: "POST", path: "/autofill/answers" })
+      .input(SaveScopedAnswerSchema)
+      .output(ScopedAnswerSchema),
+    remove: base
+      .route({ method: "POST", path: "/autofill/answers/remove" })
+      .input(DeleteScopedAnswerSchema)
+      .output(z.void()),
+  },
   resumes: {
     page: base
       .route({ method: "GET", path: "/resumes/page" })

@@ -71,7 +71,11 @@ export function WorkspaceProvider({
               action: target
                 ? {
                     label:
-                      target.kind === "resume" ? "Open Editor" : "Open skill",
+                      target.kind === "resume"
+                        ? "Open Editor"
+                        : target.kind === "autofill-profile"
+                          ? "Open Profile"
+                          : "Open skill",
                     onClick: () => {
                       void router.navigate(tabRoute(target))
                     },
@@ -141,7 +145,7 @@ export function WorkspaceProvider({
           <DialogHeader>
             <DialogTitle>{prompt?.title}</DialogTitle>
             <DialogDescription>
-              {prompt?.kind === "skill"
+              {prompt?.kind === "skill" || prompt?.kind === "profile"
                 ? "These changes are only in this workspace. Save them or discard them before closing."
                 : "This message has not been sent. Closing the last tab discards the input."}
             </DialogDescription>
@@ -153,7 +157,7 @@ export function WorkspaceProvider({
             <Button variant="outline" onClick={() => answer("discard")}>
               Discard
             </Button>
-            {prompt?.kind === "skill" ? (
+            {prompt?.kind === "skill" || prompt?.kind === "profile" ? (
               <Button onClick={() => answer("save")}>Save and close</Button>
             ) : null}
           </DialogFooter>

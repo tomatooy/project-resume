@@ -1,3 +1,21 @@
+import {
+  AutofillProfileService,
+  type AutofillProfileRepository,
+} from "../autofill-profile/service"
+import { AutofillService } from "../autofill/planner"
+import {
+  ScopedAnswerService,
+  type ScopedAnswerRepository,
+} from "../autofill/answers"
+import type {
+  AutofillDrafter,
+  AutofillPageInterpreter,
+} from "../autofill/interpreter-port"
+import type {
+  AutofillDecider,
+  AutofillQuota,
+  AutofillPolicyProvider,
+} from "../autofill/ports"
 import type { TailorOperationRepository } from "../ports/tailor-operation-repository"
 import { TailorOperationService } from "./tailor-operation-service"
 import type { AgentRunRepository } from "../ports/agent-run-repository"
@@ -25,6 +43,13 @@ import { VersionService } from "./version-service"
 
 /** Everything the services need from outside: one adapter per port. */
 export type Ports = {
+  autofillProfiles: AutofillProfileRepository
+  autofillAnswers?: ScopedAnswerRepository
+  autofillInterpreter?: AutofillPageInterpreter
+  autofillDrafter?: AutofillDrafter
+  autofillDecider: AutofillDecider
+  autofillQuota: AutofillQuota
+  autofillPolicy: AutofillPolicyProvider
   resumes: ResumeRepository
   versions: VersionRepository
   runs: AgentRunRepository
@@ -46,6 +71,9 @@ export type Ports = {
 
 /** What a request handler sees. Services only; no port reaches this altitude. */
 export type Services = {
+  autofillProfile: AutofillProfileService
+  autofillAnswers: ScopedAnswerService
+  autofill: AutofillService
   resumes: ResumeService
   imports: ImportService
   versions: VersionService
@@ -63,7 +91,15 @@ export type Services = {
  * above it knows which.
  */
 export function createServices(ports: Ports): Services {
+  const autofillProfile = new AutofillProfileService(
+    ports.autofillProfiles,
+    ports.clock
+  )
   const versions = new VersionService(ports.resumes, ports.versions)
+  const autofillAnswers = new ScopedAnswerService(
+    ports.autofillAnswers,
+    ports.clock
+  )
   const resumes = new ResumeService(ports.resumes)
   const runs = new RunService(versions, ports.runs, ports.clock)
   const memory = new MemoryService(
@@ -73,6 +109,20 @@ export function createServices(ports: Ports): Services {
     ports.summarizer
   )
   return {
+    autofillProfile,
+    autofillAnswers,
+    autofill: new AutofillService(
+      ports.resumes,
+      ports.versions,
+      autofillProfile,
+      ports.autofillDecider,
+      ports.autofillQuota,
+      ports.autofillPolicy,
+      ports.clock,
+      autofillAnswers,
+      ports.autofillInterpreter,
+      ports.autofillDrafter
+    ),
     resumes,
     imports: new ImportService(ports.resumeParser, resumes, versions),
     versions,

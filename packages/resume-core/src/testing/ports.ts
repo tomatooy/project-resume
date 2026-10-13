@@ -1,3 +1,10 @@
+import {
+  InMemoryAutofillProfileRepository,
+  InMemoryAutofillQuota,
+  StubAutofillDecider,
+  InMemoryAutofillPolicy,
+  InMemoryScopedAnswerRepository,
+} from "./autofill"
 import { InMemoryTailorOperationRepository } from "./in-memory-tailor-operation-repository"
 import type { Ports } from "../services/container"
 import { InMemoryDb } from "./db"
@@ -24,6 +31,11 @@ import { StubSummarizer } from "./stub-summarizer"
 export function inMemoryPorts(db = new InMemoryDb()) {
   return {
     db,
+    autofillProfiles: new InMemoryAutofillProfileRepository(),
+    autofillAnswers: new InMemoryScopedAnswerRepository(),
+    autofillQuota: new InMemoryAutofillQuota(() => db.now().getTime()),
+    autofillDecider: new StubAutofillDecider(),
+    autofillPolicy: new InMemoryAutofillPolicy(),
     operations: new InMemoryTailorOperationRepository(db),
     resumes: new InMemoryResumeRepository(db),
     versions: new InMemoryVersionRepository(db),

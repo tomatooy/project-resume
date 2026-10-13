@@ -30,6 +30,9 @@ export type LogFields = {
   /** The step budget ran out with nothing proposed. */
   budgetExhausted?: boolean
   count?: number
+  autofillResolved?: number
+  autofillReview?: number
+  autofillMissing?: number
   /** Whether a tailoring run wrote the document or left a plain duplicate. */
   tailored?: boolean
   /** Length of the text an import read. A size, never the text itself. */

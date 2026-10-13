@@ -1,0 +1,32 @@
+begin;
+select plan(19);
+insert into auth.users(id,instance_id,aud,role,email) values
+ ('a0000000-0000-4000-8000-000000000001','00000000-0000-0000-0000-000000000000','authenticated','authenticated','autofill-a@example.test'),
+ ('a0000000-0000-4000-8000-000000000002','00000000-0000-0000-0000-000000000000','authenticated','authenticated','autofill-b@example.test');
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"a0000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
+select lives_ok($$insert into autofill_profiles(user_id,data,revision) values(auth.uid(),'{}',99)$$,'Profile can be created without a resume');
+select is((select revision::int from autofill_profiles),1,'database controls initial revision');
+select lives_ok($$update autofill_profiles set data='{"identity":{}}',revision=99 where revision=1$$,'owner can compare-and-swap');
+select is((select revision::int from autofill_profiles),2,'database controls updated revision');
+with changed as (update autofill_profiles set data='{}' where revision=1 returning *) select is((select count(*)::int from changed),0,'stale expected revision cannot write');
+select throws_ok($$delete from autofill_profiles$$,'42501',null,'cannot reset profile revisions through deletion');
+select throws_ok($$insert into autofill_profiles(user_id,data) values('a0000000-0000-4000-8000-000000000002','{}')$$,'42501',null,'cannot write another account profile');
+select throws_ok($$update autofill_quota_events set created_at=now()$$,'42501',null,'cannot reset quota counters');
+select throws_ok($$select autofill_reserve_quota('invalid')$$,'22023',null,'quota kinds are closed');
+select is((select count(*)::int from generate_series(1,20) where autofill_reserve_quota('plan')),20,'initial plan quota is admitted');
+select is(autofill_reserve_quota('plan'),false,'twenty-first plan is denied');
+select is((select count(*)::int from generate_series(1,120) where autofill_reserve_quota('jev')),120,'initial Jev quota is admitted');
+select is(autofill_reserve_quota('jev'),false,'121st Jev attempt is denied');
+select set_config('request.jwt.claims','{"sub":"a0000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
+select is((select count(*)::int from autofill_profiles),0,'other accounts cannot see Profile');
+select is(autofill_reserve_quota('plan'),true,'account quotas are isolated');
+set local role anon;
+select throws_ok($$select * from autofill_profiles$$,'42501',null,'anonymous profile reads are denied');
+select throws_ok($$select autofill_reserve_quota('plan')$$,'42501',null,'anonymous quota calls are denied');
+reset role;
+delete from auth.users where id='a0000000-0000-4000-8000-000000000001';
+select is((select count(*)::int from autofill_profiles where user_id='a0000000-0000-4000-8000-000000000001'),0,'account deletion cascades Profile');
+select is((select count(*)::int from autofill_quota_events where user_id='a0000000-0000-4000-8000-000000000001'),0,'account deletion cascades quota metadata');
+select * from finish();
+rollback;

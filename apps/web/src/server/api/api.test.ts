@@ -51,7 +51,7 @@ describe("shared API HTTP and SSR", () => {
       "https://www.linkedin.com/jobs/view/123456/",
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
-    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
     const client = createApiClient({
       baseUrl: "https://app.example.test/api/v1",
       headers: () => ({ Authorization: "Bearer test" }),
@@ -134,6 +134,7 @@ describe("shared API HTTP and SSR", () => {
       accessToken: "test",
       expiresAt: Date.now() / 1000 + 3600,
       authKind: "cookie",
+      signal: new AbortController().signal,
     }
     deps.context.mockResolvedValue(context)
     const transport: typeof fetch = (request, init) =>
@@ -156,7 +157,7 @@ describe("shared API HTTP and SSR", () => {
     const response = await handleApi(
       new Request("https://app.example.test/api/v1/resumes")
     )
-    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
   })
   it("shares paginated contracts across HTTP and SSR without changing the legacy list", async () => {
     const services = createServices(inMemoryPorts())
@@ -169,6 +170,7 @@ describe("shared API HTTP and SSR", () => {
       accessToken: "test",
       expiresAt: Date.now() / 1000 + 3600,
       authKind: "cookie",
+      signal: new AbortController().signal,
     }
     deps.context.mockResolvedValue(context)
     const http = createApiClient({
@@ -290,6 +292,7 @@ describe("tailoring configuration admission", () => {
           accessToken: "test",
           expiresAt: Date.now() / 1000 + 3600,
           authKind: "bearer",
+          signal: new AbortController().signal,
         },
       })
       const identity = {
@@ -323,4 +326,178 @@ describe("tailoring configuration admission", () => {
       expect(JSON.stringify(log.error.mock.calls)).not.toContain(secret)
     }
   )
+})
+
+describe("autofill API", () => {
+  it("saves, updates and removes explicitly scoped answers over the authenticated API", async () => {
+    const services = createServices(inMemoryPorts())
+    deps.context.mockResolvedValue({
+      services,
+      log,
+      signal: new AbortController().signal,
+    })
+    const client = createApiClient({
+      baseUrl: "https://app.example.test/api/v1",
+      headers: () => ({ Authorization: "Bearer synthetic" }),
+      fetch: (request, init) => handleApi(new Request(request, init)),
+    })
+    const input = {
+      expectedRevision: 0,
+      meaning: { concept: "relocation" as const },
+      conditions: { countryCode: "CA" },
+      value: "private confirmed answer",
+      confirmed: true as const,
+      provenance: { kind: "user" as const },
+    }
+    const saved = await client.autofillAnswers.save(input)
+    expect(await client.autofillAnswers.list({})).toEqual([saved])
+    const updated = await client.autofillAnswers.save({
+      ...input,
+      id: saved.id,
+      expectedRevision: saved.revision,
+      value: "updated private answer",
+    })
+    expect(updated.revision).toBe(2)
+    await expect(
+      client.autofillAnswers.remove({
+        id: saved.id,
+        expectedRevision: saved.revision,
+      })
+    ).rejects.toMatchObject({ code: "CONFLICT" })
+    await client.autofillAnswers.remove({
+      id: saved.id,
+      expectedRevision: updated.revision,
+    })
+    expect(await client.autofillAnswers.list({})).toEqual([])
+    expect(JSON.stringify(log.info.mock.calls)).not.toContain("private")
+  })
+
+  it("serves a stamped PDF source with private caching and no Profile data or logging", async () => {
+    const services = createServices(inMemoryPorts())
+    deps.context.mockResolvedValue({
+      services,
+      log,
+      signal: new AbortController().signal,
+    })
+    const resume = await services.resumes.create()
+    const profile = await services.autofillProfile.get()
+    await services.autofillProfile.update({
+      expectedRevision: 0,
+      section: "identity",
+      data: {
+        ...profile.data.identity,
+        legalGivenName: "private-profile-value",
+      },
+    })
+    const { sourceStamp } = await services.autofill.prepare({
+      resumeId: resume.id,
+    })
+    const response = await handleApi(
+      new Request("https://app.example.test/api/v1/autofill/document", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer synthetic",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ sourceStamp }),
+      })
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+    const data = await response.text()
+    expect(data).toContain('"resume"')
+    expect(data).not.toContain("private-profile-value")
+    expect(log.info.mock.calls).toEqual([
+      [
+        "shared_api",
+        { procedure: "autofill.document", latencyMs: expect.any(Number) },
+      ],
+    ])
+  })
+  it("supports revision-zero Profile without resumes and returns fixed conflict recovery", async () => {
+    const services = createServices(inMemoryPorts())
+    deps.context.mockResolvedValue({
+      services,
+      log,
+      signal: new AbortController().signal,
+    })
+    const client = createApiClient({
+      baseUrl: "https://app.example.test/api/v1",
+      headers: () => ({ Authorization: "Bearer synthetic" }),
+      fetch: (request, init) => handleApi(new Request(request, init)),
+    })
+    const profile = await client.autofillProfile.get({})
+    expect(profile.revision).toBe(0)
+    expect(await services.resumes.list()).toEqual([])
+    await client.autofillProfile.update({
+      expectedRevision: 0,
+      section: "identity",
+      data: { ...profile.data.identity, legalGivenName: "Synthetic secret" },
+    })
+    await expect(
+      client.autofillProfile.update({
+        expectedRevision: 0,
+        section: "identity",
+        data: profile.data.identity,
+      })
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      data: { reasonCode: "profile_conflict" },
+    })
+    const response = await handleApi(
+      new Request("https://app.example.test/api/v1/autofill-profile", {
+        headers: { Authorization: "Bearer synthetic" },
+      })
+    )
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+    expect(JSON.stringify(log.info.mock.calls)).not.toContain(
+      "Synthetic secret"
+    )
+  })
+  it("rejects oversized bodies before parsing or creating services", async () => {
+    const response = await handleApi(
+      new Request("https://app.example.test/api/v1/autofill/plan", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer synthetic",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ snapshot: "x".repeat(262144) }),
+      })
+    )
+    expect(response.status).toBe(413)
+    expect(deps.context).not.toHaveBeenCalled()
+  })
+  it("keeps undeclared profile fields and arbitrary executable plans out of the API", async () => {
+    deps.context.mockResolvedValue({
+      services: createServices(inMemoryPorts()),
+      log,
+      signal: new AbortController().signal,
+    })
+    for (const path of [
+      "autofill-profile",
+      "autofill/plan",
+      "autofill/draft",
+      "autofill/answers",
+    ]) {
+      const response = await handleApi(
+        new Request(`https://app.example.test/api/v1/${path}`, {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer synthetic",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            userId: "other",
+            op: "execute_script",
+            value: "private value",
+          }),
+        })
+      )
+      expect(response.status).toBe(400)
+      expect(JSON.stringify(await response.json())).not.toContain(
+        "private value"
+      )
+    }
+  })
 })

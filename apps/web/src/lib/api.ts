@@ -1,4 +1,11 @@
 import {
+  sharedAutofillProfile,
+  sharedUpdateAutofillProfile,
+  sharedAutofillAnswers,
+  sharedSaveAutofillAnswer,
+  sharedRemoveAutofillAnswer,
+} from "./shared-api"
+import {
   listSharedResumes,
   listSharedResumePage,
   sharedResumeSummary,
@@ -290,3 +297,48 @@ export const setSkillEnabled = guard(setSkillEnabledFn)
 export const importSkillMarkdown = guard(importSkillMarkdownFn)
 
 export type { Resume }
+
+export async function getAutofillProfile() {
+  try {
+    return await sharedAutofillProfile()
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+export async function updateAutofillProfile(
+  input: import("@workspace/resume-core/contracts").ProfileUpdate
+) {
+  try {
+    return await sharedUpdateAutofillProfile(input)
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function listAutofillAnswers() {
+  try {
+    return await sharedAutofillAnswers()
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function saveAutofillAnswer(
+  input: import("@workspace/resume-core/contracts").SaveScopedAnswer
+) {
+  try {
+    return await sharedSaveAutofillAnswer(input)
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function removeAutofillAnswer(
+  input: import("@workspace/resume-core/contracts").DeleteScopedAnswer
+) {
+  try {
+    return await sharedRemoveAutofillAnswer(input)
+  } catch (error) {
+    throw toApiError(error)
+  }
+}

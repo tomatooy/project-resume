@@ -1,3 +1,4 @@
+import type { ProfileEditor } from "@/features/autofill-profile/editor"
 import { Store } from "@tanstack/store"
 import type { SkillDraft } from "@workspace/resume-core"
 
@@ -36,7 +37,10 @@ export type ResumeRuntime = {
   assistant: AssistantRuntime | null
   unsubscribe: () => void
 }
-export type ClosePrompt = { kind: "skill" | "message"; title: string }
+export type ClosePrompt = {
+  kind: "skill" | "profile" | "message"
+  title: string
+}
 export type CloseAnswer = "save" | "discard" | "cancel"
 type WorkspaceState = WorkspaceSnapshot & {
   hydrated: boolean
@@ -67,6 +71,7 @@ export class Workspace {
     closing: false,
     generation: 0,
   })
+  profile: ProfileEditor | null = null
   readonly resumes = new Map<string, ResumeRuntime>()
   readonly skills = new Map<string, SkillEditor>()
   readonly scroll = new Map<string, number>()
@@ -266,6 +271,24 @@ export class Workspace {
       const targets = this.store.state.tabs.filter((tab) =>
         closing.has(tabKey(tab))
       )
+      if (
+        targets.some((t) => t.kind === "autofill-profile") &&
+        this.profile?.store.state.dirty
+      ) {
+        failedTarget = { kind: "autofill-profile" }
+        const answer = await this.options.confirm({
+          kind: "profile",
+          title: "Save changes to Autofill Profile?",
+        })
+        if (answer === "cancel") return false
+        if (answer === "save") {
+          await this.profile.save()
+          if (this.profile.store.state.dirty)
+            throw new Error(
+              "Profile changed while saving. Review it before closing."
+            )
+        }
+      }
       const releasedResumes = [...this.resumes.entries()].filter(
         ([id]) =>
           targets.some((tab) => tab.kind === "resume" && tab.resumeId === id) &&
@@ -341,6 +364,7 @@ export class Workspace {
         await runtime.assistant?.stop()
       }
       await this.removeTabs(closing)
+      if (closing.has("autofill-profile")) this.profile = null
       for (const [id, runtime] of releasedResumes) {
         // Browser history can reopen a resource while close guards await work.
         if (
@@ -425,6 +449,9 @@ export class Workspace {
 
   hasUnsaved(): boolean {
     return (
+      Boolean(
+        this.profile?.store.state.dirty || this.profile?.store.state.busy
+      ) ||
       [...this.resumes.values()].some(
         (r) =>
           r.session.state.saveStatus !== "saved" ||
@@ -456,6 +483,7 @@ export class Workspace {
       }
       this.resumes.clear()
       this.skills.clear()
+      this.profile = null
       this.scroll.clear()
     })
   }

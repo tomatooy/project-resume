@@ -31,3 +31,22 @@ it("never treats unreadable status as an empty result", () => {
     }).success
   ).toBe(false)
 })
+it("exposes the bounded autofill routes through the authenticated contract", () => {
+  expect(contract.autofillProfile.get["~orpc"].route).toMatchObject({
+    method: "GET",
+    path: "/autofill-profile",
+  })
+  expect(contract.autofillProfile.update["~orpc"].route).toMatchObject({
+    method: "POST",
+    path: "/autofill-profile",
+  })
+  for (const kind of ["prepare", "plan", "document", "draft"] as const)
+    expect(contract.autofill[kind]["~orpc"].route).toMatchObject({
+      method: "POST",
+      path: `/autofill/${kind}`,
+    })
+  expect(contract.autofill.policy["~orpc"].route).toMatchObject({
+    method: "GET",
+    path: "/autofill/policy",
+  })
+})

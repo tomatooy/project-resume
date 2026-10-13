@@ -60,6 +60,7 @@ function page(jobId = identity.externalJobId, tabId = 1) {
 beforeEach(() => {
   vi.resetAllMocks()
   mock.storageGet.mockResolvedValue({})
+  mock.openTab.mockResolvedValue({ id: 42 })
   mock.account.mockResolvedValue({ id: "account", email: "user@example.test" })
   mock.activePage.mockResolvedValue(page())
   mock.lookup.mockResolvedValue({ kind: "none" })
@@ -69,6 +70,7 @@ beforeEach(() => {
   vi.stubGlobal("chrome", {
     tabs: { sendMessage: mock.capture, create: mock.openTab },
     storage: {
+      session: { set: vi.fn().mockResolvedValue(undefined) },
       local: {
         get: mock.storageGet,
         set: vi.fn(),

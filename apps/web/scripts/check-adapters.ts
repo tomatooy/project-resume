@@ -767,5 +767,156 @@ try {
   for (const id of fixtures) await a.resumes.remove(id)
 }
 
+// Profile persists independently of resume lifecycle and uses the same RLS client.
+const priorProfile = await a.autofillProfile.get()
+const otherProfile = await b.autofillProfile.get()
+const profileSaves = await Promise.allSettled([
+  a.autofillProfile.update({
+    expectedRevision: priorProfile.revision,
+    section: "identity",
+    data: {
+      ...priorProfile.data.identity,
+      legalGivenName: "Synthetic adapter fact",
+    },
+  }),
+  a.autofillProfile.update({
+    expectedRevision: priorProfile.revision,
+    section: "links",
+    data: {
+      ...priorProfile.data.links,
+      websiteUrl: "https://synthetic.example.test",
+    },
+  }),
+])
+check(
+  "concurrent profile saves have one winner",
+  profileSaves.filter((r) => r.status === "fulfilled").length === 1
+)
+check(
+  "concurrent profile loser reports conflict",
+  profileSaves.some(
+    (r) =>
+      r.status === "rejected" &&
+      r.reason instanceof AppError &&
+      r.reason.code === "CONFLICT"
+  )
+)
+const afterProfile = await a.autofillProfile.get()
+check(
+  "profile revision increments once",
+  afterProfile.revision === priorProfile.revision + 1
+)
+check(
+  "profile is isolated between accounts",
+  JSON.stringify(await b.autofillProfile.get()) === JSON.stringify(otherProfile)
+)
+await a.autofillProfile.update({
+  expectedRevision: afterProfile.revision,
+  section: "identity",
+  data: priorProfile.data.identity,
+})
+await a.autofillProfile.update({
+  expectedRevision: afterProfile.revision + 1,
+  section: "links",
+  data: priorProfile.data.links,
+})
+
+const scoped = await a.autofillAnswers.save({
+  expectedRevision: 0,
+  meaning: { concept: "salary" },
+  conditions: {
+    countryCode: "US",
+    currency: "USD",
+    salaryPeriod: "year",
+    employerId: "synthetic-adapter-employer",
+  },
+  value: "120000",
+  provenance: { kind: "user" },
+  confirmed: true,
+})
+check("scoped answer starts at revision one", scoped.revision === 1)
+check(
+  "scoped answer is visible to its owner",
+  (await a.autofillAnswers.list()).some((answer) => answer.id === scoped.id)
+)
+check(
+  "scoped answer is hidden from another account",
+  !(await b.autofillAnswers.list()).some((answer) => answer.id === scoped.id)
+)
+let scopedRevision = scoped.revision
+try {
+  const updates = await Promise.allSettled(
+    ["125000", "130000"].map((value) =>
+      a.autofillAnswers.save({
+        id: scoped.id,
+        expectedRevision: scoped.revision,
+        meaning: scoped.meaning,
+        conditions: scoped.conditions,
+        value,
+        provenance: scoped.provenance,
+        confirmed: true,
+      })
+    )
+  )
+  const winner = updates.find((result) => result.status === "fulfilled")
+  if (winner?.status === "fulfilled") scopedRevision = winner.value.revision
+  check(
+    "concurrent scoped answer saves have one winner",
+    updates.filter((result) => result.status === "fulfilled").length === 1
+  )
+  check(
+    "concurrent scoped answer loser reports conflict",
+    updates.some(
+      (result) =>
+        result.status === "rejected" &&
+        result.reason instanceof AppError &&
+        result.reason.code === "CONFLICT"
+    )
+  )
+  check(
+    "scoped answer revision increments once",
+    scopedRevision === scoped.revision + 1
+  )
+  const staleDelete = await Promise.allSettled([
+    a.autofillAnswers.remove({
+      id: scoped.id,
+      expectedRevision: scoped.revision,
+    }),
+  ])
+  check(
+    "stale scoped answer delete reports conflict",
+    staleDelete.some(
+      (result) =>
+        result.status === "rejected" &&
+        result.reason instanceof AppError &&
+        result.reason.code === "CONFLICT"
+    )
+  )
+  const foreignDelete = await Promise.allSettled([
+    b.autofillAnswers.remove({
+      id: scoped.id,
+      expectedRevision: scopedRevision,
+    }),
+  ])
+  check(
+    "another account cannot remove scoped answer",
+    foreignDelete.some(
+      (result) =>
+        result.status === "rejected" &&
+        result.reason instanceof AppError &&
+        result.reason.code === "CONFLICT"
+    )
+  )
+} finally {
+  await a.autofillAnswers.remove({
+    id: scoped.id,
+    expectedRevision: scopedRevision,
+  })
+}
+check(
+  "owner removes scoped answer at the current revision",
+  !(await a.autofillAnswers.list()).some((answer) => answer.id === scoped.id)
+)
+
 console.log(failures === 0 ? "\nALL PASSED" : `\n${failures} FAILED`)
 process.exit(failures === 0 ? 0 : 1)

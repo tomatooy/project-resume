@@ -25,7 +25,10 @@ export async function handleApi(request: Request): Promise<Response> {
     .split(",")
     .map((v) => v.trim())
     .filter((v) => /^chrome-extension:\/\/[a-p]{32}$/.test(v))
-  const headers = new Headers({ "Cache-Control": "no-store", Vary: "Origin" })
+  const headers = new Headers({
+    "Cache-Control": "private, no-store",
+    Vary: "Origin",
+  })
   if (!checkOrigin(request, allowed))
     return Response.json(
       { code: "VALIDATION", status: 403, message: "Origin not allowed" },
@@ -40,6 +43,39 @@ export async function handleApi(request: Request): Promise<Response> {
   if (request.method === "OPTIONS")
     return new Response(null, { status: 204, headers })
   try {
+    if (
+      new URL(request.url).pathname.startsWith("/api/v1/autofill") &&
+      request.body
+    ) {
+      const reader = request.body.getReader()
+      const chunks: Uint8Array[] = []
+      let size = 0
+      for (;;) {
+        const next = await reader.read()
+        if (next.done) break
+        size += next.value.byteLength
+        if (size > 262144) {
+          await reader.cancel()
+          return Response.json(
+            { code: "VALIDATION", message: "Request too large" },
+            { status: 413, headers }
+          )
+        }
+        chunks.push(next.value)
+      }
+      const bytes = new Uint8Array(size)
+      let offset = 0
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+      request = new Request(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body: bytes,
+        signal: request.signal,
+      })
+    }
     const result = await handler.handle(request, {
       prefix: "/api/v1",
       context: await createApiContext(request),

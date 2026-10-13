@@ -1,3 +1,4 @@
+import { registerAutofill } from "../autofill/background"
 import { observeNavigation } from "./navigation"
 import { registerMessages } from "./messages"
 import { registerUpdates } from "./updates"
@@ -7,3 +8,5 @@ registerMessages()
 registerUpdates()
 registerWidget()
 observeNavigation()
+
+registerAutofill()

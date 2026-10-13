@@ -2,6 +2,10 @@
 
 The independent Chrome app is `apps/extension`. It uses the existing web Worker at `/api/v1`; it does not need an open app tab. Shared browser-safe oRPC contracts and the client live in `packages/api`.
 
+Cross-site autofill is specified in [Extension Autofill Spec](../specs/extension-autofill.md). It covers the independent Web Autofill Profile for account-level links, addresses, sponsorship and EEO answers, plus page extraction, Jev decisions, dropdown interactions, execution guards, permissions, and acceptance criteria. Implementation and release gates are tracked in [Autofill implementation](autofill-implementation.md).
+
+The in-page Autofill panel opens automatically on recognized Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters, Workable and Jobvite application domains. It waits for **Fill current page** before scanning. Close dismisses it for that document; the toolbar can reopen it. Exact hostnames and site-access setup are listed in the [automatic panel guide](autofill-implementation.md#automatic-application-site-panel).
+
 ## Configure and load
 
 1. Copy `apps/extension/.env.example` to `apps/extension/.env.local`. Set `VITE_APP_ORIGIN`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY`. The origin must identify the backend deployment, not a separate extension API. HTTP is supported only for localhost development.
@@ -51,7 +55,7 @@ The shared posting fetch returns the description text and canonical LinkedIn URL
 
 The capture uses accessible labels or offsite tracking attributes, unwraps LinkedIn's `/safety/go/` URL, and preserves destination query parameters. Hidden, disabled, or differently scoped job buttons are excluded. Duplicate links are collapsed; ambiguous destinations and Easy Apply return `null`. The extension sends `applyUrl` with the generation request, and the server stores it on `job_targets.apply_url`, associated with the generated resume through its origin target. The lookup response returns the saved link. On success, **Go apply →** appears beside **Edit resume** and opens that saved URL in a new tab only when clicked. Without a saved URL, it is disabled. Existing copies with no saved application URL remain without one; admission does not overwrite an existing binding.
 
-`job_targets.platform` uses the `job_platform` enum (`linkedin`, `indeed`); fetch and extension routes still accept LinkedIn jobs only. Main-app creation does not capture an application link. Cross-site navigation detection and automatic resume selection on the application site are a later step.
+`job_targets.platform` uses the `job_platform` enum (`linkedin`, `indeed`); tailoring fetch and extension routes still accept LinkedIn jobs only. Main-app creation does not capture an application link. Go apply records the returned application tab for 30 minutes so Autofill can preselect the tailored resume there.
 
 Both the main-app job form and extension's base-resume picker include **Additional instruction**, an optional field limited to 4,000 characters. It reaches the tailoring writer as an explicit user instruction for this generation, while factual constraints still apply. Extension attempts save it in `tailor_operations.additional_instruction`, so background generation can resume after the panel closes. Retry displays the saved instruction and allows replacing or clearing it; previous attempts retain their own values. Switching jobs or accounts does not carry the current draft to another job.
 
@@ -64,7 +68,7 @@ Run `bun run typecheck`, `bun run check`, `bun run test`, `bun run db:test`, and
 After configuring and building, verify:
 
 - Connect the same Google account and compare base resumes with the main app. Test direct web page loading and client navigation for the migrated shared list.
-- Open view/search forms of one job with different tracking parameters. Check right-edge placement, hover controls, vertical dragging, viewport resizing, tab-scoped dismissal, and widget/toolbar panel opening. Confirm navigation does not open the panel automatically.
+- Open LinkedIn view/search forms of one job with different tracking parameters. Check right-edge placement, hover controls, vertical dragging, viewport resizing, tab-scoped dismissal, and widget/toolbar panel opening. Confirm LinkedIn navigation does not open the tailoring panel automatically. Recognized external application domains open Autofill automatically.
 - Create from a base, close the panel and all app tabs, and return after generation. Confirm **Resume is ready, now apply** and the correct **Edit resume** URL. Also restart Chrome during processing.
 - Generate a new copy from a LinkedIn job with an external Apply anchor. After success, reopen the panel and confirm **Go apply →** opens the matching application website beside **Edit resume**. For Easy Apply or a missing link, confirm the button is disabled. Enter an additional instruction in both creation forms; on a failed extension attempt, confirm Retry restores it and accepts edits or an empty value.
 - Submit concurrently from two tabs. Confirm one copy. Force parser/writer failure, retry, and cancel; the editable copy must remain, and retries must retain its ID.
@@ -81,3 +85,13 @@ The existing `packages/agent/test/models.test.ts` expectation enables smart-tier
 The full web suite also contains two stale word-diff color assertions (`bg-primary/14` versus the current `bg-success/10`), unrelated to this feature. A PDF-worker test timed out during the concurrent full run and passed when rerun alone. The PDF-renderer suite passed with network access for its existing remote font fixtures.
 
 Final feature verification: TypeScript passes across all nine typed workspaces; Biome passes with the repository's existing schema-version informational notice. The core suite passes 160 tests, extension 13, shared API contracts 2, new web API/workflow tests 12, PDF renderer 47, and SQL suite 120. Real adapter checks pass, including concurrent admission/retry, deletion replacement, legacy adoption, and cancellation of an adopted in-flight web writer. Full-suite failures are the pre-existing model-setting and word-diff assertions described above.
+
+Autofill's **Fill current page** action fills supported fields and attaches the selected resume as a PDF without individual Verify clicks. Existing input and attachments are preserved; application submission stays manual. The implementation, configuration, evaluation runner, and manual release checklist are documented in [autofill-implementation.md](autofill-implementation.md).
+
+## Universal autofill
+
+The current-page design and latest implementation decisions are in
+[Universal autofill v1](../specs/universal-autofill.md). See the
+[implementation and verification checklist](universal-autofill-tasks.md) for
+source pinning, application-session lifetime, review/save behavior, local
+migration verification, and manual acceptance steps.

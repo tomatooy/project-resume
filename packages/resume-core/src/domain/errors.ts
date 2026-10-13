@@ -21,6 +21,13 @@ const STATUS: Record<AppErrorCode, number> = {
   INTERNAL: 500,
 }
 
+export type RecoveryReason =
+  | "source_changed"
+  | "invalid_snapshot"
+  | "profile_conflict"
+  | "autofill_quota"
+  | "policy_disabled"
+
 export class AppError extends Error {
   readonly status: number
 
@@ -29,7 +36,8 @@ export class AppError extends Error {
     message: string,
     status?: number,
     /** Set on RATE_LIMITED; becomes the `Retry-After` header. */
-    readonly retryAfterSeconds?: number
+    readonly retryAfterSeconds?: number,
+    readonly reasonCode?: RecoveryReason
   ) {
     super(message)
     this.name = "AppError"

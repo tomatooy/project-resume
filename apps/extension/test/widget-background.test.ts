@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, expect, it, vi } from "vitest"
+vi.mock("../src/autofill/background", () => ({ openAutofill: vi.fn() }))
 import { registerWidget } from "../src/background/widget"
 
 const addListener = vi.fn<typeof chrome.runtime.onMessage.addListener>()

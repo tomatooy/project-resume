@@ -26,9 +26,13 @@ export function apiError(error: unknown) {
   return new ORPCError(safe.code, {
     status: safe.status,
     message: safe.message,
-    data: safe.retryAfterSeconds
-      ? { retryAfterSeconds: safe.retryAfterSeconds }
-      : undefined,
+    data:
+      safe.retryAfterSeconds !== undefined || safe.reasonCode
+        ? {
+            retryAfterSeconds: safe.retryAfterSeconds,
+            reasonCode: safe.reasonCode,
+          }
+        : undefined,
   })
 }
 const root = implement(contract).$context<ApiContext>()
@@ -77,6 +81,61 @@ async function configuredTailoring(context: ApiContext) {
   return env
 }
 export const router = shared.router({
+  autofillProfile: {
+    get: shared.autofillProfile.get.handler(({ context }) =>
+      context.services.autofillProfile.get()
+    ),
+    update: shared.autofillProfile.update.handler(({ input, context }) =>
+      context.services.autofillProfile.update(input)
+    ),
+  },
+  autofill: {
+    draft: shared.autofill.draft.handler(({ input, context }) =>
+      context.services.autofill.draft(
+        input,
+        AbortSignal.any([context.signal, AbortSignal.timeout(30000)])
+      )
+    ),
+    document: shared.autofill.document.handler(({ input, context }) =>
+      context.services.autofill.document(input)
+    ),
+    prepare: shared.autofill.prepare.handler(({ input, context }) =>
+      context.services.autofill.prepare(input)
+    ),
+    plan: shared.autofill.plan.handler(async ({ input, context }) => {
+      const result = await context.services.autofill.plan(
+        input,
+        AbortSignal.any([context.signal, AbortSignal.timeout(30000)])
+      )
+      context.log.info("autofill.plan", {
+        count: result.decisions.length,
+        steps: result.attempts,
+        autofillResolved: result.decisions.filter(
+          (d) => d.status === "resolved"
+        ).length,
+        autofillReview: result.decisions.filter((d) => d.status === "review")
+          .length,
+        autofillMissing: result.decisions.filter(
+          (d) => d.status === "missing_data"
+        ).length,
+      })
+      return result
+    }),
+    policy: shared.autofill.policy.handler(({ context }) =>
+      context.services.autofill.policy()
+    ),
+  },
+  autofillAnswers: {
+    list: shared.autofillAnswers.list.handler(({ context }) =>
+      context.services.autofillAnswers.list()
+    ),
+    save: shared.autofillAnswers.save.handler(({ input, context }) =>
+      context.services.autofillAnswers.save(input)
+    ),
+    remove: shared.autofillAnswers.remove.handler(({ input, context }) =>
+      context.services.autofillAnswers.remove(input)
+    ),
+  },
   resumes: {
     page: shared.resumes.page.handler(({ input, context }) =>
       context.services.resumes.page(input)

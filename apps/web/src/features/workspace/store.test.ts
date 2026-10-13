@@ -360,3 +360,38 @@ describe("workspace", () => {
     expect(h.release).not.toHaveBeenCalled()
   })
 })
+
+it("keeps Profile singleton drafts out of local storage and guards closing", async () => {
+  const { ProfileEditor } = await import("../autofill-profile/editor")
+  const { emptyProfile } = await import("@workspace/resume-core/contracts")
+  const h = harness(null)
+  const target: TabTarget = { kind: "autofill-profile" }
+  h.workspace.hydrate(h.storage, false)
+  h.workspace.ensureRouteTab(target)
+  h.workspace.ensureRouteTab(target)
+  expect(
+    h.workspace.store.state.tabs.filter((t) => t.kind === "autofill-profile")
+  ).toHaveLength(1)
+  const profile = new ProfileEditor(
+    emptyProfile(),
+    async () => {
+      throw new Error("offline")
+    },
+    async () => emptyProfile()
+  )
+  h.workspace.profile = profile
+  profile.set("identity", {
+    ...emptyProfile().data.identity,
+    legalGivenName: "Private draft sentinel",
+  })
+  expect(await h.workspace.requestCloseTabs([tabKey(target)])).toBe(false)
+  h.confirm.mockResolvedValue("save")
+  expect(await h.workspace.requestCloseTabs([tabKey(target)])).toBe(false)
+  expect(h.workspace.profile).toBe(profile)
+  expect(JSON.stringify([...h.data.values()])).not.toContain(
+    "Private draft sentinel"
+  )
+  h.confirm.mockResolvedValue("discard")
+  expect(await h.workspace.requestCloseTabs([tabKey(target)])).toBe(true)
+  expect(h.workspace.profile).toBeNull()
+})

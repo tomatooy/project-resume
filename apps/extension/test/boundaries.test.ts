@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
 import { expect, it } from "vitest"
 import { z } from "zod"
+import { AUTOFILL_APPLICATION_MATCHES } from "../src/autofill/sites"
 function files(path: string): string[] {
   return readdirSync(path, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory()
@@ -11,8 +12,12 @@ function files(path: string): string[] {
   )
 }
 it("keeps panel, widget and content imports away from privileged clients", () => {
-  for (const file of files(resolve("src")).filter((f) =>
-    /\/(panel|widget|content)\//.test(f)
+  for (const file of files(resolve("src")).filter(
+    (f) =>
+      /\/(panel|widget|content)\//.test(f) ||
+      /\/autofill\/(?:Panel|content|scanner|registry|executor|messages)\./.test(
+        f
+      )
   )) {
     const source = readFileSync(file, "utf8")
     expect(source).not.toMatch(
@@ -28,10 +33,16 @@ it("declares only required privileges and existing entrypoints", () => {
       minimum_chrome_version: z.string(),
       permissions: z.array(z.string()),
       host_permissions: z.array(z.string()),
+      optional_host_permissions: z.array(z.string()),
       action: z.object({ default_popup: z.string().optional() }),
       side_panel: z.object({ default_path: z.string() }).optional(),
       content_scripts: z.array(
-        z.object({ matches: z.array(z.string()), js: z.array(z.string()) })
+        z.object({
+          matches: z.array(z.string()),
+          js: z.array(z.string()),
+          run_at: z.string(),
+          all_frames: z.boolean().optional(),
+        })
       ),
       web_accessible_resources: z.array(
         z.object({
@@ -43,23 +54,42 @@ it("declares only required privileges and existing entrypoints", () => {
     })
     .parse(JSON.parse(readFileSync("manifest.json", "utf8")))
   expect(manifest.permissions.sort()).toEqual([
+    "activeTab",
+    "alarms",
     "identity",
+    "offscreen",
+    "scripting",
     "storage",
     "webNavigation",
   ])
-  expect(manifest.host_permissions).toEqual(["https://www.linkedin.com/*"])
+  expect(manifest.host_permissions).toEqual([
+    "https://www.linkedin.com/*",
+    ...AUTOFILL_APPLICATION_MATCHES,
+  ])
+  expect(manifest.optional_host_permissions).toEqual(["https://*/*"])
   expect(manifest.minimum_chrome_version).toBe("127")
   expect(manifest.action.default_popup).toBeUndefined()
   expect(manifest.side_panel).toBeUndefined()
   expect(readFileSync("panel.html", "utf8")).toContain("src/panel/main.tsx")
   expect(manifest.content_scripts).toEqual([
-    { matches: ["https://www.linkedin.com/*"], js: ["widget-host.js"] },
+    {
+      matches: ["https://www.linkedin.com/*"],
+      js: ["widget-host.js"],
+      run_at: "document_idle",
+    },
+    {
+      matches: [...AUTOFILL_APPLICATION_MATCHES],
+      js: ["autofill-content.js"],
+      run_at: "document_idle",
+      all_frames: false,
+    },
   ])
   expect(manifest.web_accessible_resources).toEqual([
     {
       matches: ["https://www.linkedin.com/*"],
-      resources: ["widget.html", "panel.html"],
+      resources: ["widget.html"],
     },
+    { resources: ["panel.html"], matches: ["https://*/*"] },
   ])
   expect(readFileSync("src/content/widget-host.ts", "utf8")).not.toMatch(
     /^import /m

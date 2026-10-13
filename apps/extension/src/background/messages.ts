@@ -1,3 +1,4 @@
+import { associateApplication } from "../autofill/background"
 import { z } from "zod"
 import {
   ApplyUrlSchema,
@@ -127,7 +128,14 @@ async function execute(
     if (!link.success) throw new Error("Application link is unavailable")
     if ((await account())?.id !== user.id)
       throw new Error("Account changed. Try again.")
-    await chrome.tabs.create({ url: link.data })
+    const opened = await chrome.tabs.create({ url: link.data })
+    if (opened.id !== undefined)
+      await associateApplication(
+        opened.id,
+        user.id,
+        message.resumeId,
+        link.data
+      )
   } else if (message.type === "edit") {
     if (found.kind !== "bound" || found.resumeId !== message.resumeId)
       throw new Error("Resume is no longer available")

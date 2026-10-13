@@ -26,3 +26,7 @@ export {
   parseUIMessages,
   startTurn,
 } from "./turn"
+
+export { createJevDecider } from "./autofill/jev-decider"
+export { createPageInterpreter } from "./autofill/page-interpreter"
+export { createAutofillDrafter } from "./autofill/drafter"

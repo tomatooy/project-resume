@@ -1,4 +1,10 @@
 import {
+  getAutofillProfile,
+  listAutofillAnswers,
+  saveAutofillAnswer,
+  removeAutofillAnswer,
+} from "./api"
+import {
   keepPreviousData,
   infiniteQueryOptions,
   useInfiniteQuery,
@@ -35,7 +41,7 @@ import {
   setSkillEnabled,
   updateUserSkill,
 } from "./api"
-import type { ChatHistory } from "./types"
+import { ApiError, type ChatHistory } from "./types"
 import type { ResumeState } from "@/features/resume/store"
 import { UserSkillInputSchema, type SkillDraft } from "@workspace/resume-core"
 
@@ -443,4 +449,51 @@ export function useSetSkillEnabled() {
 /** Only parses the file server-side; nothing to invalidate. */
 export function useImportSkillMarkdown() {
   return useMutation({ mutationFn: importSkillMarkdown })
+}
+
+export function autofillProfileQuery(userId: string) {
+  return queryOptions({
+    queryKey: ["autofill-profile", userId],
+    queryFn: getAutofillProfile,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  })
+}
+
+export function autofillAnswersQuery(userId: string) {
+  return queryOptions({
+    queryKey: ["autofill-answers", userId],
+    queryFn: listAutofillAnswers,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  })
+}
+
+function useAutofillAnswerMutation<TVars, TOut>(
+  userId: string,
+  mutationFn: (input: TVars) => Promise<TOut>
+) {
+  const client = useQueryClient()
+  const refresh = () =>
+    client.invalidateQueries({
+      queryKey: autofillAnswersQuery(userId).queryKey,
+    })
+  return useMutation({
+    mutationFn,
+    onSuccess: refresh,
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === "CONFLICT")
+        return refresh()
+    },
+  })
+}
+
+export function useSaveAutofillAnswer(userId: string) {
+  return useAutofillAnswerMutation(userId, saveAutofillAnswer)
+}
+
+export function useRemoveAutofillAnswer(userId: string) {
+  return useAutofillAnswerMutation(userId, removeAutofillAnswer)
 }

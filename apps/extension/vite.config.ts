@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
-import { defineConfig, loadEnv } from "vite"
+import { build, defineConfig, loadEnv } from "vite"
 import react from "@vitejs/plugin-react"
 import tailwind from "@tailwindcss/vite"
 import { z } from "zod"
@@ -16,7 +16,38 @@ export default defineConfig(({ mode }) => {
       tailwind(),
       {
         name: "extension-manifest",
-        generateBundle(_options, bundle) {
+        async generateBundle(_options, bundle) {
+          const content = await build({
+            configFile: false,
+            logLevel: "error",
+            build: {
+              write: false,
+              lib: {
+                entry: `${root}/src/autofill/content.ts`,
+                name: "VsAutofill",
+                formats: ["iife"],
+              },
+              rollupOptions: { output: { inlineDynamicImports: true } },
+            },
+          })
+          const outputs = Array.isArray(content) ? content : [content]
+          for (const result of outputs) {
+            if (!("output" in result))
+              throw new Error("Autofill bundle is unavailable")
+            for (const chunk of result.output) {
+              if (chunk.type !== "chunk") continue
+              if (chunk.imports.length || chunk.dynamicImports.length)
+                throw new Error(
+                  "Autofill content script must be self-contained"
+                )
+              this.emitFile({
+                type: "asset",
+                fileName: "autofill-content.js",
+                source: chunk.code,
+              })
+            }
+          }
+
           const host = bundle["widget-host.js"]
           if (
             host?.type !== "chunk" ||
@@ -63,6 +94,7 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         input: {
           panel: `${root}/panel.html`,
+          offscreen: `${root}/offscreen.html`,
           widget: `${root}/widget.html`,
           "widget-host": `${root}/src/content/widget-host.ts`,
           background: `${root}/src/background/index.ts`,

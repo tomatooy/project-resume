@@ -1,0 +1,31 @@
+<!-- Reduced from the user-provided September 28 capture; applicant data removed. -->
+<!-- biome-ignore-all lint/a11y/useButtonType: Captured controls intentionally omit type. -->
+<h1>Software Engineer</h1>
+<a role="tab" id="job-overview" aria-controls="overview" href="#overview">Overview</a>
+<a role="tab" id="job-application-form" aria-controls="form" aria-selected="true" href="#form">Application</a>
+<div role="tabpanel" id="overview" aria-labelledby="job-overview">
+  <label>Search<input type="search"></label>
+</div>
+<div role="tabpanel" id="form" aria-labelledby="job-application-form">
+  <div class="ashby-application-form-container">
+    <div class="ashby-application-form-section-container">
+      <div class="ashby-application-form-field-entry" data-field-path="work-authorization">
+        <label class="ashby-application-form-question-title" for="work-authorization">Are you legally authorized to work in the United States?</label>
+        <div class="ashby-application-form-input-yesno">
+          <button aria-pressed="false" data-option="yes">Yes</button>
+          <button aria-pressed="false" data-option="no">No</button>
+          <input type="checkbox" tabindex="-1" name="work-authorization" style="display:none">
+        </div>
+      </div>
+      <div class="ashby-application-form-field-entry" data-field-path="sponsorship">
+        <label class="ashby-application-form-question-title" for="sponsorship">Will you now or in the future require visa sponsorship to work in the United States?</label>
+        <div class="ashby-application-form-input-yesno">
+          <button aria-pressed="false" data-option="yes">Yes</button>
+          <button aria-pressed="false" data-option="no">No</button>
+          <input type="checkbox" tabindex="-1" name="sponsorship" style="display:none">
+        </div>
+      </div>
+    </div>
+    <button>Submit application</button>
+  </div>
+</div>

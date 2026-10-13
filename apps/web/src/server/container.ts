@@ -1,3 +1,15 @@
+import {
+  createJevDecider,
+  createPageInterpreter,
+  createAutofillDrafter,
+} from "@workspace/agent"
+import { createTypeSafeClientFromEnv } from "./typesafe"
+import {
+  SupabaseAutofillProfileRepository,
+  SupabaseAutofillQuota,
+  EnvironmentAutofillPolicy,
+  SupabaseScopedAnswerRepository,
+} from "./adapters/autofill"
 import { SupabaseTailorOperationRepository } from "./adapters/tailor-operation-repository"
 import {
   createJobParser,
@@ -88,6 +100,28 @@ export function supabasePorts(
   over: Partial<Ports> = {}
 ): Ports {
   return {
+    autofillProfiles: new SupabaseAutofillProfileRepository(db, userId),
+    autofillAnswers: new SupabaseScopedAnswerRepository(db, userId),
+    autofillInterpreter: {
+      interpret: (input, options) =>
+        createPageInterpreter(createModelsFromEnv(), userId).interpret(
+          input,
+          options
+        ),
+    },
+    autofillDrafter: {
+      draft: (input, options) =>
+        createAutofillDrafter(createModelsFromEnv()).draft(input, options),
+    },
+    autofillQuota: new SupabaseAutofillQuota(db),
+    autofillPolicy: new EnvironmentAutofillPolicy(),
+    autofillDecider: {
+      decide: async (questions, options) =>
+        createJevDecider(createTypeSafeClientFromEnv()).decide(
+          questions,
+          options
+        ),
+    },
     operations: new SupabaseTailorOperationRepository(db, userId),
     resumes: new SupabaseResumeRepository(db, userId),
     versions: new SupabaseVersionRepository(db),

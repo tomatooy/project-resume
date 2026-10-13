@@ -1,3 +1,4 @@
+import { openAutofill } from "../autofill/background"
 import { z } from "zod"
 import { linkedinExtensionPage } from "@workspace/resume-core/contracts"
 
@@ -19,6 +20,7 @@ export function registerWidget() {
   chrome.action.onClicked.addListener((tab) => {
     if (tab.id && linkedinExtensionPage(tab.url ?? "").kind !== "unsupported")
       void openPanel(tab.id).catch(() => {})
+    else void openAutofill(tab).catch(() => {})
   })
   chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
     const message = WidgetMessage.safeParse(raw)

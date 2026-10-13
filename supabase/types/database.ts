@@ -122,6 +122,78 @@ export type Database = {
           },
         ]
       }
+      autofill_scoped_answers: {
+        Row: {
+          id: string
+          user_id: string
+          revision: number
+          data: Json
+          confirmed_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          revision?: number
+          data: Json
+          confirmed_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          revision?: number
+          data?: Json
+          confirmed_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      autofill_profiles: {
+        Row: {
+          created_at: string
+          data: Json
+          revision: number
+          schema_version: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          data: Json
+          revision?: number
+          schema_version?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          revision?: number
+          schema_version?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      autofill_quota_events: {
+        Row: {
+          created_at: string
+          kind: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          kind: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          kind?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       conversations: {
         Row: {
           active_summary_id: string | null
@@ -786,6 +858,7 @@ export type Database = {
     }
     Functions: {
       agent_usage_since: { Args: { p_since: string }; Returns: Json }
+      autofill_reserve_quota: { Args: { p_kind: string }; Returns: boolean }
       claim_tailor_dispatch: { Args: { p_id: string }; Returns: string }
       commit_tailor_creation: { Args: { p_input: Json }; Returns: boolean }
       create_memory_summary: {

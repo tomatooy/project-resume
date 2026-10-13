@@ -14,6 +14,7 @@ export async function createApiContext(request: Request = getRequest()) {
       throw new AppError("UNAUTHENTICATED", "Invalid authorization")
     const auth = await verifyBearer(match[1])
     return {
+      signal: request.signal,
       userId: auth.userId,
       accessToken: auth.accessToken,
       expiresAt: auth.expiresAt,
@@ -28,6 +29,7 @@ export async function createApiContext(request: Request = getRequest()) {
   if (error || !data.session?.expires_at)
     throw new AppError("UNAUTHENTICATED", "Sign in again")
   return {
+    signal: request.signal,
     userId: user.userId,
     accessToken: data.session.access_token,
     expiresAt: data.session.expires_at,

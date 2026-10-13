@@ -8,6 +8,7 @@ export const ResumeViewSchema = z.enum([
 ])
 
 export const TabTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("autofill-profile") }),
   z.object({
     kind: z.literal("resume"),
     resumeId: z.string().min(1),
@@ -27,6 +28,8 @@ export type WorkspaceSnapshot = z.infer<typeof WorkspaceSnapshotSchema>
 
 export function tabKey(target: TabTarget): string {
   switch (target.kind) {
+    case "autofill-profile":
+      return "autofill-profile"
     case "resume":
       return `resume:${target.resumeId}:${target.view}`
     case "skills":
@@ -45,6 +48,7 @@ export function routeTarget(pathname: string): TabTarget | null {
 }
 
 function decodedRouteTarget(pathname: string): TabTarget | null {
+  if (pathname === "/autofill-profile") return { kind: "autofill-profile" }
   const parts = pathname.replace(/\/$/, "").split("/")
   if (parts[1] === "skills" && parts.length <= 3) {
     return parts[2]
@@ -65,6 +69,8 @@ function decodedRouteTarget(pathname: string): TabTarget | null {
 }
 
 export function tabRoute(target: TabTarget | null) {
+  if (target?.kind === "autofill-profile")
+    return { to: "/autofill-profile", search: { section: "identity" } } as const
   if (!target) return { to: "/dashboard" } as const
   if (target.kind === "skills") return { to: "/skills" } as const
   if (target.kind === "skill")

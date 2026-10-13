@@ -1,3 +1,4 @@
+import { AutofillPanel } from "../autofill/Panel"
 import { useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
@@ -22,6 +23,13 @@ import {
 import { ExtensionError, type Message } from "../lib/messages"
 
 export function App() {
+  return location.hash.startsWith("#autofill=") ? (
+    <AutofillPanel />
+  ) : (
+    <TailoringPanel />
+  )
+}
+function TailoringPanel() {
   useRoutingRefresh()
   const state = useQuery(currentQuery())
   const action = useAction()
