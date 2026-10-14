@@ -20,6 +20,7 @@ recorded as ADRs.
 | Question identity | A deterministic key over normalized wording, kind, explicit scope and option signature. Never model-authored, never a browser reference. See `docs/adr/0001-question-identity.md`. |
 | Question list | The driver enumerates candidate questions deterministically, with stable order and count. The model interprets meaning, binds facts and selects observed options. It cannot add, drop or hide a question. |
 | Reasoning | A new minimal loop in `packages/agent` behind a port declared in `packages/resume-core`. Tools are bounded reads and option discovery only. Budgets are enforced by the executor, never trusted to the model. The chat assistant's run loop is not reused: its patch authority does not belong on this path. |
+| EEO | Excluded from the source bundle outright. A confirmed EEO answer stays the user's own and no EEO question is answered from a source, whether by defaulting or from a stored answer. Decided 2026-10-14, over the reading that a confirmed Profile response was an eligible fact. |
 | Application identity | Extracted deterministically from host, path and a query-name allowlist. An empty result means unknown, so the run starts fresh and the panel says why. Never inferred from hostname alone. |
 | Temporary state | `chrome.storage.session`, keyed by account, tab and application identity together. |
 | Telemetry | Timings and counts only, in a bounded local ring buffer with a dev-only readout. Nothing leaves the machine. |

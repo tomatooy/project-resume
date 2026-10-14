@@ -10,7 +10,6 @@ import {
   type AutofillProfile,
 } from "../autofill-profile/schema"
 import { countryName } from "../autofill-profile/countries"
-import { EEO_DEFINITIONS } from "../autofill-profile/schema"
 import type { AutofillProfileService } from "../autofill-profile/service"
 import type { ScopedAnswer } from "../autofill/contract"
 import { AppError } from "../domain/errors"
@@ -446,7 +445,11 @@ function linkKind(url: string, label: string): string | null {
   }
 }
 
-/** Facts from the confirmed Profile. EEO stays the user's own answer. */
+/**
+ * Facts from the confirmed Profile. EEO is excluded outright: a confirmed EEO
+ * answer is the user's own, so no EEO question may be answered from the bundle,
+ * whether by defaulting or from a stored answer.
+ */
 export function profileFacts(profile: AutofillProfile): Fact[] {
   const facts: Fact[] = []
   const data = profile.data
@@ -594,29 +597,5 @@ export function profileFacts(profile: AutofillProfile): Fact[] {
         : [],
       "preferences"
     )
-  // A confirmed EEO response is the user's own answer, carried with the country
-  // and definition it was confirmed under. Nothing here defaults one.
-  for (const row of data.eeo.responses) {
-    if (row.answer.state === "unanswered") continue
-    const definition = EEO_DEFINITIONS.find(
-      (candidate) => candidate.key === row.questionKey
-    )
-    if (!definition) continue
-    const display =
-      row.answer.state === "decline_to_answer"
-        ? "Prefer not to say"
-        : row.answer.code === "self_described"
-          ? (row.answer.text ?? "")
-          : row.answer.code.replaceAll("_", " ")
-    add(
-      `eeo.${row.questionKey}.${row.definitionVersion}`,
-      `US ${definition.title.toLowerCase()}`,
-      `eeo.${row.questionKey}`,
-      text(display),
-      display,
-      [{ dimension: "country", value: "US" }],
-      "eeo"
-    )
-  }
   return facts
 }

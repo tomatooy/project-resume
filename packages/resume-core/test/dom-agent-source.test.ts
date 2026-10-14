@@ -61,6 +61,43 @@ describe("the source bundle", () => {
     expect(prepared.review).toEqual([])
   })
 
+  it("never carries an EEO answer into the bundle, even a confirmed one", async () => {
+    const { services, resume } = await setup()
+    const profile = await services.autofillProfile.get()
+    await services.autofillProfile.update({
+      expectedRevision: profile.revision,
+      section: "eeo",
+      data: {
+        responses: [
+          {
+            countryCode: "US",
+            questionKey: "gender",
+            definitionVersion: "vs-us-1",
+            answer: { state: "answered", code: "woman" },
+          },
+          {
+            countryCode: "US",
+            questionKey: "veteran",
+            definitionVersion: "vs-us-1",
+            answer: { state: "decline_to_answer" },
+          },
+        ],
+      },
+    })
+    // The Profile really holds them, so the assertion below is about the bundle
+    // rather than about a section that silently failed to save.
+    const stored = await services.autofillProfile.get()
+    expect(
+      stored.data.eeo.responses.filter(
+        (row) => row.answer.state !== "unanswered"
+      )
+    ).toHaveLength(2)
+    const { bundle } = await services.autofill.prepare({ resumeId: resume.id })
+    expect(
+      bundle.facts.filter((fact) => fact.id.startsWith("profile:eeo"))
+    ).toEqual([])
+  })
+
   it("keeps a salary structured and keeps work authorization in its country", async () => {
     const { services, resume } = await setup()
     const profile = await services.autofillProfile.get()
