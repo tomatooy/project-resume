@@ -839,6 +839,86 @@ describe("the control that adds a group", () => {
     await read.session.detach()
   })
 
+  it("links the error the page states to the control it belongs to", async () => {
+    const read = await readPage(`<form>
+      <label for="email">Email address</label>
+      <input id="email" type="text" aria-invalid="true" aria-errormessage="email-error">
+      <p id="email-error">Enter a valid email address</p>
+      <label for="city">City</label><input id="city" type="text">
+    </form>`)
+
+    const email = read.observation.nodes.find(
+      (node) => node.control !== null && node.name === "Email address"
+    )
+    const city = read.observation.nodes.find(
+      (node) => node.control !== null && node.name === "City"
+    )
+    if (!email || !city) throw new Error("expected both controls")
+    // The link is the page's own: it says which control is wrong and names the
+    // element holding the wording, so the audit reports the page's error rather
+    // than one this engine provoked.
+    expect(read.evidence.get(email.ref)).toMatchObject({
+      invalid: true,
+      errorText: "Enter a valid email address",
+    })
+    // A control the page said nothing about is not invalid and carries no wording:
+    // silence is not read as an error.
+    expect(read.evidence.get(city.ref)).toMatchObject({
+      invalid: false,
+      errorText: null,
+    })
+    await read.session.detach()
+  })
+
+  it("records the controls a control says it changes", async () => {
+    // The page's own statement about an effect: `aria-controls` names the element
+    // a control changes, and what a fresh observation has to speak for is the
+    // controls inside that element rather than the element itself.
+    const read = await readPage(`<form>
+      <label for="country">Country</label>
+      <select id="country" aria-controls="extra"><option>Portugal</option></select>
+      <div id="extra"><label for="city">City</label><input id="city" type="text"></div>
+    </form>`)
+
+    const country = read.observation.nodes.find(
+      (node) => node.control !== null && node.name === "Country"
+    )
+    const city = read.observation.nodes.find(
+      (node) => node.control !== null && node.name === "City"
+    )
+    if (!country || !city) throw new Error("expected both controls")
+    expect(read.effectScopes.get(country.ref)).toEqual([city.ref])
+    // The container is not a question, and neither is the control itself: what
+    // the set names is what a run would have to read again.
+    expect(read.effectScopes.get(country.ref)).not.toContain(country.ref)
+    await read.session.detach()
+  })
+
+  it("tells a control that changes nothing from one the page never described", async () => {
+    // Two different answers, and a caller must not conflate them. A named element
+    // holding no controls is the page saying the effect touches nothing, which a
+    // run may narrow on. A control the page said nothing about is not that
+    // answer, and a run that read it as one would be narrowing on a statement
+    // nobody made.
+    const read = await readPage(`<form>
+      <label for="country">Country</label>
+      <select id="country" aria-controls="nothing"><option>Portugal</option></select>
+      <div id="nothing"></div>
+      <label for="note">Note</label><input id="note" type="text">
+    </form>`)
+
+    const country = read.observation.nodes.find(
+      (node) => node.control !== null && node.name === "Country"
+    )
+    const note = read.observation.nodes.find(
+      (node) => node.control !== null && node.name === "Note"
+    )
+    if (!country || !note) throw new Error("expected both controls")
+    expect(read.effectScopes.get(country.ref)).toEqual([])
+    expect(read.effectScopes.has(note.ref)).toBe(false)
+    await read.session.detach()
+  })
+
   it("reads a control the container holds, with nothing declared", async () => {
     // The other half of the page's statement: the control sits inside the
     // container it grows, and no `aria-controls` says so. Nearest ancestor wins,

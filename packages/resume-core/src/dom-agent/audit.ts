@@ -66,6 +66,21 @@ export const AuditIssueSchema = z.discriminatedUnion("kind", [
 export type AuditIssue = z.infer<typeof AuditIssueSchema>
 
 /**
+ * One thing the page says is wrong, tied to the control it belongs to.
+ *
+ * The link is the page's own statement: a control declares itself invalid and
+ * names the element holding the wording. An error nobody can be tied to is
+ * reported against no question rather than against a guessed one, which is why
+ * the ref is nullable.
+ */
+export const PageErrorSchema = z.strictObject({
+  questionRef: QuestionRefSchema.nullable(),
+  message: z.string().min(1).max(600),
+})
+
+export type PageError = z.infer<typeof PageErrorSchema>
+
+/**
  * A dimension this audit did not check, and why not. An engine limit is not a
  * gap in the page, so none of these blocks readiness; a gap in the page is an
  * `unobserved_region` and does. They are stated because an empty `issues` list
@@ -86,11 +101,6 @@ export type UncheckedDimension = z.infer<typeof UncheckedDimensionSchema>
 /** What no audit can check yet. Each one is a limit of the engine, not a page. */
 export const UNCHECKED_DIMENSIONS: readonly UncheckedDimension[] = [
   {
-    dimension: "validation_errors",
-    reason:
-      "The observation carries each control's own state and the page's error wording, but no stated link between an error and the control it belongs to, and alert or status prose is not a failure: the page runtime says the same where it reads one. Validation is never provoked by submitting, so this cannot be checked.",
-  },
-  {
     dimension: "source_conflicts",
     reason:
       "One question is answered from at most one fact: the interpreter takes the single exact match and the run writes it, so no two candidate answers are ever held side by side. The `conflict` disposition and the `conflict` issue exist with no producer.",
@@ -104,8 +114,12 @@ export const UNCHECKED_DIMENSIONS: readonly UncheckedDimension[] = [
 
 /** One page holds at most one control per observation node. */
 const MAX_REPORTED = DOM_AGENT_LIMITS.observationNodes
-/** One outcome per question, plus one issue per coverage gap. */
-const MAX_ISSUES = MAX_REPORTED + 64
+/**
+ * One outcome per question, one page error per control, plus one issue per
+ * coverage gap. A page error is reported beside the question's own outcome rather
+ * than instead of it, so both have to fit.
+ */
+const MAX_ISSUES = MAX_REPORTED * 2 + 64
 
 export const PageAuditSchema = z.strictObject({
   id: z.string().min(1).max(64),
@@ -307,6 +321,11 @@ export function buildPageAudit(input: {
     z.infer<typeof QuestionDispositionSchema> | undefined
   >
   receipts: readonly Receipt[]
+  /**
+   * What the page says is wrong. Read from its own statement, never provoked by
+   * submitting, and reported whether or not this run is what put the value there.
+   */
+  errors?: readonly PageError[]
 }): PageAudit {
   const nodeByRef = new Map<string, ObservationNode>(
     input.observation.nodes.map((node) => [node.ref, node])
@@ -387,6 +406,16 @@ export function buildPageAudit(input: {
       kind: "unobserved_region",
       scope: gap.scope,
       detail: gap.detail,
+    })
+
+  // What the page says is wrong. An error a page states is a reason it is not
+  // ready, whether this run wrote the value or the person did, and the message
+  // travels as the page worded it.
+  for (const error of input.errors ?? [])
+    issues.push({
+      kind: "validation_error",
+      questionRef: error.questionRef,
+      message: error.message,
     })
 
   return PageAuditSchema.parse({

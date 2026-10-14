@@ -69,6 +69,16 @@ export type QuestionEnumeration = {
    */
   addGroupControls: AddGroupControl[]
   /**
+   * Question ref to the questions the page says that question's control changes.
+   *
+   * A question with no entry is one the page said nothing about, which is not the
+   * same as one that changes nothing. An entry with an empty list is the page
+   * saying exactly that. Only the two together let a caller tell a narrowing it
+   * can trust from one it cannot, which is why the reader keeps that distinction
+   * all the way here rather than flattening both into an empty set.
+   */
+  effectScopes: Map<string, string[]>
+  /**
    * What the enumeration refused to handle. A question nobody can answer is a
    * gap the audit has to see, not a disposition with nowhere to go.
    */
@@ -151,11 +161,15 @@ export function candidateQuestions(input: {
   records: Map<string, string>
   /** Group ref to the control that grows the container it belongs to. */
   groupAddControls?: Map<string, string>
+  /** Control node ref to the node refs it says it changes. */
+  effectScopes?: Map<string, string[]>
 }): QuestionEnumeration {
   const questions: CandidateQuestion[] = []
   const dispositions: Record<string, QuestionDisposition> = {}
   const needingOptions: string[] = []
   const gaps: CoverageGap[] = []
+  /** The question each control became, so a declared effect can name questions. */
+  const questionRefForNode = new Map<string, string>()
   let index = 0
 
   // Observation order is document order, so the list is stable for an unchanged
@@ -165,6 +179,7 @@ export function candidateQuestions(input: {
     if (!control) continue
     index += 1
     const ref = `q${index}`
+    questionRefForNode.set(node.ref, ref)
     const evidence = input.evidence.get(node.ref)
     const kind = questionKindFor(control.kind)
 
@@ -193,13 +208,51 @@ export function candidateQuestions(input: {
     if (evidence?.portal) needingOptions.push(ref)
   }
 
+  const addGroupControls = addGroupQuestions(input)
   return {
     questions,
     dispositions,
     needingOptions,
-    addGroupControls: addGroupQuestions(input),
+    addGroupControls,
+    effectScopes: effectScopesFor({
+      questionRefForNode,
+      declared: input.effectScopes,
+      addGroupControls,
+    }),
     gaps,
   }
+}
+
+/**
+ * What each control says it changes, in question refs.
+ *
+ * The reader states this in node refs, because that is what it assigns; a
+ * question is a control plus the wording the page gave it, so this is the
+ * mapping that lets a run name the questions a fresh observation has to speak
+ * for. A control the page said nothing about keeps no entry, and a control the
+ * page named but which holds no controls keeps an empty list.
+ */
+function effectScopesFor(input: {
+  questionRefForNode: Map<string, string>
+  declared: Map<string, string[]> | undefined
+  addGroupControls: readonly AddGroupControl[]
+}): Map<string, string[]> {
+  const scopes = new Map<string, string[]>()
+  for (const [nodeRef, affectedNodeRefs] of input.declared ?? []) {
+    const owner =
+      input.questionRefForNode.get(nodeRef) ??
+      input.addGroupControls.find((control) => control.controlRef === nodeRef)
+        ?.ref
+    if (owner === undefined) continue
+    const refs: string[] = []
+    for (const affected of affectedNodeRefs) {
+      const ref = input.questionRefForNode.get(affected)
+      if (ref === undefined || ref === owner) continue
+      if (!refs.includes(ref)) refs.push(ref)
+    }
+    scopes.set(owner, refs)
+  }
+  return scopes
 }
 
 /**
@@ -285,15 +338,4 @@ export function unsupportedQuestions(
   questions: CandidateQuestion[]
 ): CandidateQuestion[] {
   return questions.filter((question) => question.kind === "unknown")
-}
-
-/** Questions that need an answer from the user rather than from sources. */
-export function openQuestions(
-  questions: CandidateQuestion[],
-  dispositions: Record<string, QuestionDisposition | undefined>
-): CandidateQuestion[] {
-  return questions.filter((question) => {
-    const disposition = dispositions[question.ref]
-    return disposition === "needs_input" || disposition === "conflict"
-  })
 }

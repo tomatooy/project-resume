@@ -161,6 +161,7 @@ describe("intents that must outlive a lost response", () => {
         settledAt: null,
         receipts: [receipt("a2", "q_resume")],
         reobserve: "upload_parsing",
+        affected: [],
       }
     )
 
@@ -180,6 +181,7 @@ describe("recording a batch", () => {
       settledAt: null,
       receipts: [receipt("a1", "q_email")],
       reobserve: null,
+      affected: [],
     })
     expect(first.questionRevision).toBe(2)
     expect(first.batches).toHaveLength(1)

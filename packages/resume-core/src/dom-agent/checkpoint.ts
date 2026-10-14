@@ -36,7 +36,14 @@ export const RunIntentSchema = z.strictObject({
    * page cannot tell the run whether the action landed, which is the one thing
    * that must never be guessed in either direction.
    */
-  settled: z.enum(["confirmed", "uncertain"]).nullable(),
+  /**
+   * What an observation decided about this intent, or null while it is open.
+   *
+   * `retried` is not `uncertain`: a page that showed the action had not landed
+   * answered the question, and flattening that into doubt loses the answer and
+   * makes every later observation repeat the doubt instead of the finding.
+   */
+  settled: z.enum(["confirmed", "uncertain", "retried"]).nullable(),
 })
 export type RunIntent = z.infer<typeof RunIntentSchema>
 
@@ -55,6 +62,15 @@ export const BatchRecordSchema = z.strictObject({
   reobserve: z
     .enum(["record_group", "option_discovery", "upload_parsing"])
     .nullable(),
+  /**
+   * The questions the page said this batch's effect touches.
+   *
+   * Empty when the batch changed nothing, and also empty when the page said
+   * nothing about an effect that did change something. The two are told apart by
+   * `reobserve`, which is null only in the first case: an effect with no set is
+   * the page not saying, and a run must never read that as "touches nothing".
+   */
+  affected: z.array(QuestionRefSchema).max(200),
 })
 export type BatchRecord = z.infer<typeof BatchRecordSchema>
 
@@ -216,7 +232,7 @@ export function exhaustionReport(input: {
 export function settleIntent(
   checkpoint: RunCheckpoint,
   actionRef: string,
-  settled: "confirmed" | "uncertain",
+  settled: "confirmed" | "uncertain" | "retried",
   at: number
 ): RunCheckpoint {
   return RunCheckpointSchema.parse({
@@ -237,6 +253,14 @@ export function openIntents(checkpoint: RunCheckpoint): RunIntent[] {
   return checkpoint.intents.filter((intent) => intent.settled === null)
 }
 
+/**
+ * Record a dispatched batch, and what the next observation has to speak for.
+ *
+ * The declared set outlives the batch in the record. What is live is the same set
+ * while an effect still stands, and empty once a batch changes nothing, because
+ * then what is left to plan comes from questions this run has not written yet
+ * rather than from a re-read.
+ */
 export function withBatch(
   checkpoint: RunCheckpoint,
   batch: BatchRecord
@@ -245,7 +269,7 @@ export function withBatch(
     ...checkpoint,
     questionRevision: checkpoint.questionRevision + 1,
     batches: [...checkpoint.batches, batch],
-    awaitingObservation: [],
+    awaitingObservation: batch.reobserve === null ? [] : [...batch.affected],
   })
 }
 

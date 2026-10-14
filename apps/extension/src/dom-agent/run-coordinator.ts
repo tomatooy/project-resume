@@ -3,9 +3,10 @@ import {
   type AddedGroup,
   type AnswerProposal,
   type CandidateQuestion,
-  type InterpretationCache,
+  InterpretationCache,
   type ObservationCoverage,
   type PageAudit,
+  type PageError,
   type PageRecordGroup,
   type QuestionDisposition,
   type QuestionPlan,
@@ -131,6 +132,17 @@ export type RunReport = {
    */
   recordGroups: RecordGroupPlan
   /**
+   * The questions the last round had to read again rather than reuse, in the
+   * order it read them.
+   *
+   * This is the run's own account of how narrow its replan was. After an effect
+   * on a control the page declared, it holds that control's questions plus any
+   * control the page added; after an effect on a control the page said nothing
+   * about, it holds the whole page, which is the honest report of a narrowing
+   * the run could not make.
+   */
+  replanned: string[]
+  /**
    * The whole-page audit this pass produced, or null when no pass has read a
    * page. Facts about the page, not a claim about it: every question is placed
    * in one outcome, and what could not be checked is stated in `unchecked`.
@@ -173,6 +185,14 @@ type Stage = {
   /** The controls this page offers for growing a repeated container. */
   addGroupControls: AddGroupControl[]
   keys: Map<string, string>
+  /**
+   * What this page's controls say they change, in question refs. A question with
+   * no entry is one the page said nothing about, which is not the same as one
+   * that changes nothing.
+   */
+  effectScopes: Map<string, string[]>
+  /** The questions this round read again rather than reusing what it had. */
+  replanned: string[]
 }
 
 /** A plan for a page nothing has been read from yet. */
@@ -209,9 +229,20 @@ export class PageRun {
   private observedAt: number | null = null
   private stopRequested: "pause" | "cancel" | null = null
   private readonly clock: () => number
+  /**
+   * What each question was read as, carried across the rounds of one run.
+   *
+   * Keyed by the question's own evidence rather than by its reference, so a
+   * re-observation that renumbers its nodes finds the same reading, and a
+   * question whose wording or options changed is read again. That is what lets
+   * the round after an effect replan the questions the effect touched instead of
+   * reading the meaning of the whole page again.
+   */
+  private readonly interpretations: InterpretationCache
 
   constructor(private readonly deps: PageRunDeps) {
     this.clock = deps.clock ?? (() => Date.now())
+    this.interpretations = deps.cache ?? new InterpretationCache()
     this.checkpoint = newCheckpoint({
       runId: deps.session.runId,
       stateKey: deps.stateKey,
@@ -422,14 +453,18 @@ export class PageRun {
           actionRef: candidate.actionRef,
           questionRef: candidate.questionRef,
           effect: candidate.effect,
-          // Deliberately empty, and there is no producer for it: naming the
-          // questions an action changes needs the page to say which ones, and
-          // the reader states the effect but not its scope. A batch after an
-          // effect is therefore planned from a fresh observation, which means
-          // the whole page is re-planned rather than only the questions the
-          // action touched. Box 1 of ticket 11 claims the narrower thing; the
-          // ticket records that it is not implemented.
-          affects: [],
+          // The questions the page says this control changes, so a batch that
+          // ends at an effect states the set it deferred rather than the empty
+          // set it used to. Only an action that also states an effect may claim
+          // one: the scheduler refuses a claim with nothing said about what
+          // changed, and a control whose effect this engine has not observed is
+          // written without a narrowing rather than with an unstated one. A page
+          // that said nothing about the effect carries none either, and the round
+          // after it reads the page's meaning again.
+          affects:
+            candidate.effect === null
+              ? []
+              : (stage.effectScopes.get(candidate.questionRef) ?? []),
         })),
       })
       mode = "continue"
@@ -449,7 +484,7 @@ export class PageRun {
           .filter(
             (candidate): candidate is Candidate => candidate !== undefined
           )
-        const stopped = await this.runBatch(batch, stage)
+        const stopped = await this.runBatch(batch, stage, plan.affected)
         if (stopped) break
         // The next batch either runs from this observation, because a full
         // batch is only a scheduling limit, or waits for a fresh one because
@@ -477,6 +512,7 @@ export class PageRun {
         questions: this.stage.questions,
         dispositions: this.dispositions(),
         receipts: this.receipts,
+        errors: this.pageErrors(this.stage),
       })
       this.review = reviewQueue({
         questions: this.stage.questions,
@@ -612,16 +648,26 @@ export class PageRun {
       regions: read.regions,
       records: read.records,
       groupAddControls: read.groupAddControls,
+      effectScopes: read.effectScopes,
     })
     const questions = await attachPortalOptions({
       session: this.deps.session,
       read,
       enumeration,
     })
+    // What the last batch left behind. A page that said nothing about an effect
+    // it let happen never licenses a narrowing: the round reads the page's
+    // meaning again rather than reusing what an earlier round read, because only
+    // a declared reach says which questions the effect could have changed.
+    const last = this.checkpoint.batches[this.checkpoint.batches.length - 1]
+    const undeclared =
+      last !== undefined &&
+      last.reobserve !== null &&
+      last.affected.length === 0
     const interpretations = interpretPage({
       questions,
       facts: this.deps.bundle.facts,
-      cache: this.deps.cache,
+      cache: undeclared ? undefined : this.interpretations,
     })
     const planned = planAnswers({
       questions,
@@ -662,6 +708,11 @@ export class PageRun {
       coverage,
       recordGroups,
       addGroupControls: enumeration.addGroupControls,
+      effectScopes: enumeration.effectScopes,
+      // What the interpreter had to read this round. A question whose evidence
+      // the page changed cannot be served from the cache, so after an effect this
+      // is the questions the effect touched plus whatever the page added.
+      replanned: interpretations.interpreted,
       keys,
     }
   }
@@ -685,11 +736,14 @@ export class PageRun {
     // An intent the page confirmed still counts. The run's own account of what it
     // grew outlives the pass that settled it, and without it a group the run added
     // is only placed while it happens to be the last record left, which fails the
-    // moment two entries are added for two records. An uncertain one never counts:
-    // the run cannot say that group appeared, so it cannot place it.
+    // moment two entries are added for two records. An open intent counts too,
+    // because the add may have landed with no reply. Every other state is the page
+    // having answered, and one of those answers is that the add did not land, so
+    // the states are listed rather than excluded one by one.
     const recorded = this.checkpoint.intents.filter(
       (intent) =>
-        intent.kind === "record_creation" && intent.settled !== "uncertain"
+        intent.kind === "record_creation" &&
+        (intent.settled === null || intent.settled === "confirmed")
     )
     if (recorded.length === 0) return []
     // What the rules would place without this run's own account of an add, which
@@ -995,7 +1049,12 @@ export class PageRun {
    * One batch: every intent written down before the action that needs it
    * leaves, then the actions, then the receipts and the checkpoint together.
    */
-  private async runBatch(batch: Candidate[], stage: Stage): Promise<boolean> {
+  private async runBatch(
+    batch: Candidate[],
+    stage: Stage,
+    /** The questions the page said this batch's effect touches. */
+    declared: readonly string[] = []
+  ): Promise<boolean> {
     const revision = this.checkpoint.questionRevision
     const at = this.clock()
     const groupCount = pageRecordGroups({
@@ -1074,6 +1133,13 @@ export class PageRun {
         this.recordAttempt(stage, candidate, attempt.receipt)
     }
 
+    const reobserve =
+      batch.find((candidate) => candidate.effect !== null)?.effect ?? null
+    // The questions the page said this batch's effect touches, as the scheduler
+    // carried them. A page that said nothing leaves this empty while `reobserve`
+    // still records that an effect happened, which is what keeps "touches
+    // nothing" apart from "did not say".
+    const affected = reobserve === null ? [] : [...new Set(declared)]
     this.receipts = [...this.receipts, ...receipts]
     this.checkpoint = withBatch(this.checkpoint, {
       index: this.checkpoint.batches.length,
@@ -1081,8 +1147,8 @@ export class PageRun {
       dispatchedAt: at,
       settledAt: null,
       receipts,
-      reobserve:
-        batch.find((candidate) => candidate.effect !== null)?.effect ?? null,
+      reobserve,
+      affected,
     })
     await this.save()
 
@@ -1175,9 +1241,15 @@ export class PageRun {
         this.checkpoint,
         intent.actionRef,
         // Only the page saying it landed is a confirmation. A verdict that says
-        // it did not is not a reason to act twice either, so it is recorded as
-        // doubt while the report above still says what the page showed.
-        verdict.kind === "confirmed" ? "confirmed" : "uncertain",
+        // it did not is not a reason to act twice either, and it is recorded as
+        // what it was rather than as doubt: a page that showed the action had not
+        // landed answered the question, and calling that uncertainty makes every
+        // later observation repeat the doubt instead of the finding.
+        verdict.kind === "confirmed"
+          ? "confirmed"
+          : verdict.kind === "retry"
+            ? "retried"
+            : "uncertain",
         this.clock()
       )
     }
@@ -1186,6 +1258,33 @@ export class PageRun {
 
   private async save(): Promise<void> {
     await this.deps.store.save(this.checkpoint)
+  }
+
+  /**
+   * What the page says is wrong, tied to the questions this run asked.
+   *
+   * The page states the link itself: a control declares itself invalid and names
+   * the element holding the wording, and the reader carries both. A control that
+   * is invalid but became no question here is still an error on the page, so it is
+   * reported against no question rather than dropped or attached to a guess.
+   */
+  private pageErrors(stage: Stage | null): PageError[] {
+    if (stage === null) return []
+    const questionForControl = new Map(
+      stage.questions.map((question) => [question.controlRef, question.ref])
+    )
+    const errors: PageError[] = []
+    for (const node of stage.read.observation.nodes) {
+      const evidence = stage.read.evidence.get(node.ref)
+      if (!evidence?.invalid) continue
+      errors.push({
+        questionRef: questionForControl.get(node.ref) ?? null,
+        message:
+          evidence.errorText ??
+          "The page marks this control invalid and states no wording for it.",
+      })
+    }
+    return errors
   }
 
   private report(): RunReport {
@@ -1203,6 +1302,7 @@ export class PageRun {
       exhausted: this.exhausted,
       recovered: this.recovered,
       recordGroups: this.stage?.recordGroups ?? NO_RECORD_GROUPS,
+      replanned: this.stage?.replanned ?? [],
       audit: this.audit,
       verdict: this.verdict,
       observationBytes: this.stage

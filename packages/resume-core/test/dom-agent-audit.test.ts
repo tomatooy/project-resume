@@ -4,6 +4,7 @@ import {
   type Observation,
   type ObservationNode,
   type ObservedControl,
+  type PageError,
   type QuestionDisposition,
   type Receipt,
   PageAuditSchema,
@@ -104,6 +105,7 @@ function build(input: {
   nodes?: ObservationNode[]
   coverage?: Observation["coverage"]
   receipts?: Receipt[]
+  errors?: PageError[]
 }) {
   return buildPageAudit({
     id: "audit1",
@@ -112,6 +114,7 @@ function build(input: {
     questions: input.questions,
     dispositions: input.dispositions,
     receipts: input.receipts ?? [],
+    errors: input.errors,
   })
 }
 
@@ -312,6 +315,50 @@ describe("the page audit", () => {
     }
   })
 
+  it("reports what the page says is wrong, against the question it belongs to", () => {
+    const questions = [question({ ref: "q1", controlRef: "n1" })]
+    const audit = build({
+      questions,
+      nodes: [node("n1", control())],
+      receipts: [receipt({ state: "accepted" })],
+      dispositions: { q1: "answered" },
+      errors: [
+        { questionRef: "q1", message: "Enter a valid email address" },
+        {
+          questionRef: null,
+          message:
+            "The page marks this control invalid and states no wording for it.",
+        },
+      ],
+    })
+
+    // The page's own statement is an issue whether or not this run wrote the
+    // value, and an error nobody could be tied to is reported against no question
+    // rather than against a guessed one.
+    expect(audit.issues).toEqual([
+      {
+        kind: "validation_error",
+        questionRef: "q1",
+        message: "Enter a valid email address",
+      },
+      {
+        kind: "validation_error",
+        questionRef: null,
+        message:
+          "The page marks this control invalid and states no wording for it.",
+      },
+    ])
+    // A page that says it is wrong is not ready, whatever the run believes about
+    // its own writes, and the reason names the kind rather than a count.
+    const verdict = readiness({ audit, questions })
+    expect(verdict.state).toBe("incomplete")
+    expect(
+      verdict.state === "incomplete"
+        ? verdict.reasons.some((reason) => reason.includes("validation_error"))
+        : false
+    ).toBe(true)
+  })
+
   it("reports a required question the run has nothing for", () => {
     const audit = build({
       questions: [question({ ref: "q1", controlRef: "n1" })],
@@ -403,7 +450,6 @@ describe("the page audit", () => {
     // checked".
     expect(audit.issues).toEqual([])
     expect(audit.unchecked.map((entry) => entry.dimension)).toEqual([
-      "validation_errors",
       "source_conflicts",
       "cross_field_consistency",
     ])

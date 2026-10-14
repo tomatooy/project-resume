@@ -339,7 +339,11 @@ function acceptedUpload(questionRef: string): Receipt {
 function seededCheckpoint(input: {
   questionRef: string
   receipt: Receipt | null
-  settled: "confirmed" | "uncertain" | null
+  settled: "confirmed" | "uncertain" | "retried" | null
+  /** The intent an add left behind, when this is not an upload's. */
+  kind?: "upload" | "record_creation"
+  /** How many groups the page held when the intent was written. */
+  groupCount?: number | null
 }): RunCheckpoint {
   const base = newCheckpoint({
     runId: "run-1",
@@ -359,12 +363,12 @@ function seededCheckpoint(input: {
     questionRevision: 2,
     intents: [
       RunIntentSchema.parse({
-        kind: "upload",
+        kind: input.kind ?? "upload",
         actionRef: "a1",
         questionRef: input.questionRef,
         // The site's own file list is not part of an observation, so an upload
         // is written down with no baseline for a later look to compare against.
-        groupCount: null,
+        groupCount: input.groupCount ?? null,
         attachmentName: null,
         at: clock,
         settled: input.settled,
@@ -381,6 +385,7 @@ function seededCheckpoint(input: {
               settledAt: null,
               receipts: [input.receipt],
               reobserve: "upload_parsing",
+              affected: [],
             }),
           ],
   })
@@ -452,6 +457,18 @@ describe("batching independent work", () => {
 
     expect(report.checkpoint.batches).toHaveLength(1)
     expect(report.checkpoint.batches[0]?.reobserve).toBe("upload_parsing")
+    // The page said nothing about what the upload changes, so the batch carries
+    // an effect with no set rather than an empty claim that it touches nothing.
+    // A run that read that empty set as "changes nothing" would narrow on a
+    // statement the page never made.
+    expect(report.checkpoint.batches[0]?.affected).toEqual([])
+    // An undeclared effect does not license a narrowing either. The round after it
+    // reads every question's meaning again rather than reusing what an earlier
+    // round read, because nothing said which questions the effect could have
+    // changed.
+    expect([...report.replanned].sort()).toEqual(
+      report.questions.map((question) => question.ref).sort()
+    )
     // The observation the effect invalidated is not reused: the page is read
     // again before anything else is planned from it.
     expect(harness.reads()).toBeGreaterThan(report.checkpoint.batches.length)
@@ -460,6 +477,32 @@ describe("batching independent work", () => {
 })
 
 describe("checkpoints and intents", () => {
+  it("writes a control that declares an effect this engine has not observed", async () => {
+    // The page names what the city field changes, and this engine saw no effect of
+    // its own to pair with that claim. The action is written without one: only an
+    // action that says what changed may say it affects other questions, and a
+    // claim with no effect is refused by the scheduler rather than written. The
+    // page still gets its answer, and the batch claims no set.
+    const harness = await page(
+      `<form>
+        <label for="city">City</label>
+        <input id="city" type="text" aria-controls="extra">
+        <div id="extra"><label for="note">Note</label><input id="note" type="text"></div>
+      </form>`,
+      { facts: FACTS }
+    )
+    const { run } = harness.run()
+    const report = await run.start()
+
+    expect(report.progress.accepted).toBe(1)
+    expect(document.querySelector<HTMLInputElement>("#city")?.value).toBe(
+      "Lisbon"
+    )
+    expect(report.checkpoint.batches[0]?.reobserve).toBeNull()
+    expect(report.checkpoint.batches[0]?.affected).toEqual([])
+    await harness.session.detach()
+  })
+
   it("writes the upload intent down before the attachment is dispatched", async () => {
     const harness = await page(`<form>
       <label for="resume">Resume</label><input id="resume" type="file">
@@ -822,6 +865,45 @@ describe("what a fresh observation says about a lost upload", () => {
     await harness.session.detach()
   })
 
+  it("keeps what the page showed rather than flattening it into doubt", async () => {
+    // An add whose response was lost, on a page that was read afterwards and
+    // holds no more groups than the intent recorded. That is the page answering:
+    // the action did not land. Recorded as doubt it would make every later look
+    // repeat the doubt instead of the finding.
+    const harness = await page(`<form>
+      <div id="jobs">
+        <div class="job"><label for="e1">Employer name</label><input id="e1" value="Acme"></div>
+        <div class="job"><label for="e2">Employer name</label><input id="e2" value="Globex"></div>
+      </div>
+      <button type="button" aria-controls="jobs">Add another experience</button>
+    </form>`)
+    const { run, store } = harness.run()
+    store.checkpoint = seededCheckpoint({
+      questionRef: "q1",
+      receipt: null,
+      settled: null,
+      kind: "record_creation",
+      groupCount: 2,
+    })
+
+    const first = await run.continueRun()
+    const note = first.recovered.find((entry) => entry.actionRef === "a1")
+    expect(note?.verdict).toBe("retry")
+    expect(note?.detail).toMatch(/no more groups/i)
+    // The checkpoint now says what the report said. Recorded as doubt instead, a
+    // later reader of this run could not tell the two apart, and a panel showing
+    // it would report uncertainty about something the page answered.
+    expect(store.checkpoint?.intents[0]?.settled).toBe("retried")
+
+    // A settled intent is not looked at again: the page answered, and asking it
+    // the same question on every continue is how one doubt becomes a habit.
+    const second = await run.continueRun()
+    expect(
+      second.recovered.filter((entry) => entry.actionRef === "a1")
+    ).toHaveLength(1)
+    await harness.session.detach()
+  })
+
   it("cannot settle an intent whose question is no longer on the page", async () => {
     const harness = await page(FILE_FORM)
     const { run } = harness.run({
@@ -1114,6 +1196,34 @@ describe("the page audit", () => {
     ])
     await harness.session.detach()
   })
+
+  it("reports the error the page states against the question it belongs to", async () => {
+    // The page marks the email field invalid and names the element holding the
+    // wording. The audit carries that, tied to the question, so a page a person
+    // still has to fix is not called ready on the strength of a write this run
+    // watched succeed.
+    const harness = await page(
+      `<form>
+        <label for="email">Email address</label>
+        <input id="email" type="text" aria-invalid="true" aria-errormessage="email-error">
+        <p id="email-error">Enter a valid email address</p>
+      </form>`,
+      { facts: FACTS }
+    )
+    const { run } = harness.run()
+    const report = await run.start()
+
+    const email = report.questions.find(
+      (question) => question.text === "Email address"
+    )?.ref
+    expect(report.audit?.issues).toContainEqual({
+      kind: "validation_error",
+      questionRef: email,
+      message: "Enter a valid email address",
+    })
+    expect(report.verdict).toMatchObject({ state: "incomplete" })
+    await harness.session.detach()
+  })
 })
 
 /**
@@ -1186,6 +1296,39 @@ describe("adding a record group", () => {
     ]
   }
 
+  it("does not place a group the page said its add never created", async () => {
+    const harness = await page(
+      `<form>
+        <div id="jobs">
+          <div class="job"><label for="e1">Employer name</label><input id="e1" value="Acme"></div>
+          <div class="job"><label for="e2">Employer name</label><input id="e2" type="text"></div>
+        </div>
+        <button type="button" aria-controls="jobs">Add another experience</button>
+      </form>`,
+      { facts: threeRecords() }
+    )
+    const { run, store } = harness.run()
+    // The add was written down and the page afterwards held no more groups than
+    // before, which is the page saying it never landed. The run's account of what
+    // it grew is then no account at all, and cannot place a record in a group this
+    // run did not create.
+    store.checkpoint = seededCheckpoint({
+      questionRef: "q1",
+      receipt: null,
+      settled: "retried",
+      kind: "record_creation",
+      groupCount: 1,
+    })
+    const report = await run.continueRun()
+
+    expect(
+      report.recordGroups.bindings.filter(
+        (binding) => binding.evidence === "added_for_record"
+      )
+    ).toEqual([])
+    await harness.session.detach()
+  })
+
   it("presses the page's own control once, after writing the intent", async () => {
     const harness = await page(JOBS, { facts: threeRecords() })
     const { run, store } = harness.run()
@@ -1205,6 +1348,49 @@ describe("adding a record group", () => {
     // Two groups were on the page when it was written, which is the count the
     // next observation is read against.
     expect(intent?.groupCount).toBe(2)
+    await harness.session.detach()
+  })
+
+  it("replans the questions the effect touched, not the whole page", async () => {
+    const harness = await page(JOBS, { facts: threeRecords() })
+    const button = document.querySelector("button")
+    // The page's own reaction to its control: it grows the container, and the
+    // control it adds there is worded in its own way. That wording is what makes
+    // this test say something, because a question the run has never read has to
+    // be read while the ones it has already read must not be read again.
+    button?.addEventListener("click", () => {
+      const group = document.createElement("div")
+      group.className = "job"
+      const label = document.createElement("label")
+      label.setAttribute("for", "e3")
+      label.textContent = "Job title"
+      const field = document.createElement("input")
+      field.id = "e3"
+      group.append(label, field)
+      document.querySelector("#jobs")?.append(group)
+      harness.reread()
+    })
+    const { run } = harness.run()
+    const report = await run.start()
+
+    // The page said what the add changes, and the checkpoint carries it durably:
+    // the questions inside the container that control grows.
+    const batch = report.checkpoint.batches[0]
+    expect(batch?.reobserve).toBe("record_group")
+    expect(batch?.affected).toEqual(
+      report.questions
+        .filter((question) => question.text === "Employer name")
+        .map((question) => question.ref)
+    )
+
+    // The round after the effect read exactly one question again: the control the
+    // page added. The two already read were not read a second time, which is the
+    // narrower replan rather than the whole page's meaning read again.
+    const added = report.questions.find(
+      (question) => question.text === "Job title"
+    )
+    expect(added).toBeDefined()
+    expect(report.replanned).toEqual([added?.ref])
     await harness.session.detach()
   })
 

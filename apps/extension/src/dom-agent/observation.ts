@@ -127,6 +127,22 @@ export type ControlEvidence = {
   constraints: Constraints
   /** The option list lives outside this subtree and must be read on request. */
   portal: boolean
+  /**
+   * The page states this control currently holds an error.
+   *
+   * Only the page's own statement counts. A field the site styles red without
+   * saying so is not evidence this engine may act on, and nothing is submitted to
+   * provoke validation: the statement is read, never caused.
+   */
+  invalid: boolean
+  /**
+   * The wording the page ties to that error, or null when it names none.
+   *
+   * Read only from the element a control names for it, and only while the error
+   * stands: text a control merely describes itself with is an instruction as often
+   * as an error, and reading one as the other would put a lie in the audit.
+   */
+  errorText: string | null
 }
 
 export type PageRead = {
@@ -145,6 +161,19 @@ export type PageRead = {
    * from a button's position.
    */
   groupAddControls: Map<string, string>
+  /**
+   * Control node ref to the node refs of the controls the page says it changes.
+   *
+   * A control states this through `aria-controls` or `aria-owns`, and nothing
+   * else states it: sitting near a container says nothing about whether
+   * activating one changes the other, so proximity is never read as scope.
+   *
+   * A control with no entry is one the page did not say anything about, which is
+   * not the same as one that affects nothing. An entry with an empty list is the
+   * page saying exactly that, and only the two together let a caller tell a
+   * narrowing it can trust from one it cannot.
+   */
+  effectScopes: Map<string, string[]>
 }
 
 export type PageFragment = {
@@ -221,12 +250,6 @@ type Plan = {
   region: boolean
   regionLabel: string | null
   record: boolean
-  /**
-   * Set on the control that adds a group, to the ref of the container it
-   * grows. Carried on the child rather than the parent so the second pass can
-   * pair them once both have references.
-   */
-  addControlFor: string | null
   children: Plan[]
   kinds: string[]
 }
@@ -261,6 +284,8 @@ type BuildState = {
   planRefs: Map<Plan, string>
   /** Group ref to the ref of the control that adds a group to its container. */
   groupAddControls: Map<string, string>
+  /** Control node ref to the refs of the controls the page says it changes. */
+  effectScopes: Map<string, string[]>
   refCounter: number
   recordCounter: number
 }
@@ -509,6 +534,27 @@ function describedText(
     if (text) return text
   }
   return clamp(axText(ax?.description), MAX_LABEL)
+}
+
+/**
+ * The wording the page names for a control's error, if it names any.
+ *
+ * `aria-errormessage` is the attribute for this, and it is not `aria-describedby`:
+ * a description is read for every control because it helps answer the question,
+ * while this is read only for a control the page has already said is wrong.
+ */
+function errorTextFor(
+  attributes: Map<string, string>,
+  source: Source
+): string | null {
+  const named = attributes.get("aria-errormessage")
+  if (!named) return null
+  const parts: string[] = []
+  for (const id of named.split(/\s+/)) {
+    const target = source.ids.get(id)
+    if (target) parts.push(textOf(target))
+  }
+  return clamp(parts.join(" "), MAX_LABEL)
 }
 
 /**
@@ -1055,6 +1101,8 @@ function describeControl(input: ControlInput): {
     ? textOf(group.container ?? group.anchor).slice(0, MAX_LABEL)
     : ""
   const description = describedText(attributes, source, ax)
+  const invalid =
+    attributes.has("aria-invalid") && attributes.get("aria-invalid") !== "false"
   // A `required` attribute on any member makes the whole set required, which is
   // how the browser treats a radio group.
   const groupRequired =
@@ -1105,6 +1153,8 @@ function describeControl(input: ControlInput): {
       description,
       constraints: constraintsOf(attributes),
       portal,
+      invalid,
+      errorText: invalid ? errorTextFor(attributes, source) : null,
     },
     optionNodes,
   }
@@ -1151,7 +1201,6 @@ function planNode(
       region: false,
       regionLabel: null,
       record: false,
-      addControlFor: null,
       children: [],
       kinds: [],
     }
@@ -1190,7 +1239,6 @@ function planNode(
       region: false,
       regionLabel: null,
       record: false,
-      addControlFor: null,
       children: roots,
       kinds: rootKinds,
     }
@@ -1310,7 +1358,6 @@ function planNode(
     region,
     regionLabel: region ? (clamp(axText(ax?.name), MAX_LABEL) ?? tag) : null,
     record: false,
-    addControlFor: null,
     children,
     kinds,
   }
@@ -1428,6 +1475,78 @@ function linkAddControls(input: {
     // One container, one control: every group it holds reports the same one.
     for (const groupRef of containers.get(container) ?? [])
       state.groupAddControls.set(groupRef, addRef)
+  }
+}
+
+/** The ids a control names as the elements it changes. */
+function declaredTargetIds(plan: Plan): string[] {
+  const attributes = attributeMap(plan.dom)
+  const named = `${attributes.get("aria-controls") ?? ""} ${attributes.get("aria-owns") ?? ""}`
+  return named.split(/\s+/).filter(Boolean)
+}
+
+/** Every plan in a subtree, the root first. */
+function subtreeOf(root: Plan): Plan[] {
+  const found: Plan[] = []
+  const walk = (plan: Plan): void => {
+    found.push(plan)
+    for (const child of plan.children) walk(child)
+  }
+  walk(root)
+  return found
+}
+
+/**
+ * Record the controls the page says a control changes.
+ *
+ * `aria-controls` and `aria-owns` are the only statements a page makes about
+ * this, and both name elements rather than questions, so what is recorded is the
+ * refs of the controls inside the named elements. A control that names nothing
+ * gets no entry: that is the page not saying, which a caller must never read as
+ * "affects nothing". A control that names an element holding no controls gets an
+ * empty list, which is the page saying exactly that.
+ *
+ * The walk down the named element is what makes this a statement about controls
+ * rather than about markup: a container the page re-renders is not itself a
+ * question, and what a fresh observation has to speak for is what is inside it.
+ */
+function linkEffectScopes(input: {
+  plans: readonly Plan[]
+  state: BuildState
+  source: Source
+}): void {
+  const { state } = input
+  const all = input.plans.flatMap(subtreeOf)
+  const byBackendId = new Map<number, Plan>()
+  for (const plan of all) {
+    const backendNodeId = plan.dom.backendNodeId
+    if (backendNodeId !== undefined) byBackendId.set(backendNodeId, plan)
+  }
+
+  for (const plan of all) {
+    // A node the read kept and a run can address: a control, or a bare button it
+    // kept because the page worded it as adding something. A button holds no
+    // value, so it is not a control, but it is still the thing an action
+    // addresses, which means its declared effect has to be readable.
+    if (!plan.control && !isAddAffordance(plan)) continue
+    const ref = state.planRefs.get(plan)
+    if (ref === undefined) continue
+    const named = declaredTargetIds(plan)
+    if (named.length === 0) continue
+    const affected: string[] = []
+    for (const id of named) {
+      const backendNodeId = input.source.ids.get(id)?.backendNodeId
+      if (backendNodeId === undefined) continue
+      const target = byBackendId.get(backendNodeId)
+      if (target === undefined) continue
+      for (const node of subtreeOf(target)) {
+        if (!node.control) continue
+        const nodeRef = state.planRefs.get(node)
+        if (nodeRef === undefined || nodeRef === ref) continue
+        if (!affected.includes(nodeRef)) affected.push(nodeRef)
+      }
+    }
+    state.effectScopes.set(ref, affected)
   }
 }
 
@@ -1656,6 +1775,7 @@ export async function observePage(input: {
     regionMembers: new Map(),
     planRefs: new Map(),
     groupAddControls: new Map(),
+    effectScopes: new Map(),
     refCounter: 0,
     recordCounter: 0,
   }
@@ -1809,6 +1929,9 @@ export async function observePage(input: {
     // containers, which only the repetition shows, and the controls, which may
     // sit outside the container they grow.
     linkAddControls({ plans: contextPlans, state, source })
+    // Read for the same reason: a control's declared effect resolves against the
+    // refs the walk assigned, so it can only be read once they all exist.
+    linkEffectScopes({ plans: contextPlans, state, source })
     if (excludedCredentials.count > 0)
       state.gaps.push({
         scope: "authentication and payment fields",
@@ -1920,6 +2043,7 @@ function finish(input: {
     records: state.records,
     regions: state.regions,
     groupAddControls: state.groupAddControls,
+    effectScopes: state.effectScopes,
   }
 }
 
@@ -2227,6 +2351,7 @@ function walkOne(input: {
     regionMembers: new Map(),
     planRefs: new Map(),
     groupAddControls: new Map(),
+    effectScopes: new Map(),
     refCounter: 0,
     recordCounter: 0,
   }
