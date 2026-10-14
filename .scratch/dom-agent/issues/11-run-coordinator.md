@@ -65,3 +65,24 @@ editing the module that carries the EEO exclusion.
 **Do not open the engine guard.** Wire the entry point so that flipping
 `engineCanStart()` later is a one-line change, and leave it refusing: the review queue
 and panel arrive with ticket 15, so a half-built path must stay unreachable.
+
+## Landed, boxes unverified (2026-10-14)
+
+The code landed as `0079515` after this lane was killed by a network failure during its
+final verification. It is green in the primary: extension 392 tests, resume-core 370, root
+typecheck 9/9, biome clean. The patch carries `run-coordinator.ts` (run state, batching,
+recovery, pause/continue/cancel, ceilings), `checkpoint.ts` (checkpoint shape and the
+intents written before dispatch), `scheduling.ts` (batches and dependency-driven
+replanning), `page-steps.ts`, `run-store.ts`, `runtime/user-edits.ts`, and the dispatch and
+protocol changes that carry a revision, with about 1,100 lines of tests across three files.
+
+**The boxes above are deliberately NOT ticked.** The lane died before reporting, so nobody
+has established box by box which claims are proven. That verification pass is owed before
+this ticket is called done, and it is the same treatment tickets 10, 12 and 13 got, where
+it found a real defect in two of the three.
+
+One defect is already fixed, and the lane's own last test caught it: every read in
+`observePage` swallowed its error into a coverage gap, including a closed debugging
+session, so a run whose debugger died mid-flight reported the page as read and empty and
+reached `auditing` rather than pausing with a lost connection. All five reads now rethrow a
+lost session, which is what makes the recovery path this ticket builds reachable at all.
