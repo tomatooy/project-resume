@@ -98,3 +98,27 @@ rows out, so a newly saved identity-first row never reaches a fill.
 
 - [ ] The bundle's answers port reads identity-first rows, mapping legacy concept rows as it already does, so a saved answer can answer the question it was saved for.
 - [ ] A test saves an answer for a question with no concept, then prepares a bundle and asserts the fact is present with the right scope.
+
+## Lane ownership (this pass)
+
+Two lanes, split by file so neither touches the other's tree.
+
+**Lane A, items 1 to 7.** Owns `apps/extension/src/dom-agent/run-coordinator.ts`,
+`packages/resume-core/src/dom-agent/{scheduling,checkpoint,run,action,record-group}.ts`,
+that directory's `index.ts` (this lane holds the barrel), and the coordination tests
+(`dom-agent-run-coordinator.test.ts`, `dom-agent-scheduling.test.ts`,
+`dom-agent-checkpoint.test.ts`, `dom-agent-records.test.ts`).
+
+**Must not touch:** `packages/resume-core/src/dom-agent/source-service.ts`, the
+`saved-answers/` module, `apps/web/**`, or `packages/api/**`. Another lane is wiring saved
+answers into the bundle through those files right now.
+
+**Do not open the engine guard**, and do not weaken the EEO exclusion on the way past.
+
+**Lane B, item 9.** Owns `packages/resume-core/src/dom-agent/source-service.ts` and its
+test, `packages/resume-core/src/saved-answers/**` and its test,
+`apps/web/src/server/adapters/autofill.ts` and its test, and the container wiring in
+`apps/web/src/server/container.ts`.
+
+**Must not touch:** the coordinator, `scheduling.ts`, `checkpoint.ts`, `run.ts`,
+`record-group.ts`, or the dom-agent barrel.

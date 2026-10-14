@@ -73,3 +73,10 @@ Five follow-ups, none of which reopens a box:
   rendered in a web test.
 - **G5.** One unchecked cast in the UI (\`SavedQuestionAnswers.tsx\`) that would render an
   invalid select value for a stored kind outside the seven offered.
+
+One more thing for whoever wires item 9: the new path's EEO refusal is a wording match
+against five Profile titles, which the schema comment admits, and it is currently the only
+guard on these rows. That is adequate while nothing reads them into a bundle; the moment
+item 9 makes them answerable, the bundle must exclude them by the question's kind or scope,
+or by a stored flag, rather than by wording alone. The product rule is that no EEO answer is
+ever defaulted, and wording is the weakest of the three ways to hold it.
