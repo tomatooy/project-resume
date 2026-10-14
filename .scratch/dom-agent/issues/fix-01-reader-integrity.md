@@ -2,7 +2,7 @@
 
 **What to build:** The reader half of the review findings. Sources are the review pass over `8cdf011..711cb87`; item numbers refer to it.
 
-**Blocked by:** nothing. **Status:** ready-for-agent.
+**Blocked by:** nothing. **Status:** done.
 
 **You own exactly these files.** Change nothing else.
 
@@ -66,3 +66,22 @@ bunx biome check --write apps/extension packages/resume-core
 ```
 
 Report: files changed, the exact commands with their real output, which review findings and acceptance boxes are now closed, and anything you could not do. Claim no green check you did not observe.
+
+## Landed
+
+All seven items. Two deviations worth knowing.
+
+- Item 4's second half (the selection verification, in `runtime/verbs.ts`) belonged to
+  neither lane's file list and was closed by the parent instead, together with the
+  page-side attachment refusal and the toggle evidence code. See `open-after-review-fixes.md`.
+- Item 3 also closed the "readonly with no committed value seeds preserved" finding,
+  which no item asked for: it now seeds `unverified`, tested for both the empty and
+  the valued case.
+- Constraints ride on the candidate question, which is what ticket 06's box asks for.
+  `ObservedControlSchema` lives in `core/observation.ts`, owned by no lane, so if the
+  constraints are wanted on the observed control too that file needs an owner.
+- Lane note for future worktree dispatches: a worktree needs each package's
+  `node_modules`, not just the ones named, because the extension's tsconfig maps
+  `@workspace/ui/*` into a package with its own gitignored deps. Editing inside
+  `apps/extension/node_modules/@workspace` when that directory is a symlink reaches the
+  primary checkout; it was repaired and verified.

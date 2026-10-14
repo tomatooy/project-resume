@@ -2,7 +2,7 @@
 
 **What to build:** The write-path half of the review findings. Sources are the review pass over `8cdf011..711cb87`; item numbers refer to it.
 
-**Blocked by:** nothing. **Status:** ready-for-agent.
+**Blocked by:** nothing. **Status:** done.
 
 **You own exactly these files.** Change nothing else.
 
@@ -72,3 +72,18 @@ bunx biome check --write apps/extension packages/resume-core
 ```
 
 Report: files changed, the exact commands with their real output, which findings are closed, the two notes for ticket 11 (the toggle schema decision and the uncompared generation and epoch), and anything you could not do. Claim no green check you did not observe.
+
+## Landed
+
+Items 1 to 5, and 6.1 and 6.2. Six mutation probes confirm the tests fail when the
+code they protect is broken, all restored byte-identically afterwards.
+
+Item 6.3 (the tautological disposition count) was assigned to the reader lane by
+its file list and is done there.
+
+Not done here, and closed by the parent instead: the page-side half of item 1
+(carrying the authorization onto the step), and the dedicated evidence code for
+item 3, because both need `runtime/protocol.ts`, which no lane owned.
+
+Residual, recorded rather than fixed: the upload test's real `DataTransfer` path
+cannot be honestly closed in jsdom, where a fake transfer would only test the fake.
