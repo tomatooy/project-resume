@@ -47,6 +47,16 @@ export type SavedQuestionEvidence = z.infer<typeof SavedQuestionEvidenceSchema>
 
 export const SavedQuestionSchema = SavedQuestionEvidenceSchema.extend({
   key: z.string().length(SAVED_QUESTION_KEY_LENGTH),
+  /**
+   * Whether this question's subject may not be answered from a source.
+   *
+   * Recorded when the answer is saved, so the reuse path reads a decision
+   * instead of re-deriving one from whatever wording a later page happens to
+   * use. Optional because a row written before this decision existed has to
+   * stay readable, and the reader treats a row carrying no decision as
+   * excluded: absence is not permission.
+   */
+  excluded: z.boolean().optional(),
 })
 export type SavedQuestion = z.infer<typeof SavedQuestionSchema>
 
@@ -94,21 +104,69 @@ export function savedQuestionKey(evidence: SavedQuestionEvidence): string {
 }
 
 /**
- * Whether this wording is a demographic question, which may never be saved for
- * reuse. EEO is excluded from sources outright: the specification forbids
- * answering it from a bundle, and a saved answer is one.
- *
- * The new shape has no concept to test, so this matches the question's own
- * wording against the Profile's definition titles. That is narrower than the
- * retired concept test: a page that words a demographic question differently is
- * not caught here, and the answers to it stay what they always were, an
- * explicit per-application choice by the user.
+ * The subjects the Profile asks about demographically, as the words a page uses
+ * for them. Its own titles are verbose and a page rarely reuses them, so the
+ * subject is matched as well as the title: a question asking "Gender", "Race /
+ * ethnicity" or "Disability status" has to be caught too.
  */
-export function isDemographicQuestion(text: string): boolean {
-  const wanted = normalizeQuestionText(text)
-  if (!wanted) return false
-  return EEO_DEFINITIONS.some(
-    (definition) => normalizeQuestionText(definition.title) === wanted
+const DEMOGRAPHIC_WORDING =
+  /\b(?:gender|sex(?:ual|es)?|race|ethnic(?:ity)?|disabilit(?:y|ies)|veteran(?:s)?|military|self[- ]identif\w*)\b/
+
+/**
+ * A category as a page spells it rather than as the Profile codes it: punctuation
+ * and spacing are decoration, so "Non-binary" is the Profile's `nonbinary` and
+ * "Hispanic or Latino" is its `hispanic_or_latino`.
+ */
+function categoryForm(text: string): string {
+  return normalizeQuestionText(text).replace(/[^a-z0-9]+/g, "")
+}
+
+/**
+ * The demographic answer categories the Profile itself defines, minus the two
+ * definitions that are a yes or a no: "Yes" and "No" are options on ordinary
+ * questions, and matching those would refuse reuse for most of a form. The
+ * categories are a second signal, because a page can ask about gender without
+ * using any word in `DEMOGRAPHIC_WORDING` and still offer these answers.
+ */
+const DEMOGRAPHIC_CATEGORIES: ReadonlySet<string> = new Set(
+  EEO_DEFINITIONS.flatMap((definition) => {
+    const codes: readonly string[] = definition.codes
+    if (codes.every((code) => code === "yes" || code === "no")) return []
+    return codes.map((code) => categoryForm(code.replaceAll("_", " ")))
+  })
+)
+
+/**
+ * Whether this question is demographic, whose answer may never be reused. EEO
+ * is excluded from sources outright: the specification forbids answering it
+ * from a bundle, and a saved answer is one.
+ *
+ * The new shape has no concept to test, so the decision is read from the
+ * question's own evidence: the wording a page authored and the answer
+ * categories it offered. Both are narrower than a classification, and a
+ * demographic question using none of the subjects the Profile defines, in
+ * either signal, reads as an ordinary question.
+ *
+ * That limit is why the decision is also recorded on the row (`excluded`): a
+ * reader refuses on the row's own statement instead of re-deriving the
+ * classification from wording, so a later page wording the question differently
+ * cannot turn an excluded row into a source fact.
+ */
+export function isDemographicQuestion(question: {
+  text: string
+  options: readonly { label: string }[]
+}): boolean {
+  const wording = normalizeQuestionText(question.text)
+  if (!wording) return false
+  if (DEMOGRAPHIC_WORDING.test(wording)) return true
+  if (
+    EEO_DEFINITIONS.some(
+      (definition) => normalizeQuestionText(definition.title) === wording
+    )
+  )
+    return true
+  return question.options.some((option) =>
+    DEMOGRAPHIC_CATEGORIES.has(categoryForm(option.label))
   )
 }
 

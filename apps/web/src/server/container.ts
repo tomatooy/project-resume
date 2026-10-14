@@ -114,6 +114,12 @@ export function supabasePorts(
   return {
     autofillProfiles: new SupabaseAutofillProfileRepository(db, userId),
     autofillAnswers: new SupabaseScopedAnswerRepository(db, userId),
+    /**
+     * The identity-first half of the same table. The source bundle reads both,
+     * because an answer kept in the question's own shape is a source the same
+     * as a row in the retired concept vocabulary is.
+     */
+    savedAnswers: new SupabaseSavedAnswerRepository(db, userId),
     autofillInterpreter: {
       interpret: (input, options) =>
         createPageInterpreter(createModelsFromEnv(), userId).interpret(

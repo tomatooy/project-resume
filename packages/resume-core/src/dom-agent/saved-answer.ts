@@ -56,9 +56,11 @@ export const ReviewAnswerSchema = z.strictObject({
    * the question needs a structured value, and parsing that string would be an
    * inference of ours rather than something the user stated.
    * `empty_value`: the row holds nothing usable, which is not an answer.
-   * `excluded_concept`: the concept is excluded from sources by decision, so a
+   * `excluded_concept`: the subject is excluded from sources by decision, so a
    * keyed row that carries a structured value is no more eligible than an
-   * unkeyed one. EEO is the case today.
+   * unkeyed one. EEO is the case today, on both readers: the retired concept
+   * vocabulary names it `eeo_*`, and an identity-first row records the decision
+   * on the question itself.
    */
   reason: z.enum([
     "no_question_key",

@@ -38,6 +38,8 @@ import {
   type RenderConfig,
   type SourceVersion,
 } from "./source"
+import { factFromSavedAnswer } from "../saved-answers/service"
+import { savedAnswersId, type SavedAnswer } from "../saved-answers/schema"
 
 /**
  * Rendering and font asset version. It is part of a PDF's identity, not of the
@@ -50,7 +52,10 @@ export type SourceDeps = {
   resumes: Pick<ResumeRepository, "findById">
   versions: Pick<VersionRepository, "findById">
   profiles: Pick<AutofillProfileService, "get" | "update">
+  /** Rows in the retired concept vocabulary, read into facts where they can be. */
   answers: { list(): Promise<ScopedAnswer[]> }
+  /** Rows in the question's own identity-first shape. */
+  savedAnswers: { list(): Promise<SavedAnswer[]> }
   renderVersion?: string
 }
 
@@ -114,6 +119,7 @@ export class SourceService {
     const doc = await this.document_(resume, versionId ?? null)
     const profile = await this.deps.profiles.get()
     const stored = await this.storedAnswers()
+    const kept = await this.savedAnswers()
 
     const review: ReviewAnswer[] = []
     const facts = [
@@ -125,12 +131,21 @@ export class SourceService {
       if (outcome.kind === "fact") facts.push(outcome.fact)
       else review.push(outcome.answer)
     }
+    // Both readers feed one bundle and one review list: a row in the concept
+    // vocabulary and a row in the question's own shape are answered from the
+    // same facts, and a row either reader refuses stays visible to the user.
+    for (const answer of kept) {
+      const outcome = factFromSavedAnswer(answer)
+      if (outcome.kind === "fact") facts.push(outcome.fact)
+      else review.push(outcome.answer)
+    }
 
     const sources = await this.contributingSources(
       resume,
       doc,
       profile,
       stored,
+      kept,
       versionId ?? null
     )
     const id = sourceBundleId(sources)
@@ -168,11 +183,13 @@ export class SourceService {
     const doc = await this.document_(resume, versionId)
     const profile = await this.deps.profiles.get()
     const stored = await this.storedAnswers()
+    const kept = await this.savedAnswers()
     const sources = await this.contributingSources(
       resume,
       doc,
       profile,
       stored,
+      kept,
       versionId
     )
     const bundleId = sourceBundleId(sources)
@@ -272,6 +289,7 @@ export class SourceService {
     doc: Resume,
     profile: AutofillProfile,
     answers: ScopedAnswer[],
+    savedAnswers: SavedAnswer[],
     versionId: string | null
   ): Promise<SourceVersion[]> {
     return [
@@ -290,8 +308,18 @@ export class SourceService {
       {
         kind: "saved_answers",
         id: "saved_answers",
-        revision: answers.reduce((max, row) => Math.max(max, row.revision), 0),
-        contentHash: valueHash(answers),
+        revision: Math.max(
+          highestRevision(answers),
+          highestRevision(savedAnswers)
+        ),
+        // Both shapes of stored answer belong to this one identity, including
+        // a row the reader refuses: the set the account keeps is what the
+        // bundle was derived from. The identity-first half hashes by its own
+        // keys, so the hash does not depend on the order a query returned.
+        contentHash: valueHash({
+          legacy: answers,
+          identity: savedAnswersId(savedAnswers),
+        }),
       },
     ]
   }
@@ -316,11 +344,20 @@ export class SourceService {
   private async storedAnswers(): Promise<ScopedAnswer[]> {
     return this.deps.answers.list()
   }
+
+  private async savedAnswers(): Promise<SavedAnswer[]> {
+    return this.deps.savedAnswers.list()
+  }
 }
 
 type ResumeRecord = NonNullable<
   Awaited<ReturnType<ResumeRepository["findById"]>>
 >
+
+/** Highest revision in a set of rows, so one identity covers both shapes. */
+function highestRevision(rows: readonly { revision: number }[]): number {
+  return rows.reduce((max, row) => Math.max(max, row.revision), 0)
+}
 
 /** Stable hash of a stored value, so an unchanged source keeps its identity. */
 function valueHash(value: unknown): string {

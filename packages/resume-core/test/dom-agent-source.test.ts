@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest"
+import {
+  SavedAnswerSchema,
+  SavedAnswerService,
+  type SavedQuestionEvidence,
+} from "../src"
 import { ActionSchema } from "../src/dom-agent/action"
+import { exactFactMatch } from "../src/dom-agent/deterministic-path"
+import {
+  CandidateQuestionSchema,
+  reusableQuestionKey,
+  type CandidateQuestion,
+} from "../src/dom-agent/question"
 import {
   StoredAnswerSchema,
   answerDestination,
@@ -324,6 +335,137 @@ describe("stored answers without a question identity", () => {
       { dimension: "period", value: "year" },
       { dimension: "other", value: "job:42" },
     ])
+  })
+})
+
+describe("answers kept in the question's own shape", () => {
+  /** The case this exists for: no vocabulary member names this question. */
+  function noticePeriod(): SavedQuestionEvidence {
+    return {
+      text: "How much notice do you need to give your current employer?",
+      kind: "short_text",
+      scope: [{ dimension: "employer", value: "Acme" }],
+      options: [],
+    }
+  }
+
+  /** The same question as a page presents it, for the tier that binds facts. */
+  function asPage(evidence: SavedQuestionEvidence): CandidateQuestion {
+    return CandidateQuestionSchema.parse({
+      ref: "q1",
+      controlRef: "n1",
+      groupRef: null,
+      recordRef: null,
+      kind: evidence.kind,
+      text: evidence.text,
+      description: null,
+      options: evidence.options.map((option, index) => ({
+        ref: `o${index}`,
+        label: option.label,
+        value: null,
+        selected: false,
+        disabled: false,
+      })),
+      requiredness: { state: "required", evidence: ["native_attribute"] },
+      controlKind: "text",
+      scope: evidence.scope,
+    })
+  }
+
+  async function keep(
+    ports: ReturnType<typeof inMemoryPorts>,
+    text = noticePeriod().text,
+    value = "Four weeks"
+  ) {
+    return new SavedAnswerService(ports.savedAnswers).save({
+      expectedRevision: 0,
+      question: { ...noticePeriod(), text },
+      value: { type: "text", text: value },
+      confirmed: true,
+    })
+  }
+
+  it("answers a question no vocabulary names, in the scope it was kept for", async () => {
+    const { ports, services, resume } = await setup()
+    const saved = await keep(ports)
+    const { bundle, review } = await services.autofill.prepare({
+      resumeId: resume.id,
+    })
+
+    const fact = bundle.facts.find(
+      (entry) => entry.source.kind === "saved_answer"
+    )
+    if (!fact) throw new Error("expected the kept answer in the bundle")
+    expect(fact.value).toEqual({ type: "text", text: "Four weeks" })
+    expect(fact.scope).toEqual([{ dimension: "employer", value: "Acme" }])
+
+    // What the page does with it: the deterministic tier binds the fact by the
+    // wording the page asks, and the identity the fact cites is the one the
+    // page derives from the same evidence.
+    const candidate = asPage(noticePeriod())
+    expect(exactFactMatch(candidate, bundle.facts)?.id).toBe(fact.id)
+    expect(reusableQuestionKey(candidate)).toBe(saved.question.key)
+    expect(fact.source).toMatchObject({ questionKey: saved.question.key })
+    expect(review).toEqual([])
+  })
+
+  it("counts a kept answer as a source, so a held bundle cannot answer from a new set", async () => {
+    const { ports, services, resume } = await setup()
+    const held = await services.autofill.prepare({ resumeId: resume.id })
+    const saved = await keep(ports)
+    const now = await services.autofill.prepare({ resumeId: resume.id })
+    expect(now.bundle.id).not.toBe(held.bundle.id)
+
+    // A second answer is a different set at the same highest revision, so only
+    // the set itself can tell the two bundles apart.
+    await keep(ports, "When could you start?", "In a month")
+    const two = await services.autofill.prepare({ resumeId: resume.id })
+    expect(two.bundle.id).not.toBe(now.bundle.id)
+
+    await expect(
+      services.autofill.prepare({
+        resumeId: resume.id,
+        expectedBundleId: held.bundle.id,
+      })
+    ).rejects.toMatchObject({ code: "CONFLICT", reasonCode: "source_changed" })
+
+    // Editing what an answer holds is a change of source as well.
+    await new SavedAnswerService(ports.savedAnswers).save({
+      id: saved.id,
+      expectedRevision: saved.revision,
+      question: noticePeriod(),
+      value: { type: "text", text: "Two weeks" },
+      confirmed: true,
+    })
+    const edited = await services.autofill.prepare({ resumeId: resume.id })
+    expect(edited.bundle.id).not.toBe(two.bundle.id)
+  })
+
+  it("keeps a row carrying no recorded decision out of the bundle", async () => {
+    const { ports, services, resume } = await setup()
+    const saved = await keep(ports)
+    // A row written before the decision existed, or by a writer that did not
+    // record one: it carries a key and a value, and it is still not a source.
+    ports.savedAnswers.answers.set(
+      saved.id,
+      SavedAnswerSchema.parse({
+        ...saved,
+        question: { ...saved.question, excluded: undefined },
+      })
+    )
+    const { bundle, review } = await services.autofill.prepare({
+      resumeId: resume.id,
+    })
+    expect(
+      bundle.facts.some((fact) => fact.source.kind === "saved_answer")
+    ).toBe(false)
+    expect(review).toHaveLength(1)
+    expect(review[0]).toMatchObject({
+      answerId: saved.id,
+      reason: "excluded_concept",
+      value: "Four weeks",
+      scope: [{ dimension: "employer", value: "Acme" }],
+    })
   })
 })
 

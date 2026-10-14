@@ -202,18 +202,48 @@ describe("saved answers in the question's own shape", () => {
       value: { type: "text", text: "Four weeks" },
       confirmed: true,
     })
-    const fact = factFromSavedAnswer(saved)
+    const outcome = factFromSavedAnswer(saved)
+    if (outcome.kind !== "fact") throw new Error("expected a source fact")
     // The fact is a protocol fact: provenance has to name a real identity.
-    expect(() => FactSchema.parse(fact)).not.toThrow()
-    expect(fact.source).toEqual({
+    expect(() => FactSchema.parse(outcome.fact)).not.toThrow()
+    expect(outcome.fact.source).toEqual({
       kind: "saved_answer",
       answerId: saved.id,
       questionKey: saved.question.key,
     })
     // The meaning is the question's own wording, which is what a page matches.
-    expect(fact.meaning).toBe(noticePeriod().text)
-    expect(fact.scope).toEqual(noticePeriod().scope)
+    expect(outcome.fact.meaning).toBe(noticePeriod().text)
+    expect(outcome.fact.scope).toEqual(noticePeriod().scope)
     expect(displayOfSavedValue(saved.value)).toBe("Four weeks")
+  })
+
+  it("records the decision and refuses to source a row that excludes it", async () => {
+    const { answers } = service()
+    const saved = await answers.save({
+      expectedRevision: 0,
+      question: noticePeriod(),
+      value: { type: "text", text: "Four weeks" },
+      confirmed: true,
+    })
+    // A written row carries the decision, so a reader never re-derives it from
+    // wording. The refusal the save path already made is what makes it false.
+    expect(saved.question.excluded).toBe(false)
+    for (const excluded of [true, undefined]) {
+      const row = SavedAnswerSchema.parse({
+        ...saved,
+        question: { ...saved.question, excluded },
+      })
+      const outcome = factFromSavedAnswer(row)
+      if (outcome.kind !== "review") throw new Error("expected a refusal")
+      expect(outcome.answer).toMatchObject({
+        answerId: saved.id,
+        revision: saved.revision,
+        meaning: noticePeriod().text,
+        value: "Four weeks",
+        scope: noticePeriod().scope,
+        reason: "excluded_concept",
+      })
+    }
   })
 
   it("keeps amount, currency and period apart on a salary answer", async () => {
@@ -255,11 +285,14 @@ describe("saved answers in the question's own shape", () => {
 
   it("never saves a demographic question for reuse", async () => {
     const { answers } = service()
-    expect(isDemographicQuestion("Gender identity")).toBe(true)
-    expect(isDemographicQuestion("Have you served in the US military?")).toBe(
-      true
-    )
-    expect(isDemographicQuestion(noticePeriod().text)).toBe(false)
+    expect(isDemographicQuestion(noticePeriod())).toBe(false)
+    for (const text of [
+      "Gender identity",
+      "Have you served in the US military?",
+      "Disability status",
+      "How do you self-identify?",
+    ])
+      expect(isDemographicQuestion({ text, options: [] })).toBe(true)
     const message = await refusal(() =>
       answers.save({
         expectedRevision: 0,
@@ -269,6 +302,35 @@ describe("saved answers in the question's own shape", () => {
       })
     )
     expect(message).toContain("never reused")
+  })
+
+  it("reads a demographic question from its answer categories as well", () => {
+    // A page can ask about gender without using the word, and still offer the
+    // Profile's own categories as the answers.
+    expect(
+      isDemographicQuestion({
+        text: "Which of these best describes you?",
+        options: [
+          { label: "Woman" },
+          { label: "Man" },
+          { label: "Non-binary" },
+        ],
+      })
+    ).toBe(true)
+    // Yes and No are options on ordinary questions, so the definitions that are
+    // a yes or a no take no part in this signal.
+    expect(
+      isDemographicQuestion({
+        text: "Do you have a valid driver's licence?",
+        options: [{ label: "Yes" }, { label: "No" }],
+      })
+    ).toBe(false)
+    expect(
+      isDemographicQuestion({
+        text: noticePeriod().text,
+        options: [{ label: "Two weeks" }, { label: "A month" }],
+      })
+    ).toBe(false)
   })
 
   it("refuses an answer that holds no answer", async () => {

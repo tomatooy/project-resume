@@ -3,6 +3,7 @@ import {
   InMemoryAutofillQuota,
   StubAutofillDecider,
   InMemoryAutofillPolicy,
+  InMemorySavedAnswerRepository,
   InMemoryScopedAnswerRepository,
 } from "./autofill"
 import { InMemoryTailorOperationRepository } from "./in-memory-tailor-operation-repository"
@@ -33,6 +34,7 @@ export function inMemoryPorts(db = new InMemoryDb()) {
     db,
     autofillProfiles: new InMemoryAutofillProfileRepository(),
     autofillAnswers: new InMemoryScopedAnswerRepository(),
+    savedAnswers: new InMemorySavedAnswerRepository(),
     autofillQuota: new InMemoryAutofillQuota(() => db.now().getTime()),
     autofillDecider: new StubAutofillDecider(),
     autofillPolicy: new InMemoryAutofillPolicy(),

@@ -106,6 +106,12 @@ export type CorrectionAttempt = {
   observationKey: string
   /** What the attempt did, so the same thing again is recognisable. */
   correction: string
+  /**
+   * What the page said when it refused. Kept beside the page's state rather
+   * than inside it: two refusals of the same correction against one unchanged
+   * page are one attempt repeated, and a retry needs something new to go on.
+   */
+  failure?: string | null
 }
 
 export type AttemptDecision =
@@ -118,6 +124,11 @@ export type AttemptDecision =
  * correction. Retrying the same correction against an unchanged page is how a
  * run turns one failure into a loop, and the count is per failed control:
  * successful independent writes never consume it.
+ *
+ * "Unchanged" is three things: the page, the correction, and what the page
+ * said when it refused. The page is compared on its own state rather than on a
+ * key that had a receipt folded into it, so an unchanged page reads as
+ * unchanged; a refusal that changed is still a reason to try again.
  */
 export function attemptPolicy(input: {
   attempts: number
@@ -132,7 +143,9 @@ export function attemptPolicy(input: {
   if (previous) {
     const changedPage = previous.observationKey !== input.now.observationKey
     const differentCorrection = previous.correction !== input.now.correction
-    if (!changedPage && !differentCorrection)
+    const differentFailure =
+      (previous.failure ?? null) !== (input.now.failure ?? null)
+    if (!changedPage && !differentCorrection && !differentFailure)
       return { kind: "skip", reason: "no_new_evidence" }
   }
   return { kind: "retry", attempt: input.attempts + 1 }

@@ -4,6 +4,8 @@ import type { AutofillProfile, ProfileData } from "../autofill-profile/schema"
 import { reviewPolicy } from "../autofill/contract"
 import type { ScopedAnswer } from "../autofill/contract"
 import type { ScopedAnswerRepository } from "../autofill/answers"
+import type { SavedAnswer } from "../saved-answers/schema"
+import type { SavedAnswerRepository } from "../saved-answers/service"
 import type {
   AutofillDecider,
   AutofillPolicyProvider,
@@ -68,6 +70,24 @@ export class InMemoryScopedAnswerRepository implements ScopedAnswerRepository {
     return structuredClone([...this.answers.values()])
   }
   async save(answer: ScopedAnswer, expectedRevision: number) {
+    if ((this.answers.get(answer.id)?.revision ?? 0) !== expectedRevision)
+      return null
+    const saved = { ...structuredClone(answer), revision: expectedRevision + 1 }
+    this.answers.set(saved.id, saved)
+    return structuredClone(saved)
+  }
+  async remove(id: string, expectedRevision: number) {
+    if (this.answers.get(id)?.revision !== expectedRevision) return false
+    return this.answers.delete(id)
+  }
+}
+
+export class InMemorySavedAnswerRepository implements SavedAnswerRepository {
+  readonly answers = new Map<string, SavedAnswer>()
+  async list() {
+    return structuredClone([...this.answers.values()])
+  }
+  async save(answer: SavedAnswer, expectedRevision: number) {
     if ((this.answers.get(answer.id)?.revision ?? 0) !== expectedRevision)
       return null
     const saved = { ...structuredClone(answer), revision: expectedRevision + 1 }

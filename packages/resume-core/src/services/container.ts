@@ -7,6 +7,10 @@ import {
   ScopedAnswerService,
   type ScopedAnswerRepository,
 } from "../autofill/answers"
+import {
+  SavedAnswerService,
+  type SavedAnswerRepository,
+} from "../saved-answers/service"
 import type {
   AutofillDrafter,
   AutofillPageInterpreter,
@@ -45,6 +49,8 @@ import { VersionService } from "./version-service"
 export type Ports = {
   autofillProfiles: AutofillProfileRepository
   autofillAnswers?: ScopedAnswerRepository
+  /** Rows in the question's own shape. Absent means the account keeps none. */
+  savedAnswers?: SavedAnswerRepository
   autofillInterpreter?: AutofillPageInterpreter
   autofillDrafter?: AutofillDrafter
   autofillDecider: AutofillDecider
@@ -100,6 +106,7 @@ export function createServices(ports: Ports): Services {
     ports.autofillAnswers,
     ports.clock
   )
+  const savedAnswers = new SavedAnswerService(ports.savedAnswers, ports.clock)
   const resumes = new ResumeService(ports.resumes)
   const runs = new RunService(versions, ports.runs, ports.clock)
   const memory = new MemoryService(
@@ -116,6 +123,7 @@ export function createServices(ports: Ports): Services {
       versions: ports.versions,
       profiles: autofillProfile,
       answers: autofillAnswers,
+      savedAnswers,
     }),
     resumes,
     imports: new ImportService(ports.resumeParser, resumes, versions),

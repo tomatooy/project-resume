@@ -7,11 +7,14 @@ import {
   type QuestionDisposition,
   type QuestionPlan,
   type Receipt,
+  type RecordGroupPlan,
   type ReviewItem,
   type RunCheckpoint,
   type RunState,
   type SourceBundle,
+  type AttemptDecision,
   allReceipts,
+  assertTransition,
   attemptPolicy,
   attachmentTargets,
   ceilingStatus,
@@ -19,16 +22,20 @@ import {
   exhaustionReport,
   intentForAction,
   interpretPage,
+  isTerminal,
   newCheckpoint,
   observationCoverage,
   openIntents,
   pageRecordGroups,
   planAnswers,
   planBatches,
+  recordGroupPlan,
+  recordedUpload,
   recoveryFor,
   reviewQueue,
   revertedReceipts,
   settleIntent,
+  sourceRecords,
   verifiedProgress,
   withAttempt,
   withBatch,
@@ -108,6 +115,13 @@ export type RunReport = {
   /** What a fresh observation said about an action whose answer was lost. */
   recovered: RecoveryNote[]
   /**
+   * What the observation's repeated groups are, and what the resume can serve
+   * them. Stated rather than acted on: a group is only added through a control
+   * the page provides for it, and the observation does not carry that control
+   * yet, so what cannot be placed is reported instead of guessed at.
+   */
+  recordGroups: RecordGroupPlan
+  /**
    * Size of the observation this run read, as it would be sent. Reported rather
    * than recomputed by a caller, because the caller cannot see the observation
    * the run actually used. Null before anything has been read.
@@ -133,8 +147,17 @@ type Stage = {
   plans: QuestionPlan[]
   proposals: Record<string, AnswerProposal>
   coverage: ObservationCoverage
-  dispositions: Record<string, QuestionDisposition>
+  recordGroups: RecordGroupPlan
   keys: Map<string, string>
+}
+
+/** A plan for a page nothing has been read from yet. */
+const NO_RECORD_GROUPS: RecordGroupPlan = {
+  bindings: [],
+  refusals: [],
+  supplements: [],
+  missing: [],
+  next: { kind: "none" },
 }
 
 type Candidate = {
@@ -188,9 +211,19 @@ export class PageRun {
    */
   async continueRun(): Promise<RunReport> {
     this.stopRequested = null
+    // Cancelling is terminal, so a cancelled run is not continued: the panel
+    // starts a new run for a new Fill. Reported rather than thrown, because
+    // this is a person's click and not an engine mistake.
+    if (isTerminal(this.checkpoint.state)) return this.afterCancellation()
     const loaded = await this.deps.store.load(this.deps.stateKey)
-    if (loaded) this.checkpoint = withResume(loaded, this.clock())
-    else this.checkpoint = { ...this.checkpoint, state: "observing" }
+    if (loaded) {
+      // Whatever the checkpoint says it was doing, a continue observes again.
+      assertMove(loaded.state, "observing")
+      this.checkpoint = withResume(loaded, this.clock())
+    } else {
+      assertMove(this.checkpoint.state, "observing")
+      this.checkpoint = { ...this.checkpoint, state: "observing" }
+    }
     this.receipts = allReceipts(this.checkpoint)
     await this.save()
     return this.drive("continue")
@@ -199,11 +232,10 @@ export class PageRun {
   /** The user stopped it. Values already written stay where they are. */
   async cancel(reason = "The user stopped the run"): Promise<RunReport> {
     this.stopRequested = "cancel"
-    this.checkpoint = withStop(this.checkpoint, {
-      state: "cancelled",
-      stopped: { kind: "user", reason },
-      at: this.clock(),
-    })
+    // Cancelling is terminal, so a second one has nothing left to stop. The
+    // values already written stay where they are either way.
+    if (!isTerminal(this.checkpoint.state))
+      this.move("cancelled", { kind: "user", reason })
     await this.save()
     return this.report()
   }
@@ -211,11 +243,10 @@ export class PageRun {
   /** The user paused it, or the run found work that needs them. */
   async pause(reason: string): Promise<RunReport> {
     this.stopRequested = "pause"
-    this.checkpoint = withStop(this.checkpoint, {
-      state: "paused",
-      stopped: { kind: "user", reason },
-      at: this.clock(),
-    })
+    // A cancelled run is not paused: it is already over, and saying it paused
+    // would offer a continue that cannot happen.
+    if (!isTerminal(this.checkpoint.state))
+      this.move("paused", { kind: "user", reason })
     this.waiting = { reason }
     await this.save()
     return this.report()
@@ -235,6 +266,7 @@ export class PageRun {
     reason: string
   }): Promise<RunReport> {
     this.stopRequested = null
+    if (isTerminal(this.checkpoint.state)) return this.afterCancellation()
     const loaded = await this.deps.store.load(this.deps.stateKey)
     if (!loaded || input.differentApplication) {
       // A different application inherits nothing: not the bundle, not the
@@ -250,27 +282,20 @@ export class PageRun {
       this.receipts = []
       this.review = []
     } else {
+      assertMove(loaded.state, "observing")
       this.checkpoint = withResume(loaded, this.clock())
       this.receipts = allReceipts(this.checkpoint)
     }
-    this.checkpoint = withStop(this.checkpoint, {
-      state: "paused",
-      stopped: { kind: "interruption", reason: input.reason },
-      at: this.clock(),
-    })
+    this.move("paused", { kind: "interruption", reason: input.reason })
     await this.save()
     // The pause is recorded before anything else happens, so a worker that dies
     // again during recovery is still found paused with its receipts intact.
-    this.checkpoint = {
-      ...this.checkpoint,
-      state: "observing",
-      stopped: null,
-    }
+    this.move("observing")
     return this.drive("continue")
   }
 
   private async drive(mode: "start" | "continue"): Promise<RunReport> {
-    this.checkpoint = { ...this.checkpoint, state: "running" }
+    this.move("running")
     try {
       await this.driveRounds(mode)
     } catch (error) {
@@ -280,18 +305,49 @@ export class PageRun {
       // stops, says the connection went, and keeps what it already wrote. The
       // caller reattaches and calls `continueRun`, which observes again.
       if (!isSessionLost(error)) throw error
-      this.checkpoint = withStop(this.checkpoint, {
-        state: "paused",
-        stopped: {
-          kind: "connection",
-          reason: "The debugging connection was lost",
-        },
-        at: this.clock(),
+      this.move("paused", {
+        kind: "connection",
+        reason: "The debugging connection was lost",
       })
       this.waiting = { reason: "The debugging connection was lost" }
       await this.save()
     }
     return this.report()
+  }
+
+  /**
+   * What a run that was already cancelled says to a continue or an
+   * interruption. The values it wrote stay written; the run itself does not
+   * come back to life, because a cancelled run is the user's decision and a new
+   * Fill is how they reverse it.
+   */
+  private afterCancellation(): RunReport {
+    this.waiting = {
+      reason: "This run was cancelled. Start a new run to fill the page again.",
+    }
+    return this.report()
+  }
+
+  /**
+   * Move the run's state, refusing a move the table in `run.ts` forbids. The
+   * table is the authority on which states a run may be in, so a move the
+   * engine cannot make is an error here rather than a checkpoint nobody can
+   * act on. Reaching the same state twice is not a move, and a move with no
+   * stop behind it clears the last one: a state the run is working in does not
+   * carry the record of why it stopped earlier.
+   */
+  private move(
+    state: RunState,
+    stopped: {
+      kind: NonNullable<RunCheckpoint["stopped"]>["kind"]
+      reason: string
+    } | null = null
+  ): void {
+    if (state !== this.checkpoint.state)
+      assertTransition(this.checkpoint.state, state)
+    this.checkpoint = stopped
+      ? withStop(this.checkpoint, { state, stopped, at: this.clock() })
+      : { ...this.checkpoint, state, stopped: null }
   }
 
   private async driveRounds(mode: "start" | "continue"): Promise<void> {
@@ -311,31 +367,17 @@ export class PageRun {
       this.stage = stage
       // Checked after observing, so an exhausted run can name what is still
       // open rather than reporting an empty remainder.
-      const ceiling = ceilingStatus({
-        checkpoint: this.checkpoint,
-        now: this.clock(),
-      })
-      if (ceiling.exhausted) {
-        this.exhausted = exhaustionReport({
-          reason: ceiling.reason,
-          remaining: this.openRefs(),
-        })
-        this.checkpoint = withStop(this.checkpoint, {
-          state: "incomplete",
-          stopped: { kind: "ceiling", reason: ceiling.reason },
-          at: this.clock(),
-        })
-        await this.save()
-        break
-      }
+      if (await this.stopForCeiling()) break
+      const candidates = await this.candidates(stage)
+      // Built from this pass's own decisions as well as from the observation, so
+      // a question the run has just decided not to dispatch is in the queue now
+      // rather than reaching the user a pass later.
       this.review = reviewQueue({
         questions: stage.questions,
         plans: stage.plans,
         receipts: this.receipts,
         notDispatchable: this.notDispatchable,
       })
-
-      const candidates = await this.candidates(stage)
       // A page with nothing left to write is done for this pass, whether
       // because every question is answered or because the rest is the user's.
       if (candidates.length === 0) break
@@ -344,6 +386,13 @@ export class PageRun {
           actionRef: candidate.actionRef,
           questionRef: candidate.questionRef,
           effect: candidate.effect,
+          // Deliberately empty, and there is no producer for it: naming the
+          // questions an action changes needs the page to say which ones, and
+          // the reader states the effect but not its scope. A batch after an
+          // effect is therefore planned from a fresh observation, which means
+          // the whole page is re-planned rather than only the questions the
+          // action touched. Box 1 of ticket 11 claims the narrower thing; the
+          // ticket records that it is not implemented.
           affects: [],
         })),
       })
@@ -351,6 +400,10 @@ export class PageRun {
       let observedAgain = false
       for (const plan of batches) {
         if (this.stopRequested) break
+        // Checked between the batches of one round as well: a full batch is a
+        // scheduling limit, so a round of several of them would otherwise run
+        // past the ceiling before the next round looked at it.
+        if (await this.stopForCeiling()) break
         const batch = plan.actions
           .map((planned) =>
             candidates.find(
@@ -374,14 +427,63 @@ export class PageRun {
       if (!observedAgain) break
     }
     if (this.checkpoint.state === "running") {
-      this.checkpoint = {
-        ...this.checkpoint,
-        state: this.review.some((item) => item.blocking)
-          ? "needs_input"
-          : "auditing",
-      }
+      this.move(
+        this.review.some((item) => item.blocking) ? "needs_input" : "auditing"
+      )
       await this.save()
     }
+  }
+
+  /**
+   * Stop the run when its budget is spent, and report what is still open. The
+   * ceiling is about working time, so the report is `incomplete` with an offer
+   * to continue: exhaustion is never a claim that the page is ready.
+   */
+  private async stopForCeiling(): Promise<boolean> {
+    if (this.exhausted) return true
+    const ceiling = ceilingStatus({
+      checkpoint: this.checkpoint,
+      now: this.clock(),
+    })
+    if (!ceiling.exhausted) return false
+    this.exhausted = exhaustionReport({
+      reason: ceiling.reason,
+      remaining: this.openRefs(),
+    })
+    this.move("incomplete", { kind: "ceiling", reason: ceiling.reason })
+    await this.save()
+    return true
+  }
+
+  /**
+   * The attempt decision for one question: the page, the correction and the
+   * last refusal are all carried into it, so a retry has something new to go on
+   * and the same attempt against the same page does not repeat.
+   */
+  private attemptFor(
+    stage: Stage,
+    questionRef: string,
+    correction: string
+  ): AttemptDecision {
+    const previous = this.checkpoint.attempts[questionRef]
+    return attemptPolicy({
+      attempts: previous?.count ?? 0,
+      previous: previous
+        ? {
+            observationKey: previous.observationKey,
+            correction: previous.correction,
+            failure: previous.failure ?? null,
+          }
+        : null,
+      now: {
+        observationKey: this.observationKey(stage, questionRef),
+        correction,
+        // What the page said last time, unchanged on purpose: the decision is
+        // whether anything is different, and re-stating the last refusal is how
+        // "the same refusal again" is expressed.
+        failure: previous?.failure ?? null,
+      },
+    })
   }
 
   private notDispatchable: string[] = []
@@ -423,22 +525,20 @@ export class PageRun {
       [...read.observation.coverage.gaps, ...enumeration.gaps],
       read.observation.coverage.complete
     )
-    const dispositions: Record<string, QuestionDisposition> = {}
-    const receiptByRef = new Map(
-      this.receipts.map((receipt) => [receipt.questionRef, receipt])
-    )
-    for (const plan of planned.plans)
-      dispositions[plan.questionRef] = dispositionFor(
-        plan,
-        receiptByRef.get(plan.questionRef)
-      )
+    const recordGroups = recordGroupPlan({
+      groups: pageRecordGroups({
+        observation: read.observation,
+        questions,
+      }),
+      records: sourceRecords(this.deps.bundle.facts),
+    })
     return {
       read,
       questions,
       plans: planned.plans,
       proposals: planned.proposals,
       coverage,
-      dispositions,
+      recordGroups,
       keys,
     }
   }
@@ -515,21 +615,11 @@ export class PageRun {
       if (settled.has(question.ref)) continue
       const proposal = stage.proposals[question.ref]
       if (!proposal) continue
-      const previous = this.checkpoint.attempts[question.ref]
-      const correction = correctionFor(proposal)
-      const decision = attemptPolicy({
-        attempts: previous?.count ?? 0,
-        previous: previous
-          ? {
-              observationKey: previous.observationKey,
-              correction: previous.correction,
-            }
-          : null,
-        now: {
-          observationKey: this.observationKey(stage, question.ref),
-          correction,
-        },
-      })
+      const decision = this.attemptFor(
+        stage,
+        question.ref,
+        correctionFor(proposal)
+      )
       if (decision.kind === "skip") {
         this.notDispatchable.push(question.ref)
         continue
@@ -570,23 +660,18 @@ export class PageRun {
       (candidate) => candidate.ref === target.questionRef
     )
     if (!question) return null
+    // An upload this run already wrote down is never sent a second time. The
+    // first response was lost, and a fresh observation cannot read the site's
+    // own file list, so sending it again is how one attachment becomes two.
+    // The question waits for the user instead, which is where it appears.
+    if (recordedUpload(this.checkpoint, question.ref)) {
+      this.notDispatchable.push(question.ref)
+      return null
+    }
     // The attachment path is a control like any other: it gets one attempt and
     // at most two corrections, so a site that cannot take the bytes does not
     // get the same upload again on every pass.
-    const previous = this.checkpoint.attempts[question.ref]
-    const decision = attemptPolicy({
-      attempts: previous?.count ?? 0,
-      previous: previous
-        ? {
-            observationKey: previous.observationKey,
-            correction: previous.correction,
-          }
-        : null,
-      now: {
-        observationKey: this.observationKey(stage, question.ref),
-        correction: "attach_file",
-      },
-    })
+    const decision = this.attemptFor(stage, question.ref, "attach_file")
     if (decision.kind === "skip") {
       this.notDispatchable.push(question.ref)
       return null
@@ -617,6 +702,12 @@ export class PageRun {
     const settled = new Set<string>()
     for (const receipt of this.receipts)
       if (receipt.state === "accepted") settled.add(receipt.questionRef)
+    // An upload the page's own state confirmed is settled even when the
+    // response that would have produced a receipt never arrived: the run wrote
+    // the bytes once and the field holds them, so nothing is owed for it.
+    for (const intent of this.checkpoint.intents)
+      if (intent.kind === "upload" && intent.settled === "confirmed")
+        settled.add(intent.questionRef)
     return settled
   }
 
@@ -743,17 +834,17 @@ export class PageRun {
     receipt: Receipt
   ): void {
     this.checkpoint = withAttempt(this.checkpoint, candidate.questionRef, {
-      // The page's state and what it said about the failure together: either
-      // one changing is new evidence, and neither changing means the same
-      // attempt against the same page.
-      observationKey: [
-        this.observationKey(stage, candidate.questionRef),
-        receipt.state,
-        receipt.evidence.join(","),
-      ].join("|"),
+      // The page's own state, bare. The retry decision compares this with the
+      // page as it is now, so folding a receipt into it would make every
+      // attempt look like new evidence and a failed control would be retried
+      // against an unchanged page.
+      observationKey: this.observationKey(stage, candidate.questionRef),
       correction:
         candidate.action?.type ??
         (candidate.proposal ? correctionFor(candidate.proposal) : "unknown"),
+      // What the page said, kept beside the page's state rather than inside it,
+      // so a different refusal is a different attempt and the same one is not.
+      failure: [receipt.state, ...receipt.evidence].join(":").slice(0, 200),
     })
   }
 
@@ -770,17 +861,39 @@ export class PageRun {
       questions: stage.questions,
     }).length
     for (const intent of open) {
-      const verdict = recoveryFor({
-        intent,
-        evidence: {
-          sameApplication: true,
-          // The observation cannot see the site's own attachment state, so an
-          // upload is reported as unresolved rather than guessed at either way.
-          covered: intent.kind === "record_creation",
-          groupCount: intent.kind === "record_creation" ? groups : null,
-          attachmentName: null,
-        },
-      })
+      // A receipt is the page's own answer and settles the intent better than a
+      // fresh look can: an upload the field took is not doubtful merely because
+      // the site's file list cannot be read from here.
+      const receipt = this.receipts.find(
+        (candidate) => candidate.questionRef === intent.questionRef
+      )
+      const question = stage.questions.find(
+        (candidate) => candidate.ref === intent.questionRef
+      )
+      const verdict =
+        receipt?.state === "accepted"
+          ? {
+              kind: "confirmed" as const,
+              detail: "The page accepted it when it answered",
+            }
+          : recoveryFor({
+              intent,
+              evidence: {
+                // The question still being on this page is the evidence that
+                // this is still the application the intent was made for. A
+                // question that is gone cannot be settled by whatever replaced
+                // it, so its intent stays doubtful.
+                sameApplication: question !== undefined,
+                // A record group is judged on a page that was read in full; a
+                // read with a gap in it cannot say the group is absent. An
+                // upload owns no such evidence: the observation cannot see the
+                // site's own attachment state at all.
+                covered:
+                  intent.kind === "record_creation" && stage.coverage.complete,
+                groupCount: intent.kind === "record_creation" ? groups : null,
+                attachmentName: null,
+              },
+            })
       this.recovered.push({
         actionRef: intent.actionRef,
         verdict: verdict.kind,
@@ -789,6 +902,9 @@ export class PageRun {
       this.checkpoint = settleIntent(
         this.checkpoint,
         intent.actionRef,
+        // Only the page saying it landed is a confirmation. A verdict that says
+        // it did not is not a reason to act twice either, so it is recorded as
+        // doubt while the report above still says what the page showed.
         verdict.kind === "confirmed" ? "confirmed" : "uncertain",
         this.clock()
       )
@@ -809,20 +925,48 @@ export class PageRun {
       receipts: this.receipts,
       coverage: this.stage?.coverage ?? { complete: false, gaps: [] },
       questions: this.stage?.questions ?? [],
-      dispositions: this.stage?.dispositions ?? {},
+      dispositions: this.dispositions(),
       checkpoint: this.checkpoint,
       waiting: this.waiting,
       exhausted: this.exhausted,
       recovered: this.recovered,
+      recordGroups: this.stage?.recordGroups ?? NO_RECORD_GROUPS,
       observationBytes: this.stage
         ? payloadBytes(this.stage.read.observation)
         : null,
     }
   }
+
+  /**
+   * What each question's latest answer says. Decided here, where the receipts
+   * are, rather than while observing: the receipts that confirm a write arrive
+   * after the observation that planned it, so a cold run would otherwise report
+   * every question it just confirmed as unverified.
+   */
+  private dispositions(): Record<string, QuestionDisposition> {
+    const receiptByRef = new Map(
+      this.receipts.map((receipt) => [receipt.questionRef, receipt])
+    )
+    const dispositions: Record<string, QuestionDisposition> = {}
+    for (const plan of this.stage?.plans ?? [])
+      dispositions[plan.questionRef] = dispositionFor(
+        plan,
+        receiptByRef.get(plan.questionRef)
+      )
+    return dispositions
+  }
 }
 
 function correctionFor(proposal: AnswerProposal): string {
   return `${proposal.value.type}:${proposal.transformation}`
+}
+
+/**
+ * Refuse a state move the table in `run.ts` forbids. Reaching the state a run is
+ * already in is not a move.
+ */
+function assertMove(from: RunState, to: RunState): void {
+  if (from !== to) assertTransition(from, to)
 }
 
 /** The three ways a debugging session makes a result worthless. */
@@ -840,6 +984,10 @@ function intentFor(
   input: { at: number; groupCount: number; attachmentName: string | null }
 ) {
   const type = candidate.action?.type
+  // Unreachable today, and deliberately left visible rather than deleted: no
+  // candidate carries an `add_record_group` action, because the observation does
+  // not name the control that adds a group. Until it does, a group the resume
+  // has no room for is reported in `RunReport.recordGroups` and never pressed.
   if (type === "add_record_group")
     return intentForAction({
       kind: "record_creation",

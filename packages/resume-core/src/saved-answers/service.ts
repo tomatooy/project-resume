@@ -12,6 +12,7 @@ import {
   type SavedAnswer,
   type SavedQuestionEvidence,
 } from "./schema"
+import type { ReviewAnswer } from "../dom-agent/saved-answer"
 
 /**
  * Where saved answers are kept. Declared here rather than reusing the legacy
@@ -79,7 +80,16 @@ export class SavedAnswerService {
       {
         id: input.id ?? crypto.randomUUID(),
         revision: input.expectedRevision + 1,
-        question: { ...evidence, key: savedQuestionKey(evidence) },
+        question: {
+          ...evidence,
+          key: savedQuestionKey(evidence),
+          // Recorded from the question's own evidence so the bundle reads a
+          // decision rather than re-deriving one from wording. The refusal in
+          // `checkedEvidence` is why a row written here is never excluded; the
+          // reader still treats a row carrying no decision as excluded, so a
+          // row from any other writer is not reused by default.
+          excluded: isDemographicQuestion(evidence),
+        },
         value: input.value,
         confirmedAt: now,
         updatedAt: now,
@@ -136,7 +146,7 @@ function checkedEvidence(input: SaveSavedAnswer): SavedQuestionEvidence {
       "VALIDATION",
       "This field has no wording of its own, so a later page could not recognise it"
     )
-  if (isDemographicQuestion(evidence.text))
+  if (isDemographicQuestion(evidence))
     throw new AppError(
       "VALIDATION",
       "Demographic answers are never reused; answer them on the page instead"
@@ -150,24 +160,58 @@ function checkedEvidence(input: SaveSavedAnswer): SavedQuestionEvidence {
 }
 
 /**
- * One saved answer as a source fact. The meaning is the question's own wording,
- * which is what the deterministic tier matches on, so reuse compares the
- * question rather than a vocabulary. The meaning clips to the protocol's limit,
- * so a very long question stays a fact the model can use without becoming one
- * the deterministic tier could bind.
+ * A kept answer as the bundle may use it, or as the person it belongs to must
+ * still see it. Mirrors the legacy reader's outcome, because both readers feed
+ * one review list.
  */
-export function factFromSavedAnswer(answer: SavedAnswer): Fact {
+export type SavedAnswerOutcome =
+  | { kind: "fact"; fact: Fact }
+  | { kind: "review"; answer: ReviewAnswer }
+
+/**
+ * One saved answer as a source fact, or the refusal that keeps it out of the
+ * bundle. The meaning is the question's own wording, which is what the
+ * deterministic tier matches on, clipped to the protocol's limit so a long
+ * question stays a fact the model can use without becoming one that tier binds.
+ *
+ * The exclusion is read from the row's recorded decision, never re-derived here
+ * from wording. `!== false` rather than a truthiness test is the point: a row
+ * written before the decision existed, or by a writer that did not record one,
+ * says nothing about the question, and saying nothing is not permission.
+ */
+export function factFromSavedAnswer(answer: SavedAnswer): SavedAnswerOutcome {
+  if (answer.question.excluded !== false)
+    return { kind: "review", answer: reviewFromSavedAnswer(answer) }
   return {
-    id: `saved:${answer.id}`,
-    meaning: answer.question.text.slice(0, 200),
-    display: displayOfSavedValue(answer.value),
-    value: answer.value,
-    scope: answer.question.scope,
-    source: {
-      kind: "saved_answer",
-      answerId: answer.id,
-      questionKey: answer.question.key,
+    kind: "fact",
+    fact: {
+      id: `saved:${answer.id}`,
+      meaning: answer.question.text.slice(0, 200),
+      display: displayOfSavedValue(answer.value),
+      value: answer.value,
+      scope: answer.question.scope,
+      source: {
+        kind: "saved_answer",
+        answerId: answer.id,
+        questionKey: answer.question.key,
+      },
     },
+  }
+}
+
+/**
+ * What a kept answer that may not be reused looks like to the person it is
+ * kept for: its own value, its own scope, and the reason it stays theirs.
+ */
+function reviewFromSavedAnswer(answer: SavedAnswer): ReviewAnswer {
+  return {
+    answerId: answer.id,
+    revision: answer.revision,
+    meaning: answer.question.text.slice(0, 200),
+    value: displayOfSavedValue(answer.value),
+    scope: answer.question.scope,
+    reason: "excluded_concept",
+    confirmedAt: answer.confirmedAt,
   }
 }
 

@@ -3,6 +3,10 @@ import { z } from "zod"
 /**
  * Run states. `reasoning` work and `auditing` are different things, and a run
  * that ran out of budget or evidence is `incomplete`, never `ready`.
+ *
+ * The table below is the one statement of which moves exist, and the run
+ * enforces it rather than restating it: a state the engine cannot reach is an
+ * error, not a checkpoint nobody can act on.
  */
 export const RunStateSchema = z.enum([
   "observing",
@@ -19,13 +23,32 @@ export type RunState = z.infer<typeof RunStateSchema>
 
 const TRANSITIONS: Readonly<Record<RunState, readonly RunState[]>> = {
   observing: ["running", "paused", "cancelled"],
-  running: ["observing", "needs_input", "auditing", "paused", "cancelled"],
-  needs_input: ["running", "auditing", "paused", "cancelled"],
-  // Continue always re-observes first, so a paused run never resumes a plan.
+  // `incomplete` is reachable straight from `running`: the ceiling is checked
+  // while the run is dispatching, not only once a pass has ended.
+  running: [
+    "observing",
+    "needs_input",
+    "auditing",
+    "incomplete",
+    "paused",
+    "cancelled",
+  ],
+  // Every state a pass can end in allows both of the moves a run makes from a
+  // verdict: `observing` because a continue observes again rather than resuming
+  // anything, and `paused` because an interruption is a stop wherever the run
+  // happened to be. A verdict is about one pass, never the end of the run.
+  needs_input: ["observing", "running", "auditing", "paused", "cancelled"],
   paused: ["observing", "cancelled"],
-  auditing: ["ready", "incomplete", "running", "paused", "cancelled"],
-  ready: ["auditing", "cancelled"],
-  incomplete: ["running", "auditing", "paused", "cancelled"],
+  auditing: [
+    "observing",
+    "ready",
+    "incomplete",
+    "running",
+    "paused",
+    "cancelled",
+  ],
+  ready: ["observing", "auditing", "paused", "cancelled"],
+  incomplete: ["observing", "running", "auditing", "paused", "cancelled"],
   cancelled: [],
 }
 

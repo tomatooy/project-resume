@@ -1,12 +1,19 @@
 import {
+  BatchRecordSchema,
   FactSchema,
   type Fact,
+  ReceiptSchema,
+  type Receipt,
   type RunCheckpoint,
+  RunCheckpointSchema,
+  RunIntentSchema,
   SourceBundleSchema,
   type SourceBundle,
+  newCheckpoint,
 } from "@workspace/resume-core/dom-agent"
 import { afterEach, describe, expect, it } from "vitest"
 import { PageRun, type RunStore } from "../src/dom-agent/run-coordinator"
+import { StaleResultError } from "../src/dom-agent/session"
 import {
   createRuntimeState,
   handleDispatch,
@@ -51,6 +58,11 @@ type Harness = {
     attachments?: boolean
     /** Called before each action leaves, with how many already have. */
     beforeDispatch?: (count: number) => void
+    /**
+     * True for the control whose reply never comes back. The action still
+     * leaves and the intent is still on disk; only the answer is missing.
+     */
+    loseResponse?: (element: Element) => boolean
   }) => {
     run: PageRun
     store: RecordingStore
@@ -95,7 +107,10 @@ class RecordingStore implements RunStore {
   }
 }
 
-async function page(html: string): Promise<Harness> {
+async function page(
+  html: string,
+  pageOptions?: { facts?: Fact[] }
+): Promise<Harness> {
   const base = createPageTransport()
   let built = buildPage(html)
   const rootId = built.dom.backendNodeId
@@ -108,7 +123,10 @@ async function page(html: string): Promise<Harness> {
   let reads = 0
   let state = createRuntimeState()
   let currentStore: RecordingStore | null = null
-  const hooks: { beforeDispatch?: (count: number) => void } = {}
+  const hooks: {
+    beforeDispatch?: (count: number) => void
+    loseResponse?: (element: Element) => boolean
+  } = {}
 
   const open = () => {
     installs += 1
@@ -170,6 +188,11 @@ async function page(html: string): Promise<Harness> {
             questionRef: String(values[2]),
             intentsSavedSoFar: currentStore?.intents() ?? [],
           })
+          // The action left; the answer did not come back. A CDP reply that is
+          // worthless is the shape of a lost response here, and it leaves no
+          // receipt and no attempt behind for the next pass to judge on.
+          if (hooks.loseResponse?.(element))
+            throw new StaleResultError("The reply never arrived")
           const bound = runtime as (...args: unknown[]) => Promise<unknown>
           return {
             result: { value: await bound.call(element, ...values.slice(1)) },
@@ -201,9 +224,10 @@ async function page(html: string): Promise<Harness> {
       const store = options?.store ?? new RecordingStore()
       currentStore = store
       hooks.beforeDispatch = options?.beforeDispatch
+      hooks.loseResponse = options?.loseResponse
       const run = new PageRun({
         session,
-        bundle: bundle(FACTS),
+        bundle: bundle(pageOptions?.facts ?? FACTS),
         store,
         stateKey: STATE_KEY,
         loadBundle: async () => BUNDLE_TEXT,
@@ -265,6 +289,103 @@ const FORM = `<form>
   <label for="city">City</label><input id="city" type="text">
 </form>`
 
+const FILE_FORM = `<form>
+  <label for="resume">Resume</label><input id="resume" type="file">
+</form>`
+
+/** One record the resume states, as the source records are built from facts. */
+function recordFact(recordId: string, name: string): Fact {
+  return FactSchema.parse({
+    id: `f_${recordId}`,
+    meaning: "employer name",
+    display: name,
+    value: { type: "text", text: name },
+    scope: [{ dimension: "record", value: recordId }],
+    source: {
+      kind: "resume",
+      resumeId: RESUME_ID,
+      versionId: null,
+      nodeId: `exp_${recordId}`,
+      field: "employer",
+    },
+  })
+}
+
+function isFileInput(element: Element): boolean {
+  return element instanceof HTMLInputElement && element.type === "file"
+}
+
+/** The receipt a page hands back when it takes the bytes. */
+function acceptedUpload(questionRef: string): Receipt {
+  return ReceiptSchema.parse({
+    actionRef: "a1",
+    questionRef,
+    state: "accepted",
+    observed: {
+      value: null,
+      checked: null,
+      optionRef: null,
+      attachmentLabel: "ada-resume.pdf",
+    },
+    evidence: [RUNTIME_EVIDENCE.fileListAssigned],
+    at: clock,
+  })
+}
+
+/**
+ * A checkpoint exactly as an upload whose response was lost leaves one: the
+ * intent is on disk, and what came back is either a receipt or nothing.
+ */
+function seededCheckpoint(input: {
+  questionRef: string
+  receipt: Receipt | null
+  settled: "confirmed" | "uncertain" | null
+}): RunCheckpoint {
+  const base = newCheckpoint({
+    runId: "run-1",
+    stateKey: STATE_KEY,
+    sourceBundleId: "bundle-1",
+    documentGeneration: "1",
+    at: clock,
+  })
+  return RunCheckpointSchema.parse({
+    ...base,
+    state: "paused",
+    stopped: {
+      kind: "connection",
+      reason: "The debugging connection was lost",
+      at: clock,
+    },
+    questionRevision: 2,
+    intents: [
+      RunIntentSchema.parse({
+        kind: "upload",
+        actionRef: "a1",
+        questionRef: input.questionRef,
+        // The site's own file list is not part of an observation, so an upload
+        // is written down with no baseline for a later look to compare against.
+        groupCount: null,
+        attachmentName: null,
+        at: clock,
+        settled: input.settled,
+      }),
+    ],
+    batches:
+      input.receipt === null
+        ? []
+        : [
+            BatchRecordSchema.parse({
+              index: 0,
+              actionRefs: ["a1"],
+              dispatchedAt: clock,
+              settledAt: null,
+              receipts: [input.receipt],
+              reobserve: "upload_parsing",
+            }),
+          ],
+  })
+}
+
 afterEach(() => {
   document.body.replaceChildren()
   clock = 1_000
@@ -286,27 +407,49 @@ describe("batching independent work", () => {
     await harness.session.detach()
   })
 
-  it("ends a batch at a control whose options were read on request, and observes again", async () => {
-    // A combobox whose options live in a portal: choosing from it changes what
-    // the page offers next, so the run must not plan the next write from the
-    // observation that selection invalidated.
+  it("reads a control's options on request when they live outside its subtree", async () => {
+    // A combobox whose options live in a portal: choosing from it is what
+    // changes what the page asks next, so the options are read on request and
+    // attached to the control that owns them.
     const harness = await page(`<form>
       <label for="country">Country</label>
-      <input id="country" role="combobox" aria-expanded="false">
+      <input id="country" role="combobox" aria-expanded="false"
+        aria-controls="list" aria-haspopup="listbox">
       <div id="list" role="listbox">
         <div role="option" id="pt" aria-selected="false">Portugal</div>
       </div>
-      <label for="city">City</label><input id="city" type="text">
     </form>`)
     const { run } = harness.run()
     const report = await run.start()
 
-    const readsBeforeBatches = harness.reads()
-    expect(report.checkpoint.batches.length).toBeGreaterThanOrEqual(1)
-    // Every batch after the first one was planned from a fresh observation.
-    expect(readsBeforeBatches).toBeGreaterThanOrEqual(
-      report.checkpoint.batches.length
+    const country = report.questions.find(
+      (question) => question.text === "Country"
     )
+    expect(country?.options.map((option) => option.label)).toEqual(["Portugal"])
+    await harness.session.detach()
+  })
+
+  it("ends a batch at an action that changes what the page offers, and observes again", async () => {
+    // The upload is the effect this double can drive to completion: what the
+    // site makes of the file changes what it asks next, so the batch it belongs
+    // to ends there and the next one is planned from an observation of its own.
+    const harness = await page(`<form>
+      <label for="email">Email address</label><input id="email" type="text">
+      <label for="resume">Resume</label><input id="resume" type="file">
+    </form>`)
+    const { run } = harness.run({
+      attachments: true,
+      // A real page's DOM follows its own writes; this double only re-reads the
+      // live DOM on demand, so it is asked to between the actions.
+      beforeDispatch: () => harness.reread(),
+    })
+    const report = await run.start()
+
+    expect(report.checkpoint.batches).toHaveLength(1)
+    expect(report.checkpoint.batches[0]?.reobserve).toBe("upload_parsing")
+    // The observation the effect invalidated is not reused: the page is read
+    // again before anything else is planned from it.
+    expect(harness.reads()).toBeGreaterThan(report.checkpoint.batches.length)
     await harness.session.detach()
   })
 })
@@ -590,6 +733,217 @@ describe("the run ceiling", () => {
     const resumed = await run.continueRun()
     expect(resumed.exhausted).toBeNull()
     expect(store.checkpoint?.waitedMs).toBeGreaterThanOrEqual(200_000)
+    await harness.session.detach()
+  })
+
+  it("checks the ceiling between the batches of one round, not only between rounds", async () => {
+    // More fields than one batch holds, so there is a batch boundary in the
+    // middle of a round for the ceiling to be checked at.
+    const indexes = Array.from({ length: 26 }, (_, index) => index)
+    const harness = await page(
+      `<form>${indexes
+        .map(
+          (index) =>
+            `<label for="f${index}">Field ${index}</label><input id="f${index}">`
+        )
+        .join("")}</form>`,
+      { facts: indexes.map((index) => fact(`field ${index}`, `v${index}`)) }
+    )
+    const { run } = harness.run({
+      // The budget runs out while the first batch is still dispatching.
+      beforeDispatch: (count) => {
+        if (count === 23) clock = 1_000 + 121_000
+      },
+    })
+    const report = await run.start()
+
+    expect(report.state).toBe("incomplete")
+    expect(report.exhausted?.offerContinue).toBe(true)
+    // The batch on the far side of the boundary was never sent: the run stopped
+    // for its budget instead of overshooting it to the end of the round.
+    expect(harness.dispatches).toHaveLength(24)
+    await harness.session.detach()
+  })
+})
+
+describe("an upload whose answer was lost", () => {
+  it("is not sent again, and reaches the user instead", async () => {
+    const harness = await page(FILE_FORM)
+    const { run, store } = harness.run({
+      attachments: true,
+      loseResponse: isFileInput,
+    })
+    const first = await run.start()
+
+    // The action left, its intent was already on disk, and nothing came back.
+    expect(first.state).toBe("paused")
+    expect(first.receipts).toEqual([])
+    expect(store.checkpoint?.intents.map((intent) => intent.settled)).toEqual([
+      null,
+    ])
+    expect(harness.dispatches).toHaveLength(1)
+
+    // A continue looks at the page before it retries anything. The observation
+    // cannot read the site's own file list, so the upload stays doubtful, and a
+    // doubtful upload is the user's to settle rather than a second send.
+    const again = await run.continueRun()
+    expect(again.recovered.map((note) => note.verdict)).toContain("uncertain")
+    expect(harness.dispatches).toHaveLength(1)
+    expect(
+      again.review.some((item) => item.reason === "not_dispatchable")
+    ).toBe(true)
+    await harness.session.detach()
+  })
+})
+
+describe("what a fresh observation says about a lost upload", () => {
+  it("confirms one the page answered for rather than reporting doubt", async () => {
+    const harness = await page(FILE_FORM)
+    const { run, store } = harness.run({ attachments: true })
+    // The page's own reply did arrive, and only the intent is still open. A
+    // receipt is the page's answer, and a fresh look at a file list cannot
+    // improve on it, because there is nothing there to read.
+    store.checkpoint = seededCheckpoint({
+      questionRef: "q1",
+      receipt: acceptedUpload("q1"),
+      settled: null,
+    })
+    const report = await run.continueRun()
+
+    expect(report.questions.map((question) => question.ref)).toEqual(["q1"])
+    expect(report.recovered.map((note) => note.verdict)).toEqual(["confirmed"])
+    expect(store.checkpoint?.intents[0]?.settled).toBe("confirmed")
+    expect(harness.dispatches).toEqual([])
+    await harness.session.detach()
+  })
+
+  it("cannot settle an intent whose question is no longer on the page", async () => {
+    const harness = await page(FILE_FORM)
+    const { run } = harness.run({
+      attachments: true,
+      loseResponse: isFileInput,
+    })
+    await run.start()
+    // The page replaced what the intent was made for. Nothing here can say
+    // whether the upload landed, and saying it did would be a guess.
+    document.querySelector("#resume")?.remove()
+    harness.reread()
+    const report = await run.continueRun()
+
+    const note = report.recovered.find((entry) => entry.actionRef === "a1")
+    expect(note?.verdict).toBe("uncertain")
+    expect(note?.detail).toMatch(/application/i)
+    await harness.session.detach()
+  })
+})
+
+describe("a failed write", () => {
+  it("is not attempted again while the page says exactly the same thing", async () => {
+    const harness = await page(FORM)
+    const field = document.querySelector<HTMLInputElement>("#email")
+    // The page takes the value back the moment it is written: the write fails
+    // and the control is empty again, so the next observation sees the page it
+    // saw before. That is the case a retry cannot learn anything from.
+    field?.addEventListener("input", () => {
+      if (field) field.value = ""
+    })
+
+    const { run, store } = harness.run()
+    const first = await run.start()
+    const emailRef = first.questions.find(
+      (question) => question.text === "Email address"
+    )?.ref
+    expect(first.progress.accepted).toBe(1)
+    expect(first.progress.failed).toBe(1)
+    const dispatched = harness.dispatches.length
+    expect(dispatched).toBe(2)
+    // What the page said is kept beside the page's own state rather than folded
+    // into it, which is what lets the next decision compare page with page.
+    expect(store.checkpoint?.attempts[emailRef ?? ""]?.failure).toMatch(
+      /value_reverted/
+    )
+
+    harness.reread()
+    const again = await run.continueRun()
+    expect(harness.dispatches.length).toBe(dispatched)
+    expect(
+      again.receipts.filter((receipt) => receipt.questionRef === emailRef)
+    ).toHaveLength(1)
+    await harness.session.detach()
+  })
+})
+
+describe("what a report says about a question the page confirmed", () => {
+  it("reads the same in a cold run and a warm one", async () => {
+    const harness = await page(FORM)
+    const { run, store } = harness.run()
+    const cold = await run.start()
+
+    // Both questions were confirmed by the page, so both are answered. A cold
+    // run cannot report them as unverified: the receipts that decide it arrive
+    // after the observation that planned them.
+    expect(cold.progress.accepted).toBe(2)
+    expect(Object.values(cold.dispositions)).toEqual(["answered", "answered"])
+
+    harness.reread()
+    const warm = await harness.run({ store }).run.continueRun()
+    for (const question of cold.questions)
+      expect(warm.dispositions[question.ref]).toBe(
+        cold.dispositions[question.ref]
+      )
+    await harness.session.detach()
+  })
+})
+
+describe("record groups", () => {
+  it("plans the page's groups against the resume, and names what it cannot place", async () => {
+    const harness = await page(
+      `<form>
+        <div id="jobs">
+          <div class="job"><label for="e1">Employer name</label><input id="e1" value="Acme"></div>
+          <div class="job"><label for="e2">Employer name</label><input id="e2" value="Globex"></div>
+        </div>
+      </form>`,
+      {
+        facts: [
+          recordFact("rec_1", "Acme"),
+          recordFact("rec_2", "Globex"),
+          recordFact("rec_3", "Initech"),
+        ],
+      }
+    )
+    const { run } = harness.run()
+    const report = await run.start()
+
+    // Two entries on the page, and each one names a record the resume states.
+    expect(
+      report.recordGroups.bindings.map((binding) => binding.recordId)
+    ).toEqual(["rec_1", "rec_2"])
+    expect(report.recordGroups.refusals).toEqual([])
+    // The third record has no group on this page. Stated rather than pressed:
+    // the observation does not name a control that adds a group, and guessing
+    // one is worse than reporting it.
+    expect(report.recordGroups.next).toEqual({
+      kind: "add_group",
+      recordId: "rec_3",
+    })
+    expect(report.progress.dispatched).toBe(2)
+    await harness.session.detach()
+  })
+})
+
+describe("what the state table refuses", () => {
+  it("does not continue a run the user cancelled", async () => {
+    const harness = await page(FORM)
+    const { run } = harness.run()
+    await run.start()
+    await run.cancel()
+    const dispatched = harness.dispatches.length
+
+    const again = await run.continueRun()
+    expect(again.state).toBe("cancelled")
+    expect(again.waiting?.reason).toMatch(/cancelled/i)
+    expect(harness.dispatches.length).toBe(dispatched)
     await harness.session.detach()
   })
 })

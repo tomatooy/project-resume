@@ -4,7 +4,7 @@
 and record groups, ranked. Items 1 and 2 are the two that can put wrong data in a field
 or overwrite a user's file, so they land before ticket 11 wires any of this to a page.
 
-**Status:** ready-for-agent
+**Status:** done. All seven boxes are ticked and landed; status left in the working tree for the next commit rather than making a second docs commit in a row. Its item 3, the reviewed choice that is still a bare timestamp, lives on as ticket 15's problem.
 
 ## 1. HIGH: record binding ignores the record's kind
 

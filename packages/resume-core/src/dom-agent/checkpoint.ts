@@ -61,10 +61,20 @@ export type BatchRecord = z.infer<typeof BatchRecordSchema>
 /** What is known about a control that failed, so a retry can be judged. */
 export const AttemptRecordSchema = z.strictObject({
   count: z.number().int().nonnegative(),
-  /** The page's state at the last attempt: a different page is new evidence. */
+  /**
+   * The page's own state at the last attempt, and nothing else. A receipt
+   * folded in here would differ from the bare key the next decision compares
+   * against, so every attempt would look like new evidence.
+   */
   observationKey: z.string().max(200),
   /** What the last attempt did, so the same correction again is visible. */
   correction: z.string().max(200),
+  /**
+   * What the page said when it refused, so the same refusal is recognisable.
+   * Optional because a checkpoint written before this existed has none, and an
+   * unknown refusal is not the same as a known one.
+   */
+  failure: z.string().max(200).optional(),
 })
 export type AttemptRecord = z.infer<typeof AttemptRecordSchema>
 
@@ -253,7 +263,7 @@ export function withIntents(
 export function withAttempt(
   checkpoint: RunCheckpoint,
   questionRef: string,
-  input: { observationKey: string; correction: string }
+  input: { observationKey: string; correction: string; failure?: string }
 ): RunCheckpoint {
   const previous = checkpoint.attempts[questionRef]
   return RunCheckpointSchema.parse({
@@ -264,9 +274,27 @@ export function withAttempt(
         count: (previous?.count ?? 0) + 1,
         observationKey: input.observationKey,
         correction: input.correction,
+        ...(input.failure === undefined ? {} : { failure: input.failure }),
       },
     },
   })
+}
+
+/**
+ * The upload this run already wrote down for a question, if any. An upload is
+ * the one action whose effect cannot be read from the control it wrote, so a
+ * question that has one recorded is never uploaded again by the same run
+ * without the user saying so.
+ */
+export function recordedUpload(
+  checkpoint: RunCheckpoint,
+  questionRef: string
+): RunIntent | null {
+  return (
+    checkpoint.intents.find(
+      (intent) => intent.kind === "upload" && intent.questionRef === questionRef
+    ) ?? null
+  )
 }
 
 /**
