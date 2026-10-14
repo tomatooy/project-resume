@@ -57,7 +57,66 @@ fails inside a worktree even when run alone, because the documented bootstrap li
 `node_modules` entries to the primary's real paths and Vite's fs allowlist then denies the
 worker's resolved path. It passes in the primary checkout. Lanes should not chase it.
 
-**Ownership, this pass.** The 4000-into-500 display cap is a small-fixes lane's item, together
-with the reasoner's failure test, in `packages/resume-core/src/dom-agent/saved-answer.ts` and
-the agent package's loop tests. It must end as a review outcome rather than a throw, because
-truncating a person's stored answer silently changes what it says.
+**Ownership, this pass.** The 4000-into-500 display cap has landed (see below). The
+remaining item from this section is the legacy reader question, which needs a decision rather
+than a lane.
+
+## The display cap landed (2026-10-14)
+
+`source-service.ts` now previews a value into `display` at the 500 limit instead of letting
+one long source fail the whole bundle. Two sites were reachable, not one: `resumeFacts`
+(`basics.summary`, `Text`, max 2000) and `profileFacts` (the four Profile link URLs, which that
+schema also allows to run to 2000). Both go through a local `preview()`, the full text still
+reaches the model through `value`, and nothing is dropped: the summary stays usable as a source
+rather than losing the fact entirely.
+
+This is deliberately **not** the saved-answer rule, and the comment at `preview()` says so.
+That rule truncates a stored answer of the person's, which changes what it says; this previews
+the person's own resume into a bundle, where the whole value is carried beside the display.
+`displayOfSavedValue` (`saved-answers/service.ts:219`) already did the same at its own site, so
+the two now agree in behaviour. The duplicated rule is worth knowing about; unifying it is a
+refactor, not a bug fix.
+
+Note what this replaced. The work order originally named `factFromStoredAnswer` in
+`saved-answer.ts` as the site that throws. It cannot: see the next section.
+
+## Resolved: the legacy stored-answer reader, and why it has no fact to return
+
+Found by the lane that fixed the display cap, decided 2026-10-14, and implemented in the working
+tree. The original order named `factFromStoredAnswer` in `saved-answer.ts` as a site that throws.
+It cannot, and the reason is worth keeping because two tests and a board entry said otherwise.
+
+**The mechanism.** One table, `public.autofill_scoped_answers`, holds one `data jsonb` payload and
+no `question_key` column. Two shapes live in that column, told apart by a `shape` marker:
+
+- The retired concept vocabulary writes `{meaning, conditions, value, provenance}` and no marker.
+  `SupabaseScopedAnswerRepository` selects exactly those rows and parses each into a
+  `ScopedAnswer`.
+- The identity-first feature writes `{shape: "question", question, value}`.
+  `SupabaseSavedAnswerRepository` selects only those. It is the reader that works, so ticket 16's
+  headline outcome is reachable in production and `fix-05` item 9's box stands.
+
+**Why no legacy row can become a fact.** The identity ADR 0001 matches on is derived from the live
+page at read time (`questionKey`, a sixteen-character fingerprint of the question's text, kind,
+scope and options), never read from the wire. The legacy payload has nowhere to keep one, and
+`ScopedAnswerSchema` is a `strictObject`, so a row edited by hand cannot supply one either. That is
+a conclusion about the shapes, not an observation about a run: no row this reader can be handed
+carries the identity, so every one of them is a review. The reader checked a field that could not
+exist, and its fact branch was unreachable from the day it was written.
+
+**Why it looked alive.** Two unit tests built rows through `StoredAnswerSchema.parse` directly,
+stamping a sixteen-character `questionKey` and a `factValue` onto a legacy row. Both passed, and
+both asserted a shape the adapter cannot produce. They are gone, replaced by a test that pins the
+impossibility: a legacy row carrying a top-level identity is refused by the read shape.
+
+**What changed.** `factFromStoredAnswer` is now `reviewFromStoredAnswer`, returning a
+`ReviewAnswer` rather than a fact-or-review union, so the name cannot mislead the next reader.
+`StoredAnswerSchema` lost its top-level `questionKey` and `factValue`, which nothing could supply.
+The reasons that survived are `no_question_key`, `unsupported_value` and `excluded_concept`;
+`empty_value` is deleted with its line of account-surface copy, since no row can produce it. The
+empty-value and structured-concept checks went with the branch, because the unnamed-row check
+precedes both and every real row stops there. Behaviour for every row that can exist is unchanged.
+
+Verified: typecheck 9/9, resume-core 393 pass, extension 423 pass, the web autofill-profile tests
+5 pass, Biome clean on the six changed files. The one removed test is the impossible case, which
+is why resume-core went from 394 to 393.
