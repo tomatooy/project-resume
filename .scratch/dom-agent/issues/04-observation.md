@@ -12,7 +12,7 @@
 - [x] Requiredness is required, optional or unknown with supporting evidence, and an absent attribute alone never establishes optionality.
 - [x] Unreachable, truncated and unsupported regions are recorded as explicit gaps that survive into the completeness count.
 - [x] Extension UI, credentials and tokens are excluded from what is observed.
-- [ ] Tested against recorded fixtures and mocked lifecycle events; truncation and missing context are covered by tests.
+- [x] Tested against recorded fixtures and mocked lifecycle events; truncation and missing context are covered by tests.
 
 ## Landed
 
@@ -47,3 +47,9 @@ fixtures` needs ticket 05. Everything else is covered by
 `test/helpers/cdp-page.ts`, a stand-in that builds protocol payloads from
 markup. Ticket 05 replaces that stand-in with recordings; the reader does not
 change, because it consumes payloads rather than a DOM.
+
+Box ticked 2026-10-14 against named tests rather than an impression:
+`dom-agent-observation.test.ts` drives the reader through the fixture loader and asserts a
+subtree the browser returned truncated is recorded as such, and
+`dom-agent-page-reader.test.ts` reports candidate and text truncation instead of claiming
+complete coverage (that report is the fix from `fix-03`).

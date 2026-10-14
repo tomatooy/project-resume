@@ -4,7 +4,7 @@
 
 **Blocked by:** nothing. A real Ashby capture is already in the repo (see the pattern below), so the grouping rule can be read off markup rather than invented. The ticket 05 recordings still confirm the variants.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] A group of buttons that submits as one field is enumerated as exactly one question whose kind is `button_choice`, with each button as one option.
 - [x] The grouping rule is derived from observed markup and written into this ticket when the capture settles it, so the next reader change does not have to rediscover it.

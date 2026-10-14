@@ -11,7 +11,7 @@
 - [x] Order and count are stable for an unchanged observation.
 - [x] Grouping covers native field groups, repeated record groups, and option portals, with each candidate having exactly one accounted-for disposition.
 - [x] Deterministic exact matches are limited to native kinds and exact label matches, and can never make a semantic inference.
-- [ ] Tested against the recorded fixtures and against hand-written markup for the awkward shapes.
+- [x] Tested against the recorded fixtures and against hand-written markup for the awkward shapes.
 
 ## Landed
 
@@ -40,3 +40,10 @@
 The last acceptance box stays open for the same reason as ticket 04: the
 recorded-fixture half needs ticket 05. Hand-written markup, including the awkward
 shapes, is covered by `test/dom-agent-questions.test.ts` (14 cases).
+
+Box ticked 2026-10-14: `dom-agent-questions.test.ts` runs against the recorded Ashby
+fragment (so parts of 06 were already testable before the recorder landed, and the rest
+became routable when it did), and the hand-written cases cover the awkward shapes: a
+radiogroup read as one question, ARIA checkbox and radio members, an oversized dependent
+group refused rather than truncated or split, and graph identities retained when many
+radio candidates collapse into one field.

@@ -4,7 +4,7 @@
 
 **Blocked by:** 02, 06, 07, 08
 
-**Status:** ready-for-agent
+**Status:** done, all six boxes ticked. Landed with the rules in resume-core driven from the extension through the same reconcileReasoning gate the model path uses.
 
 - [x] An exact-match binding of facts to questions fills the simple controls and produces a receipt for each.
 - [x] Everything unmatched enters the review queue with its original wording rather than being guessed or left silent.
