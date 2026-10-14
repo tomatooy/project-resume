@@ -1,0 +1,140 @@
+<!--
+  The frozen multi-field form for the performance acceptance harness.
+
+  Twenty controls, every one of them a native kind, with the option lists in the
+  markup rather than behind a widget, so a run can answer them without a model
+  and without reading anything on request. The harness asserts the numbers it
+  measures against this file, so a change here is a change to the baseline.
+
+  Wording is load-bearing. The deterministic tier binds a fact to a question by
+  exact wording, so each label below is written exactly as the fact's meaning in
+  test/helpers/perf-harness.ts. Reword one without the other and the field stops
+  being answered, which is the point of pinning both.
+-->
+<form id="application" class="ashby-application-form-container">
+  <div class="ashby-application-form-section-container">
+    <h2>Contact</h2>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="first-name">First name</label>
+      <input id="first-name" name="first-name" type="text" required>
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="last-name">Last name</label>
+      <input id="last-name" name="last-name" type="text" required>
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="email-address">Email address</label>
+      <input id="email-address" name="email-address" type="email" required>
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="phone-number">Phone number</label>
+      <input id="phone-number" name="phone-number" type="tel">
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="city">City</label>
+      <input id="city" name="city" type="text">
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="country">Country</label>
+      <select id="country" name="country">
+        <option value="us">United States</option>
+        <option value="ca">Canada</option>
+        <option value="gb">United Kingdom</option>
+        <option value="de">Germany</option>
+      </select>
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="linkedin">LinkedIn profile</label>
+      <input id="linkedin" name="linkedin" type="url">
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="portfolio">Portfolio or website</label>
+      <input id="portfolio" name="portfolio" type="url">
+    </div>
+  </div>
+
+  <div class="ashby-application-form-section-container">
+    <h2>Experience</h2>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="current-company">Current company</label>
+      <input id="current-company" name="current-company" type="text">
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="current-title">Current job title</label>
+      <input id="current-title" name="current-title" type="text">
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="years-experience">Years of experience</label>
+      <input id="years-experience" name="years-experience" type="number">
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="earliest-start">Earliest start date</label>
+      <input id="earliest-start" name="earliest-start" type="date">
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="notice-period">Notice period</label>
+      <select id="notice-period" name="notice-period">
+        <option value="two-weeks">Two weeks</option>
+        <option value="one-month">One month</option>
+        <option value="two-months">Two months</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="ashby-application-form-section-container">
+    <h2>Education</h2>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="university">University</label>
+      <input id="university" name="university" type="text">
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="field-of-study">Field of study</label>
+      <input id="field-of-study" name="field-of-study" type="text">
+    </div>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="education-level">Highest education level</label>
+      <select id="education-level" name="education-level">
+        <option value="bachelor">Bachelor's degree</option>
+        <option value="master">Master's degree</option>
+        <option value="doctorate">Doctorate</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="ashby-application-form-section-container">
+    <h2>Preferences</h2>
+    <fieldset class="ashby-application-form-field-entry" data-field-path="work-authorization">
+      <legend class="ashby-application-form-question-title">Are you authorized to work in this country?</legend>
+      <div class="ashby-application-form-input-yesno">
+        <input id="work-authorization-yes" name="work-authorization" type="radio" value="yes">
+        <label for="work-authorization-yes">Yes</label>
+        <input id="work-authorization-no" name="work-authorization" type="radio" value="no">
+        <label for="work-authorization-no">No</label>
+      </div>
+    </fieldset>
+    <fieldset class="ashby-application-form-field-entry" data-field-path="sponsorship">
+      <legend class="ashby-application-form-question-title">Will you require sponsorship?</legend>
+      <div class="ashby-application-form-input-yesno">
+        <input id="sponsorship-yes" name="sponsorship" type="radio" value="yes">
+        <label for="sponsorship-yes">Yes</label>
+        <input id="sponsorship-no" name="sponsorship" type="radio" value="no">
+        <label for="sponsorship-no">No</label>
+      </div>
+    </fieldset>
+    <fieldset class="ashby-application-form-field-entry" data-field-path="arrangement">
+      <legend class="ashby-application-form-question-title">Preferred work arrangement</legend>
+      <div class="ashby-application-form-input-choices">
+        <input id="arrangement-remote" name="arrangement" type="radio" value="remote">
+        <label for="arrangement-remote">Remote</label>
+        <input id="arrangement-hybrid" name="arrangement" type="radio" value="hybrid">
+        <label for="arrangement-hybrid">Hybrid</label>
+        <input id="arrangement-onsite" name="arrangement" type="radio" value="onsite">
+        <label for="arrangement-onsite">On site</label>
+      </div>
+    </fieldset>
+    <div class="ashby-application-form-field-entry">
+      <label class="ashby-application-form-question-title" for="desired-salary">Desired salary</label>
+      <input id="desired-salary" name="desired-salary" type="text">
+    </div>
+  </div>
+</form>

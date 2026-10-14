@@ -9,10 +9,10 @@
 - [ ] Independent work is batched, and dependencies are observed rather than assumed, so a dynamic choice replans only the questions it affects.
 - [ ] Checkpoints are written at batch and pause boundaries, and record-creation and upload intents are persisted before dispatch so a lost response cannot duplicate them.
 - [ ] Recovery after a lost response inspects the page before retrying, and uncertain outcomes stay explicit.
-- [ ] Pause, continue and cancel behave as specified; continue observes and validates existing receipts instead of replaying a suspended plan; cancel preserves values already written.
-- [ ] User edits to the target page pause subsequent actions, while a sidebar answer is an input to the review flow.
-- [ ] Worker restart, navigation and debugger detach all recover through fresh observation, and no old action is replayed.
-- [ ] The configured ceilings are enforced and exhaustion reports remaining issues and offers continue rather than claiming readiness.
+- [x] Pause, continue and cancel behave as specified; continue observes and validates existing receipts instead of replaying a suspended plan; cancel preserves values already written.
+- [x] User edits to the target page pause subsequent actions, while a sidebar answer is an input to the review flow.
+- [x] Worker restart, navigation and debugger detach all recover through fresh observation, and no old action is replayed.
+- [x] The configured ceilings are enforced and exhaustion reports remaining issues and offers continue rather than claiming readiness.
 
 ## Retired behaviour worth mining
 
@@ -86,3 +86,30 @@ One defect is already fixed, and the lane's own last test caught it: every read 
 session, so a run whose debugger died mid-flight reported the page as read and empty and
 reached `auditing` rather than pausing with a lost connection. All five reads now rethrow a
 lost session, which is what makes the recovery path this ticket builds reachable at all.
+
+## Verdicts from the audit (2026-10-14)
+
+Read-only audit against the committed code, one verdict per box, each with the file, the
+line and the test that fails when that line is deleted.
+
+Met: box 4 (continue validates receipts rather than replaying a suspended plan, and cancel
+keeps what was written), box 5, box 6, box 7. The audit also closed the open question this
+file carried: \`documentGeneration\` and \`userEditEpoch\` are both compared now
+(\`runtime/dispatch.ts\`), not merely carried, and the engine guard is confirmed closed with
+nothing in \`src\` opening it.
+
+Met in part, and the boxes stay open:
+
+- **Box 1.** Batching is proven, but \`affects\` is hard-coded empty and
+  \`checkpoint.awaitingObservation\` is never populated, so after an effect the whole page is
+  re-observed and every question replanned rather than only the affected ones. The one
+  coordinator test for the claim is vacuous: its combobox question has no matching fact, so
+  the numbers it asserts are trivially equal. See \`fix-05\` item 5.
+- **Box 2.** The upload half is proven: the intent is on disk before the dispatch leaves.
+  The record-creation half is **unreachable**: no candidate ever carries \`add_record_group\`,
+  \`intentFor\`'s branch for it cannot fire, and \`recordGroupPlan\` still has no production
+  caller, which is the wiring ticket 13's own audit assigned here. See \`fix-05\` item 2.
+- **Box 3.** Recovery does inspect and does report doubt, but the verdict does not gate the
+  retry: a lost upload response is settled \`uncertain\` and then re-dispatched in the same
+  pass, because no attempt was recorded when the response was lost. See \`fix-05\` item 1,
+  which is the reason that work order exists.

@@ -45,6 +45,7 @@ import {
   writeOne,
 } from "./page-steps"
 import { candidateQuestions } from "./questions"
+import { payloadBytes } from "./metrics"
 import type { BundleLoader } from "./runtime-inject"
 import type { RenderedAttachment } from "./runtime-request"
 import type { DriverSession } from "./session"
@@ -106,6 +107,12 @@ export type RunReport = {
   exhausted: { reason: string; remaining: string[]; offerContinue: true } | null
   /** What a fresh observation said about an action whose answer was lost. */
   recovered: RecoveryNote[]
+  /**
+   * Size of the observation this run read, as it would be sent. Reported rather
+   * than recomputed by a caller, because the caller cannot see the observation
+   * the run actually used. Null before anything has been read.
+   */
+  observationBytes: number | null
 }
 
 export type PageRunDeps = {
@@ -807,6 +814,9 @@ export class PageRun {
       waiting: this.waiting,
       exhausted: this.exhausted,
       recovered: this.recovered,
+      observationBytes: this.stage
+        ? payloadBytes(this.stage.read.observation)
+        : null,
     }
   }
 }

@@ -18,5 +18,12 @@ export default defineConfig({
       ),
     },
   },
-  test: { environment: "jsdom", include: ["test/**/*.test.{ts,tsx}"] },
+  // Real work in jsdom: PDF rendering, attachment reads and 20-field runs. The
+  // 5s default is below what these take under a parallel full-suite run, which
+  // showed up as a changing set of "failures" that each passed in isolation.
+  test: {
+    environment: "jsdom",
+    include: ["test/**/*.test.{ts,tsx}"],
+    testTimeout: 30_000,
+  },
 })

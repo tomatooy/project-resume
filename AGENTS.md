@@ -65,6 +65,7 @@ for dir in apps/* packages/*; do
     [ "$(basename "$e")" = "@workspace" ] && continue
     ln -sfn "$e" "$dir/node_modules/$(basename "$e")"
   done
+  [ -e "$P/$dir/node_modules/.bin" ] && ln -sfn "$P/$dir/node_modules/.bin" "$dir/node_modules/.bin"
   mkdir -p "$dir/node_modules/@workspace"
   for e in "$P/$dir/node_modules/@workspace"/*; do
     ln -sfn "$(readlink "$e")" "$dir/node_modules/@workspace/$(basename "$e")"

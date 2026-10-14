@@ -83,6 +83,32 @@ a whitelist, not a policy, and `test/dom-agent-fixtures.test.ts` pins both
 halves: what survives, and that a pruned recording reads exactly as the payload
 it came from.
 
+## The frozen form
+
+`frozen-form.html` is the performance acceptance harness's page. It is not a
+recording either: it is twenty native controls, with their option lists in the
+markup rather than behind a widget, so a run can answer them without a model and
+without reading anything on request.
+
+Wording is load-bearing. The deterministic tier binds a fact to a question by
+exact wording, so every label is written exactly as the fact's meaning in
+`test/helpers/perf-harness.ts`. Reword one side only and the field stops being
+answered, which is the point of pinning both. The three radio groups are
+fieldsets with legends because that is what the reader reads a group's wording
+from; a label pointing at one radio turns that option into the whole question.
+
+`test/dom-agent-perf.test.ts` measures it and asserts the numbers it measured.
+The measured baseline on a cold pass is twenty questions, nineteen confirmed,
+the salary left in the review queue, one observation, no question planned twice,
+and no model round at all.
+
+A browser run is what would produce wall-clock timings, and it cannot happen yet:
+the engine's fill action refuses until the panel and review queue exist, and this
+repository forbids an agent from driving a browser. Until then the harness
+measures counts and payload sizes, and the file says so rather than quoting a
+speed. Open it in the browser the extension is loaded in, once the panel lands,
+and read the numbers off the dev readout.
+
 ## What is not captured
 
 Geometry. The spec's test lane says DOM, accessibility tree and geometry, and
