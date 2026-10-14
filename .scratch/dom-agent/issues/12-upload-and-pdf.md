@@ -32,3 +32,10 @@ replacement is still a bare timestamp, and turning that into a reviewed choice i
 Box 4 stays open and now waits only on the panel: tickets 09 and 11 have landed the run that
 keeps going past a rejected upload, so offering a manual upload and showing the other fields
 continue is ticket 15's half of it.
+
+**The bytes this ticket's adapter produces have one production consumer, and it is unwired.**
+`dom-agent/run-store.ts` calls `prepareResumePdf` from `autofill/pdf-background.ts` inside
+`resumeAttachmentSource()`, which nothing imports yet. So the PDF and offscreen path is not
+dead code left over from the retired engine: it stays, and ticket 18's deletion boundary has to
+keep `pdf-background.ts`, `pdf-contract.ts`, `render-pdf.tsx` and `offscreen.ts` for it. The
+remaining eighteen files in `autofill/` are the retired engine.

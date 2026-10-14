@@ -5,7 +5,7 @@ up. Items 1 and 2 are the ones that can duplicate an upload or leave record grou
 unwired, so they land before ticket 14 audits the run end to end and before ticket 15 puts
 a panel in front of it.
 
-**Status:** items 1, 3, 4, 6, 7 and 9 are landed with tests that bite; item 5 is a restatement by decision; item 2 is half landed and its dispatch half is `11b-record-group-add.md`; items 8 and 10 are unstarted. What remains is listed below rather than left in a box count.
+**Status:** items 1, 3, 4, 6, 7 and 9 are landed with tests that bite; item 2 is landed (its dispatch half came with `11b-record-group-add.md`); item 5 is a restatement by decision; item 7's dead-constant residue is closed (2026-10-14); item 9's second box is closed (2026-10-14); item 10 is landed (the 4000-into-500 display cap, `f338724`); item 8 is unstarted and belongs to ticket 15. What remains is listed below rather than left in a box count.
 
 ## 1. HIGH: a lost upload response is settled uncertain and then sent again
 
@@ -21,10 +21,10 @@ retrying, avoiding duplicate attachments.
 
 ## 2. HIGH: record-creation intents cannot occur and record groups are unwired
 
-\`intentFor\`'s \`add_record_group\` branch is unreachable: nothing builds such a candidate,
-and \`recordGroupPlan\` has no production caller. Ticket 11 box 2's record-creation half and
-ticket 13's owed coordinator wiring are both this. The group counts the coordinator
-computes are fed only to the dead branch.
+Landed 2026-10-14 with \`11b-record-group-add.md\`. \`intentFor\`'s \`add_record_group\`
+branch fires, \`recordGroupPlan\` has a production caller, and the group counts the coordinator
+computes drive a real dispatch instead of a dead branch. Ticket 11 box 2's record-creation half
+and ticket 13's owed coordinator wiring were both this, and both are closed.
 
 - [x] Record groups are planned from the observation, kind-declared, one add per observation, and their intents are written before dispatch like an upload's.
 - [x] A test adds a blank group for an unmatched record and asserts the intent was on disk before the dispatch left.
@@ -91,12 +91,14 @@ the fix lane lands, so each fix arrives with a test that bites.
 
 ## 9. MEDIUM: a saved answer is kept but not yet reusable
 
-The ticket's headline outcome, that a company-specific answer can be kept and reused
-without an enum member, is half landed. \`factFromSavedAnswer\` has no production caller,
-and the bundle's answers port is still the legacy repository, which filters question-shaped
-rows out, so a newly saved identity-first row never reaches a fill.
+Landed 2026-10-14, and the note this section opened with was stale. \`factFromSavedAnswer\`
+does have a production caller: \`SourceService.prepare\` reads the legacy port into reviews and
+the identity-first port into facts through it, so a newly saved identity-first row does reach a
+fill. \`dom-agent-source.test.ts\` proves it end to end, keeping an answer for a question no
+vocabulary names and finding it in the bundle as a \`saved_answer\` fact with the scope it was
+kept for.
 
-- [ ] The bundle's answers port reads identity-first rows, mapping legacy concept rows as it already does, so a saved answer can answer the question it was saved for.
+- [x] The bundle's answers port reads identity-first rows, mapping legacy concept rows as it already does, so a saved answer can answer the question it was saved for.
 - [x] A test saves an answer for a question with no concept, then prepares a bundle and asserts the fact is present with the right scope.
 
 ## Lane ownership (this pass)
@@ -137,10 +139,16 @@ than deleted, so the next reader finds the reasoning where the code used to be.
 Item 5's honest outcome is a restatement: the affected set needs reader evidence, filed as
 `11a-scoped-replan.md`, and the coordinator now says so at the site.
 
-Not started, still real: item 7's dead constants (`uploadMs` and `retainedRuns` have no
-consumer, and `run-store.ts` hard-codes its 30s render budget), item 6's residue (an upload's
+Not started, still real: item 6's residue (an upload's
 `attachmentName` stays null because no read can see the site's own file list, and `retry` is
-still recorded as `uncertain` because the intent's settled field has two values), item 8
+still recorded as `uncertain` because the intent's settled field has two values) and item 8
 (`data-vs-autofill` is set by nothing, so ticket 15 must mark its own host; navigation
-recovery still reaches nothing until the coordinator is reachable), and item 10 (the legacy
-4000-character display cap, now written up in `open-after-review-fixes.md`).
+recovery still reaches nothing until the coordinator is reachable).
+
+Closed since this list was written. Item 10, the legacy 4000-into-500 display cap, landed in
+`f338724`. Item 7's dead-constant residue is closed too, in the working tree: `uploadMs` now has
+the consumer it was written for, because `run-store.ts` renders the attachment with
+`AbortSignal.timeout(DOM_AGENT_LIMITS.uploadMs)` instead of a literal `30_000` that had drifted
+from it, and `retainedRuns` is deleted, because nothing prunes runs per tab and no reader ever
+wanted one. Item 7's other two clauses, the enforced state table and the ceiling between
+batches, were already landed above.

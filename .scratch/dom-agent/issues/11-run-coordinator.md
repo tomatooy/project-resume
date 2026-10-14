@@ -7,7 +7,7 @@
 **Status:** ready-for-agent
 
 - [ ] Independent work is batched, and dependencies are observed rather than assumed, so a dynamic choice replans only the questions it affects.
-- [ ] Checkpoints are written at batch and pause boundaries, and record-creation and upload intents are persisted before dispatch so a lost response cannot duplicate them.
+- [x] Checkpoints are written at batch and pause boundaries, and record-creation and upload intents are persisted before dispatch so a lost response cannot duplicate them.
 - [x] Recovery after a lost response inspects the page before retrying, and uncertain outcomes stay explicit.
 - [x] Pause, continue and cancel behave as specified; continue observes and validates existing receipts instead of replaying a suspended plan; cancel preserves values already written.
 - [x] User edits to the target page pause subsequent actions, while a sidebar answer is an input to the review flow.
@@ -24,7 +24,6 @@ auto upload. Recover it with:
     git show 5693abd:apps/extension/test/autofill-session.test.ts
 
 Those behaviours still have to hold; this ticket owes them new tests.
-
 
 ## Inherited from the review fixes (read before starting)
 
@@ -49,7 +48,6 @@ Those behaviours still have to hold; this ticket owes them new tests.
 - The 16 cases that drove `af.start` through the retired engine were deleted in ticket
   01 and are recoverable with `git show 5693abd:apps/extension/test/autofill-session.test.ts`.
   Cancellation generations, worker restarts and auto-upload are still owed tests.
-
 
 ## Lane ownership (this pass)
 
@@ -105,10 +103,12 @@ Met in part, and the boxes stay open:
   re-observed and every question replanned rather than only the affected ones. The one
   coordinator test for the claim is vacuous: its combobox question has no matching fact, so
   the numbers it asserts are trivially equal. See \`fix-05\` item 5.
-- **Box 2.** The upload half is proven: the intent is on disk before the dispatch leaves.
-  The record-creation half is **unreachable**: no candidate ever carries \`add_record_group\`,
-  \`intentFor\`'s branch for it cannot fire, and \`recordGroupPlan\` still has no production
-  caller, which is the wiring ticket 13's own audit assigned here. See \`fix-05\` item 2.
+- **Box 2.** Both halves are proven. The upload half: the intent is on disk before the dispatch
+  leaves. The record-creation half landed with \`11b-record-group-add.md\`: a candidate carries
+  \`add_record_group\`, \`intentFor\`'s branch fires, and \`recordGroupPlan\` has a production
+  caller, which is the wiring ticket 13's own audit assigned here. The test asserts the ordering
+  directly, because the harness records which intents were on disk at the moment each dispatch
+  left. See \`fix-05\` item 2.
 - **Box 3.** Recovery does inspect and does report doubt, but the verdict does not gate the
   retry: a lost upload response is settled \`uncertain\` and then re-dispatched in the same
   pass, because no attempt was recorded when the response was lost. See \`fix-05\` item 1,
@@ -130,8 +130,9 @@ is found again without a model call, but the whole page is re-observed. Filed as
 `11a-scoped-replan.md`, which is the reader work that closes this box. Until then the code
 says so at the site instead of leaving the vacuous test as its evidence.
 
-**Box 2 stays open on its record-creation half only.** The upload half is proven and
-unchanged: the intent is on disk before the dispatch leaves. A record-creation intent cannot
-precede a dispatch that never happens, because nothing in the observation names the control
-that adds a group. Filed as `11b-record-group-add.md` with the lane's blocker and its
-warning about proposing an add for a group the page already shows.
+**Box 2 is ticked (2026-10-14).** The record-creation half landed as
+`11b-record-group-add.md`: the observation names the control that adds a group, a record-creation
+intent precedes its dispatch and is asserted to, and the added group is bound before another add
+is asked for. This ticket's warning about proposing an add for a group the page already shows is
+now a gate in `record-group.ts`, and its limit is stated rather than hidden: a page showing a
+single entry offers no container, so nothing is added there.

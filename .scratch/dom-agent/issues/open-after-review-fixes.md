@@ -120,3 +120,31 @@ precedes both and every real row stops there. Behaviour for every row that can e
 Verified: typecheck 9/9, resume-core 393 pass, extension 423 pass, the web autofill-profile tests
 5 pass, Biome clean on the six changed files. The one removed test is the impossible case, which
 is why resume-core went from 394 to 393.
+
+## Found while landing 11b and 13 (2026-10-14)
+
+- **`CandidateQuestion.groupRef` has two meanings and its two producers disagree.** The schema
+documents it as "the repeated-group container this question belongs to", and the ordinary
+producer fills it from the reader's *region* map while `recordRef` takes the *record container*.
+The new add-control question follows the documented meaning and puts the container in `groupRef`,
+leaving `recordRef` null. Nothing reads either field for an add question today, so this is inert,
+and the field the record-group code actually reads is `recordRef` (`record-group.ts`: `const
+groupRef = question.recordRef`). It is recorded because the next reader will see two producers
+filling one field differently, and because feeding add questions into `pageRecordGroups` would
+silently drop them on that null. Fixing it means choosing which meaning wins, which is a schema
+decision rather than a lane's.
+- **A page showing one entry cannot be added to.** The reader marks a container by repetition, so
+one entry marks nothing, nothing is paired, and no add is proposed. This is 11b's hazard rule
+working as designed, since pressing add on a page already showing the record is how a blank
+duplicate lands in a real application, but it is a functional limit worth stating: a resume
+holding three jobs cannot add to a page showing one. Lifting it needs a positive signal, such as
+a page declaring an empty container, rather than a weaker guard.
+- **The add control is recognised by English wording** (`/^\s*(?:[+>›]\s*)?add\b/i` against a
+button's accessible name). A page that words it otherwise is not pressed, and the honest way to
+extend that is to add the wording actually observed rather than to widen the structural half.
+- **`openQuestions` in `apps/extension/src/dom-agent/questions.ts` is an unused export.**
+Pre-existing, left alone by the lane, and worth deleting when something else touches that file.
+- **A lens blocker on an `innerHTML` in `dom-agent-run-coordinator.test.ts` is a false positive.**
+Verified: `grep -ic innerhtml` returns 0 in that file and the line it names builds a label with
+`document.createElement`. The lane replaced an `innerHTML` it had written during the run before
+reporting, so the blocker outlived the code it was about.

@@ -6,12 +6,31 @@
 
 **Status:** ready-for-agent
 
-- [ ] A group is bound to exactly one source record by available evidence, and an ambiguous assignment is refused rather than guessed from position.
-- [ ] Existing records are preserved, and a newly added blank group is observed and bound before another add action.
+- [x] A group is bound to exactly one source record by available evidence, and an ambiguous assignment is refused rather than guessed from position.
+- [x] Existing records are preserved, and a newly added blank group is observed and bound before another add action.
 - [x] Records are never deleted or merged, and two jobs are never combined into one record.
-- [ ] A page asking for broader history than the selected resume holds produces a request for the missing facts.
+- [x] A page asking for broader history than the selected resume holds produces a request for the missing facts.
 - [x] Experience and education supplements stay in the application and never become edits to the resume.
 - [x] Covered by tests including the repeated-record and ambiguous-match cases.
+
+## Landed (2026-10-14)
+
+Boxes 1, 2 and 4 came with `11b-record-group-add.md`, which is where the reader pairing and the
+coordinator's add path live. The other three were already ticked.
+
+- Box 1 rests on evidence rather than position: a filled group is bound only by an identity
+  match, an added group only by the run's own account of its add, and a lone blank group only
+  from what is left after both, kind-matched. Two records matching one group is
+  `ambiguous_assignment` and a record already used is `duplicate_record`, and neither is filled.
+- Box 2 holds because the add is the only action in its batch and the batch ends there, so the
+  group it grew is re-observed and bound before another add is proposed. The `bound` set carries
+  across both passes, so a record placed in the new group is not placed again by the
+  lone-remaining rule, in either order.
+- Box 4 is `recordRequests`: `missing` and `refusals` now reach the report, and a run holding one
+  withholds its own verdict rather than calling the page ready.
+
+One limit carries with the ticket: a page showing a single entry offers no container, so no group
+is added there even when the resume holds records the page does not show. `11b` states why.
 
 ## Lane ownership (this pass)
 

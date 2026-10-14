@@ -57,11 +57,11 @@ EEO exclusion holds on both routes, with the new save path refusing demographic 
 
 Five follow-ups, none of which reopens a box:
 
-- **G1, medium, cross-ticket.** Saved answers are kept but not yet reusable:
-  \`factFromSavedAnswer\` has no production caller and the bundle's answers port is still the
-  legacy repository, which filters question-shaped rows out. This needs
-  \`source-service.ts\`, which this ticket's lane was not allowed to touch, so it wants its
-  own work order before anyone calls saved answers done.
+- **G1, closed 2026-10-14.** Saved answers are reusable. \`SourceService.prepare\` reads the
+  identity-first port into facts through \`factFromSavedAnswer\` and the legacy port into reviews,
+  both into one bundle, and \`dom-agent-source.test.ts\` proves an answer kept for a question no
+  vocabulary names reaches a fill with the scope it was kept for. An earlier version of this note
+  said that function had no production caller; it does.
 - **G2, closed as part of G1.** The exclusion is structural now: the decision is recorded on
   the row when the answer is saved and the bundle reads that record rather than testing
   wording, with absence treated as no permission rather than as consent. The classifier

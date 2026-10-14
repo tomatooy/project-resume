@@ -31,3 +31,24 @@ Two consequences worth planning for:
 - **`RunReport` now carries `audit` and `verdict`, and a finished pass ends `ready` or
   `incomplete` where it used to end `auditing`.** The panel is the first consumer of those
   fields, so the retired protocol's shape is what it has to map onto.
+
+**Half of the wiring is already written and nothing imports it.** `dom-agent/run-store.ts`
+exports three production functions with no importer anywhere in the tree:
+
+- `sessionRunStore()` is the `RunStore` port. Checkpoints live in `chrome.storage.session`, which
+  is what survives a worker restart, and which a browser restart ends, so a run does not outlive
+  the temporary session it belongs to. A checkpoint that no longer parses is dropped rather than
+  patched.
+- `clearAccountRuns(accountId)` drops one account's runs at sign-out.
+- `resumeAttachmentSource({ resumeId, bundleId, accountId })` is the `AttachmentSource` port:
+  it renders the pinned resume to bytes whose identity covers the document and every choice that
+  changes its appearance, so the page refuses bytes rendered for another template.
+
+None of the three has a test, so the suite being green says nothing about them, and wiring them
+is what gives the coordinator the two ports it takes from outside itself.
+
+**Ticket 12 is waiting on this ticket.** Both of its open boxes are the panel's half rather than
+the adapter's: box 4 needs somewhere to offer a manual upload and to show the other fields
+continuing after a site-marked rejection, and box 5 needs the replacement authorisation that is
+currently a bare timestamp to become a reviewed choice. So this ticket closes 12 as well as
+itself, and the lane needs the runner box 5 refers to.
