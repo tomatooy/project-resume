@@ -46,6 +46,20 @@ conversations, suggestions, versions, and memory all hang off it.
   config (which uses 2.5.x keys such as `linter.rules.preset`) will fail to
   parse.
 
+## Worktrees
+
+A git worktree holds tracked files only: each package's `node_modules` is
+missing, and the `@workspace/*` links inside it are relative text that resolves
+against the directory holding it, not against the importing tree. Symlinking a
+worktree's `node_modules` at the primary's therefore makes runtime imports
+execute the primary's source while `tsc` resolves the worktree's, which is how a
+suite passes against a tree it never tested. Give each package its own real
+`node_modules` of symlinks into the primary, copy the relative `@workspace/*`
+link text rather than an absolute path so it resolves to the worktree, then
+confirm with `require.resolve('@workspace/resume-core/dom-agent')` that it does.
+Remove such a link with `unlink`, never `rm -rf` and never a trailing slash:
+both follow the symlink and delete the primary's dependencies.
+
 ## TypeScript and type safety
 
 - Enhance type safety at all times. Never use `any`; avoid `as` and `unknown`
