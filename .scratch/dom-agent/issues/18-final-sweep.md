@@ -27,3 +27,11 @@ Everything else in that directory is the retired engine: `application.ts`, `back
 `messages.ts`, `page-reader.ts`, `profile-answer.ts`, `registry.ts`, `scanner.ts`, `sites.ts`,
 plus the four panel components (`ApplicationAnswers.tsx`, `Panel.tsx`, `ReviewItem.tsx`,
 `SupplementalRecordForm.tsx`).
+
+## The manifest entry moves before this sweep (2026-10-14)
+
+Ticket 15 stops declaring `autofill-content.js` in the ATS `content_scripts` entry and declares
+`agent-host.js` instead, so by the time this ticket runs the retired content script is already
+unreachable: not injected, and not driven, because the new background does not speak its protocol.
+This sweep therefore removes sources and tests only. Nothing in `manifest.json` should still name a
+retired module, and if something does, that is a defect to report rather than to fix here.

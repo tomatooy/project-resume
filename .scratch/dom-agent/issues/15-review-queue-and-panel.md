@@ -52,3 +52,28 @@ the adapter's: box 4 needs somewhere to offer a manual upload and to show the ot
 continuing after a site-marked rejection, and box 5 needs the replacement authorisation that is
 currently a bare timestamp to become a reviewed choice. So this ticket closes 12 as well as
 itself, and the lane needs the runner box 5 refers to.
+
+## The host, decided during the rebuild (2026-10-14)
+
+Box 6 says the content script shrinks to hosting the panel, and that decides how the retired host
+goes. The manifest's ATS `content_scripts` entry named `autofill-content.js` for thirteen hosts,
+and `autofill/content.ts` constructs `Registry`, `Scanner` and `Executor` inside its `af.bootstrap`
+handler, so the retired machinery attaches only when the retired background drives it. Hosting the
+new panel inside that content script would therefore leave the retired engine one background
+message away from scanning the same fields the new reader reads. So this lane adds
+`src/content/agent-host.ts`, declares it as the ATS content script, and stops declaring the
+retired one.
+
+Two files outside the lane's fence were granted for exactly that, and nothing else in either moved:
+
+- `manifest.json`: the ATS entry's `autofill-content.js` becomes `agent-host.js`, with `matches`,
+  `run_at` and `all_frames` unchanged.
+- `vite.config.ts`: `agent-host.js` is built and self-containment-asserted the way `widget-host.js`
+  already is.
+
+The retired engine's modules stay in the tree; only the declaration moves. **The fallback is a
+revert, not a flipped guard, and the user accepted that explicitly.** Flipping `engineCanStart`
+back no longer restores the retired engine, because its host is no longer injected and the retired
+driver is gone from the new background. A single revert of the wave-3 code commit restores the host
+entry, the retired driver, the closed guard and the old panel together, which is why the manifest
+swap and the guard flip are one revert unit.
