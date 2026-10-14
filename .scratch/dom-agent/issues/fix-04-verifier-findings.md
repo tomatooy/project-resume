@@ -71,3 +71,19 @@ can imitate; the runtime never uses the file list as evidence, so the honesty ru
 and the ambiguity is inherent to reading site state. And `rejected` for a site-marked
 upload failure is not a claim of success, so it is honest even though ticket 12 box 4's
 `unresolved` wording and its manual-upload offer belong to the panel.
+
+## Lane ownership (this pass)
+
+**Owns:** `packages/resume-core/src/dom-agent/record-group.ts` and
+`packages/resume-core/src/dom-agent/proposal-rules.ts`,
+`apps/extension/src/dom-agent/runtime/verbs.ts` and `runtime/control.ts`, and the tests
+that cover them (`packages/resume-core/test/dom-agent-records.test.ts`,
+`packages/resume-core/test/dom-agent-reasoner.test.ts`,
+`apps/extension/test/dom-agent-runtime.test.tsx`).
+
+**Must not touch:** `packages/resume-core/src/dom-agent/index.ts` (the other lane owns the
+barrel for its new module). Neither item 1 nor item 4 needs a new export, since both
+modules are already exported. If you find you need one, report the exact line instead.
+
+**Out of scope here:** item 3 (the panel mints a reviewed choice) and item 5 (a
+version-pinned bundle), which are not this lane's tickets. Do not do them.
