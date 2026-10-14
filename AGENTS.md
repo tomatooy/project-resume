@@ -54,11 +54,41 @@ against the directory holding it, not against the importing tree. Symlinking a
 worktree's `node_modules` at the primary's therefore makes runtime imports
 execute the primary's source while `tsc` resolves the worktree's, which is how a
 suite passes against a tree it never tested. Give each package its own real
-`node_modules` of symlinks into the primary, copy the relative `@workspace/*`
-link text rather than an absolute path so it resolves to the worktree, then
-confirm with `require.resolve('@workspace/resume-core/dom-agent')` that it does.
-Remove such a link with `unlink`, never `rm -rf` and never a trailing slash:
-both follow the symlink and delete the primary's dependencies.
+`node_modules` instead:
+
+```sh
+P=/Users/zxoy/Documents/code/project-resume
+for dir in apps/* packages/*; do
+  test -L "$dir/node_modules" && unlink "$dir/node_modules"
+  mkdir -p "$dir/node_modules"
+  for e in "$P/$dir/node_modules"/*; do
+    [ "$(basename "$e")" = "@workspace" ] && continue
+    ln -sfn "$e" "$dir/node_modules/$(basename "$e")"
+  done
+  mkdir -p "$dir/node_modules/@workspace"
+  for e in "$P/$dir/node_modules/@workspace"/*; do
+    ln -sfn "$(readlink "$e")" "$dir/node_modules/@workspace/$(basename "$e")"
+  done
+done
+```
+
+Three traps, all of them paid for already:
+
+- **Link every package, not the ones you edit.** A typecheck reaches transitive
+dependencies: `resume-core`'s reaches `resume-schema`'s `nanoid`. A partial
+bootstrap surfaces as dozens of phantom type errors that look like code defects.
+- **`ln -sfn`, never plain `ln -s`.** `-n` replaces an existing symlink to a
+directory; without it, `ln` follows that link and writes the new link *inside* the
+primary's `node_modules`, which is how one agent left stray self-named links such
+as `node_modules/typescript/typescript` in the primary checkout. Re-running a
+link loop over a tree that is already bootstrapped is what triggers it.
+- **Remove a link with `unlink`, never `rm -rf` and never a trailing slash.**
+  Both follow the symlink and delete the primary's dependencies.
+
+The `@workspace/*` loop copies the primary's *relative* link text, which is what
+makes it resolve inside the worktree. Confirm the result rather than assuming it:
+`require.resolve('@workspace/resume-core/dom-agent')` from the consumer package
+must print a path under the worktree.
 
 ## TypeScript and type safety
 
