@@ -27,6 +27,18 @@ it("keeps panel, widget and content imports away from privileged clients", () =>
   for (const file of files(resolve("src")))
     expect(readFileSync(file, "utf8")).not.toContain("apps/web")
 })
+it("keeps the debugger session and its transport out of anything a page runs", () => {
+  const pageSide = files(resolve("src")).filter(
+    (file) =>
+      /\/(?:panel|widget|content)\//.test(file) ||
+      /\/autofill\/(?:Panel|content|scanner|registry|executor|messages)\./.test(
+        file
+      )
+  )
+  expect(pageSide.length).toBeGreaterThan(0)
+  for (const file of pageSide)
+    expect(readFileSync(file, "utf8")).not.toMatch(/dom-agent\/(?:session|cdp)/)
+})
 it("declares only required privileges and existing entrypoints", () => {
   const manifest = z
     .object({
@@ -56,6 +68,10 @@ it("declares only required privileges and existing entrypoints", () => {
   expect(manifest.permissions.sort()).toEqual([
     "activeTab",
     "alarms",
+    // Required, not optional: Chrome refuses to list debugger in
+    // optional_permissions, which is why attaching is bounded to a run
+    // instead of being gated behind a runtime permission request.
+    "debugger",
     "identity",
     "offscreen",
     "scripting",

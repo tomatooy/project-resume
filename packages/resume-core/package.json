@@ -20,6 +20,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./dom-agent": "./src/dom-agent/index.ts",
     "./testing": "./src/testing/index.ts",
     "./contracts": "./src/contracts.ts"
   }

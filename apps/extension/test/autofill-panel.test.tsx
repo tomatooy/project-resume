@@ -75,6 +75,21 @@ it("fills the bound current page without asking the user to choose a frame", asy
     })
   )
 })
+it("reports the replaced engine as plain text rather than an upstream error", async () => {
+  sendMessage
+    .mockResolvedValueOnce({ ok: true, state: ready })
+    .mockResolvedValueOnce({
+      ok: false,
+      code: "engine",
+      message: "private upstream details",
+    })
+  mount()
+  const fill = await screen.findByRole("button", { name: "Fill current page" })
+  await waitFor(() => expect(fill).toHaveProperty("disabled", false))
+  fireEvent.click(fill)
+  expect(await screen.findByText(/page reader is replaced/)).toBeTruthy()
+  expect(screen.queryByText("private upstream details")).toBeNull()
+})
 it("retries a service error in the same panel without reporting a session failure", async () => {
   sendMessage.mockResolvedValueOnce({
     ok: false,

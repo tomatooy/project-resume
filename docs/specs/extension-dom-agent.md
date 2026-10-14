@@ -1,12 +1,33 @@
 # Extension DOM agent
 
-Status: design draft, product decisions settled, awaiting final confirmation.
+Status: confirmed. Product decisions settled and implementation decisions
+confirmed on 2026-10-13.
 Date: 2026-10-13.
 
 This specification replaces the autofill orchestration design in
 `extension-autofill.md`, `universal-autofill.md`, and the Jev design when
 confirmed. It does not describe the current implementation or authorize a
 release. Existing account data and unrelated extension features remain intact.
+
+## Confirmed implementation decisions
+
+Resolved 2026-10-13. Terminology is fixed in `CONTEXT.md`; two of these are
+recorded as ADRs.
+
+| Decision | Resolution |
+| --- | --- |
+| Driver | The debugger protocol observes. A bundled runtime injected into the page's main world acts, exposing a fixed verb list and never accepting model-authored code. Uploads and writes share one adapter because `DOM.setFileInputFiles` cannot carry in-memory bytes and React needs main-world setters. See `docs/adr/0002-hybrid-dom-driver.md`. |
+| Question identity | A deterministic key over normalized wording, kind, explicit scope and option signature. Never model-authored, never a browser reference. See `docs/adr/0001-question-identity.md`. |
+| Question list | The driver enumerates candidate questions deterministically, with stable order and count. The model interprets meaning, binds facts and selects observed options. It cannot add, drop or hide a question. |
+| Reasoning | A new minimal loop in `packages/agent` behind a port declared in `packages/resume-core`. Tools are bounded reads and option discovery only. Budgets are enforced by the executor, never trusted to the model. The chat assistant's run loop is not reused: its patch authority does not belong on this path. |
+| Application identity | Extracted deterministically from host, path and a query-name allowlist. An empty result means unknown, so the run starts fresh and the panel says why. Never inferred from hostname alone. |
+| Temporary state | `chrome.storage.session`, keyed by account, tab and application identity together. |
+| Telemetry | Timings and counts only, in a bounded local ring buffer with a dev-only readout. Nothing leaves the machine. |
+| Panel | The frame, dock behaviour and progress affordances are kept. Everything speaking the retired protocol is rebuilt, and the concept-shaped answer grid is deleted. |
+| Distribution | No build is distributed outside the developer's machine. The API contract is reshaped in place, so no additive compatibility work or permission-rollout handling is needed. |
+| Replacement | The engine is replaced in place, file by file. Intermediate states leave the extension loadable and the LinkedIn path working, with the fill action refusing explicitly. |
+| Chrome facts | The `debugger` permission cannot be optional. An attached session keeps the MV3 worker alive (Chrome 118+, minimum here is 127). Offscreen documents expose only `runtime`, so the debugger client cannot live in the document that renders the PDF. |
+| Test lane | A fixture recorder dumps DOM, accessibility tree and geometry per page. The user runs it against the acceptance ATS pages and the fixtures replay offline, because agent-driven browser automation is not permitted in this repository. |
 
 ## Confirmed boundary
 
@@ -237,7 +258,7 @@ does not cover all of these inputs and is insufficient as a PDF cache key.
 
 | Module | Responsibility | Boundary |
 | --- | --- | --- |
-| Source service | Load and fix applicant data; return source evidence | Authenticated server service, no browser state or model call |
+| Source service | Load and fix applicant data; return source evidence | Authenticated server service, no browser state or model call. It replaces the existing prepare operation in place; the planner, draft and policy operations it sat beside are deleted rather than versioned, because no build is distributed |
 | Browser driver | Observe DOM/AX, resolve live refs, discover options, execute allowed actions | Extension-only CDP and bounded upload adapter |
 | Reasoner | Interpret questions, match sources/options, request missing context, propose answers | Model work in agent package, no direct browser/API authority |
 | Run coordinator | Schedule independent work, handle dependencies, limits, user intervention, and checkpoints | Extension owns the current application/run state |
@@ -290,6 +311,12 @@ reasoning and authenticated data access. Browser APIs remain in the extension;
 AI SDK code remains in `packages/agent`; browser-independent contracts and
 source/answer rules remain in `packages/resume-core`; API adapters remain in the
 existing web data layer. No new service is required by this design.
+
+Reasoning runs as a new, minimal loop in `packages/agent`, reached through a port
+declared in `packages/resume-core` alongside the existing interpreter port
+pattern. Its tools are bounded reads and option discovery only, and the executor
+enforces the budget, so no amount of model-reported confidence can exceed a cap.
+It does not reuse the chat assistant's run loop.
 
 Use one configurable model integration through the existing Models abstraction.
 There is no mandatory Jev stage. Start with the existing configured fast model
@@ -363,7 +390,8 @@ facts. CDP `DOM.setFileInputFiles` accepts filesystem paths, not in-memory PDF
 bytes. Use a bounded upload adapter to construct a File/FileList for the resolved
 input from authorized bytes, validate type/size/integrity, dispatch the required
 events, and then verify the ATS outcome. Do not invent a local path or grant the
-model arbitrary file access. If a site rejects this upload route, keep the
+model arbitrary file access. This adapter runs in the page's main world and
+receives only the resolved input's bytes; the extension keeps the bundle. If a site rejects this upload route, keep the
 attachment unresolved and offer manual upload while other fields proceed.
 
 A final page audit inventories all current questions, including untouched
@@ -398,6 +426,9 @@ not proof that an ATS server will accept a later submission.
   the entire applicant source snapshot after each field.
 - Keep correctness guards local where possible and avoid repeated equivalent
   account/tab/frame queries for each action.
+- Record the measurements below as timings and counts in a bounded local ring
+  buffer, read from a dev-only panel view. Nothing leaves the machine, so the
+  privacy rule cannot be broken by a logging mistake.
 
 Measure first verified fill, page-run completion time excluding user response
 time, model requests and tokens, observation payload size, replanned questions,
@@ -440,6 +471,10 @@ the per-field correctness or audit coverage compared with individual execution.
 Use deterministic tests for source provenance, question scope, guards, scheduling,
 and state transitions. Test the driver against recorded DOM/AX fixtures plus
 mocked protocol lifecycle events. Such tests do not establish live ATS support.
+A fixture recorder is part of this work: it dumps DOM, accessibility tree and
+geometry for one page, and the user runs it against the acceptance ATS pages.
+The performance acceptance harness, including its frozen multi-field form, is a
+deliverable rather than an existing asset.
 Release acceptance requires manual current-browser checks on all three ATS,
 including late upload failure, background behavior, detach/reconnect, and actual
 React-controlled widget commitment. Do not submit an application during filling
@@ -463,8 +498,12 @@ rows and must retain RLS and optimistic concurrency.
 
 Existing staged implementation is not deleted by accepting this specification.
 A later implementation change should replace obsolete runtime paths and tests
-deliberately, preserving unrelated work. This specification authorizes no
-deployment, production migration, or automatic application submission.
+deliberately, preserving unrelated work. No build is distributed outside the
+developer's machine, so the API contract is reshaped in place rather than
+versioned. Intermediate states may leave filling unavailable provided the
+extension still loads, the LinkedIn path still works, and the fill action
+refuses explicitly rather than failing obscurely. This specification authorizes
+no deployment, production migration, or automatic application submission.
 
 ## Technical references
 

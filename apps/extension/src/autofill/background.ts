@@ -3,7 +3,7 @@ import { partitionSnapshot } from "./batches"
 import { prepareResumePdf } from "./pdf-background"
 import type { ResumePdf } from "./pdf-contract"
 import { isAutofillApplicationUrl } from "./sites"
-import { applicationIdentity, sameApplication } from "./application"
+import { applicationIdentity, originOf, sameApplication } from "./application"
 import { profileUpdateForAnswer } from "./profile-answer"
 import { acceptConfirmation, rememberAnswer } from "./confirmed-answers"
 import {
@@ -16,6 +16,7 @@ import {
   type ContextRead,
   ProfileUpdateSchema,
 } from "@workspace/resume-core/contracts"
+import { engineCanStart } from "../dom-agent/engine"
 import { api, apiForAccount } from "../lib/api"
 import { account, connect } from "../lib/auth"
 import { config } from "../lib/config"
@@ -90,7 +91,7 @@ export async function associateApplication(
     [associationKey(tabId)]: {
       accountId,
       resumeId,
-      origin: new URL(url).origin,
+      origin: originOf(url),
       expiresAt: Date.now() + AUTOFILL_LIMITS.sessionTtl,
     },
   })
@@ -252,7 +253,7 @@ async function launchAutofill(
     nonce,
     tabId: tab.id,
     documentId: current.documentId,
-    origin: new URL(current.url).origin,
+    origin: originOf(current.url),
     instanceId: crypto.randomUUID(),
     epoch: Date.now(),
     createdAt: Date.now(),
@@ -364,7 +365,7 @@ async function trusted(
   })
   if (
     parent.documentId !== launch.documentId ||
-    new URL(parent.url).origin !== launch.origin
+    originOf(parent.url) !== launch.origin
   )
     throw new AutofillPanelError("session")
   launch.panelFrameId = sender.frameId
@@ -465,7 +466,7 @@ async function active(session: AutofillSession, generation: number) {
     !tab.active ||
     !window.focused ||
     current.documentId !== session.documentId ||
-    new URL(current.url).origin !== session.origin ||
+    originOf(current.url) !== session.origin ||
     (session.applicationKey !== null &&
       !sameApplication(
         session.applicationKey,
@@ -1256,6 +1257,9 @@ export function registerAutofill() {
         return panelState(launch)
       }
       if (command.type === "af.start") {
+        // Refused before any run state exists, so an unfinished engine cannot
+        // start a run the panel would then have to unwind.
+        if (!engineCanStart()) throw new AutofillPanelError("engine")
         const old = await restore(launch.tabId)
         const current = await frame(launch.tabId, 0)
         const identity = applicationIdentity(current.url)
@@ -1293,7 +1297,7 @@ export function registerAutofill() {
           tabId: launch.tabId,
           frameId: 0,
           documentId: current.documentId,
-          origin: new URL(current.url).origin,
+          origin: originOf(current.url),
           instanceId: launch.instanceId,
           documentEpoch: launch.epoch,
           formId: command.formId,

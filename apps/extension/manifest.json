@@ -11,7 +11,8 @@
     "activeTab",
     "scripting",
     "alarms",
-    "offscreen"
+    "offscreen",
+    "debugger"
   ],
   "host_permissions": [
     "https://www.linkedin.com/*",

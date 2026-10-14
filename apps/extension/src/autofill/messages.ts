@@ -302,6 +302,7 @@ const PanelErrorCodeSchema = z.enum([
   "service",
   "connection",
   "unavailable",
+  "engine",
 ])
 type PanelErrorCode = z.infer<typeof PanelErrorCodeSchema>
 const panelErrors: Record<PanelErrorCode, string> = {
@@ -313,6 +314,8 @@ const panelErrors: Record<PanelErrorCode, string> = {
   connection:
     "Could not connect to the extension. Reload the application page and try again.",
   unavailable: "Could not complete this action. Retry in this panel.",
+  engine:
+    "Filling is unavailable in this build while the page reader is replaced. This page was not changed.",
 }
 export class AutofillPanelError extends Error {
   constructor(readonly code: PanelErrorCode) {
