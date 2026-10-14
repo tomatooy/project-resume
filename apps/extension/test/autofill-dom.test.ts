@@ -98,8 +98,10 @@ async function uploadFixture() {
     }
   )
   const bytes = new TextEncoder().encode("%PDF-1.7\n%%EOF")
+  const stamp = base.plan.sourceStamp
   const file: ResumePdf = {
-    sourceStamp: base.plan.sourceStamp,
+    pdfId: "0123456789abcdef",
+    sourceStamp: stamp,
     filename: "applicant-resume.pdf",
     byteLength: bytes.length,
     base64: btoa(new TextDecoder().decode(bytes)),
@@ -110,7 +112,7 @@ async function uploadFixture() {
     op: "upload_resume",
     mimeType: "application/pdf",
   } as const
-  return { ...base, el, file, action }
+  return { ...base, el, file, action, stamp }
 }
 it("attaches the exact PDF and reports success only after file readback", async () => {
   const { el, file, action, executor, plan } = await uploadFixture()
@@ -135,11 +137,11 @@ it("attaches the exact PDF and reports success only after file readback", async 
   expect(change).toHaveBeenCalledOnce()
 })
 it("rejects changed sources, corrupted bytes and cancellation before file disclosure", async () => {
-  const { el, file, action, executor, plan } = await uploadFixture()
+  const { el, file, action, executor, plan, stamp } = await uploadFixture()
   expect(
     await executor.execute(plan, action, reviewPolicy(), false, {
       ...file,
-      sourceStamp: { ...file.sourceStamp, profileRevision: 99 },
+      sourceStamp: { ...stamp, profileRevision: 99 },
     })
   ).toMatchObject({ status: "unsupported" })
   expect(

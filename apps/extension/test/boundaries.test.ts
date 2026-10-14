@@ -39,6 +39,25 @@ it("keeps the debugger session and its transport out of anything a page runs", (
   for (const file of pageSide)
     expect(readFileSync(file, "utf8")).not.toMatch(/dom-agent\/(?:session|cdp)/)
 })
+it("keeps the page runtime free of extension APIs and of the worker's modules", () => {
+  const runtime = files(resolve("src/dom-agent/runtime"))
+  expect(runtime.length).toBeGreaterThan(0)
+  for (const file of runtime) {
+    const source = readFileSync(file, "utf8")
+    // The bundle runs in a page's main world, where no extension API exists.
+    expect(source).not.toMatch(/\bchrome\./)
+    expect(source).not.toMatch(/from "\.\.?\/(?:cdp|session)"/)
+    // The bundle inlines what it imports, so a value import from the workspace
+    // would drag the schema library into every page. Types are erased.
+    expect(source).not.toMatch(/^import (?!type\b)[^;]*@workspace\//m)
+  }
+})
+it("wires the page runtime as its own self-contained bundle", () => {
+  const config = readFileSync("vite.config.ts", "utf8")
+  expect(config).toContain("src/dom-agent/runtime/main.ts")
+  expect(config).toContain("RUNTIME_BUNDLE_FILE")
+  expect(config).toContain("must be self-contained")
+})
 it("declares only required privileges and existing entrypoints", () => {
   const manifest = z
     .object({

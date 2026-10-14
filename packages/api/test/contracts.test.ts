@@ -40,13 +40,10 @@ it("exposes the bounded autofill routes through the authenticated contract", () 
     method: "POST",
     path: "/autofill-profile",
   })
-  for (const kind of ["prepare", "plan", "document", "draft"] as const)
+  // The plan, draft and policy operations were deleted with the retired engine.
+  for (const kind of ["prepare", "document"] as const)
     expect(contract.autofill[kind]["~orpc"].route).toMatchObject({
       method: "POST",
       path: `/autofill/${kind}`,
     })
-  expect(contract.autofill.policy["~orpc"].route).toMatchObject({
-    method: "GET",
-    path: "/autofill/policy",
-  })
 })

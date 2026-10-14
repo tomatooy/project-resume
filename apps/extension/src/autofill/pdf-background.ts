@@ -1,8 +1,4 @@
 import { z } from "zod"
-import type {
-  SourceStamp,
-  SourceSnapshot,
-} from "@workspace/resume-core/contracts"
 import { api, apiForAccount } from "../lib/api"
 import { PdfRenderReplySchema, pdfBytes, type ResumePdf } from "./pdf-contract"
 
@@ -19,9 +15,9 @@ function withSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   })
 }
 export function prepareResumePdf(
-  sourceStamp: SourceStamp,
+  resumeId: string,
+  bundleId: string,
   signal: AbortSignal,
-  sourceSnapshot?: SourceSnapshot,
   accountId?: string
 ): Promise<ResumePdf> {
   const job = queue.then(async () => {
@@ -29,11 +25,10 @@ export function prepareResumePdf(
     deadline.throwIfAborted()
     const client = accountId ? await apiForAccount(accountId) : api
     const source = await client.autofill.document(
-      { sourceStamp, ...(sourceSnapshot ? { sourceSnapshot } : {}) },
+      { resumeId, bundleId },
       { signal: deadline }
     )
-    if (JSON.stringify(source.sourceStamp) !== JSON.stringify(sourceStamp))
-      throw new Error("Source changed")
+    if (source.bundleId !== bundleId) throw new Error("Source changed")
     const url = chrome.runtime.getURL("offscreen.html")
     const contexts = await chrome.runtime.getContexts({
       contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
@@ -76,7 +71,7 @@ export function prepareResumePdf(
       if (
         !reply.ok ||
         reply.requestId !== requestId ||
-        JSON.stringify(reply.file.sourceStamp) !== JSON.stringify(sourceStamp)
+        reply.file.pdfId !== source.pdfId
       )
         throw new Error("PDF unavailable")
       await pdfBytes(reply.file)

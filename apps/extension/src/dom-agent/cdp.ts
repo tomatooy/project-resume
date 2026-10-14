@@ -22,6 +22,10 @@ export const CDP_METHODS = [
   "Page.disable",
   "Page.enable",
   "Page.getFrameTree",
+  // Not a widening of the ceiling: Runtime.evaluate already runs script owned by
+  // the extension. This is the only way to hand a control the worker resolved
+  // to the injected runtime as an argument rather than as a selector.
+  "Runtime.callFunctionOn",
   "Runtime.disable",
   "Runtime.enable",
   "Runtime.evaluate",

@@ -1,12 +1,20 @@
 import { z } from "zod"
 import {
   AUTOFILL_LIMITS,
-  AutofillDocumentSchema,
+  PdfDocumentSchema,
   SourceStampSchema,
 } from "@workspace/resume-core/contracts"
 
 export const ResumePdfSchema = z.strictObject({
-  sourceStamp: SourceStampSchema,
+  /** Identity of the rendered bytes: bundle, template, options, assets. */
+  pdfId: z.string().min(1).max(64),
+  /**
+   * The retired identity, still spoken by the retired executor, which refuses
+   * a PDF it cannot tie to the plan it was rendered for. A render from a pinned
+   * bundle carries no stamp, so that path refuses until ticket 12 joins the
+   * two, rather than attaching bytes nothing can identify.
+   */
+  sourceStamp: SourceStampSchema.optional(),
   filename: z
     .string()
     .min(5)
@@ -25,7 +33,7 @@ export const PdfRenderRequestSchema = z.strictObject({
   type: z.literal("af.pdf.render"),
   protocolVersion: z.literal(1),
   requestId: z.uuid(),
-  source: AutofillDocumentSchema,
+  source: PdfDocumentSchema,
 })
 export const PdfRenderReplySchema = z.discriminatedUnion("ok", [
   z.strictObject({

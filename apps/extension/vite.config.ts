@@ -4,8 +4,51 @@ import { build, defineConfig, loadEnv } from "vite"
 import react from "@vitejs/plugin-react"
 import tailwind from "@tailwindcss/vite"
 import { z } from "zod"
+import {
+  RUNTIME_BUNDLE_FILE,
+  RUNTIME_LIB_NAME,
+} from "./src/dom-agent/runtime/protocol"
 
 const root = fileURLToPath(new URL(".", import.meta.url))
+
+/**
+ * Build one bundle that runs where the extension's own modules are not there: a
+ * content script in a page, or the DOM agent's runtime in a main world. A
+ * surviving import would fail at runtime rather than at build time, so the
+ * assertion is the reason this is built here instead of imported.
+ */
+async function selfContainedBundle(input: {
+  entry: string
+  name: string
+  label: string
+}): Promise<string> {
+  const result = await build({
+    configFile: false,
+    logLevel: "error",
+    build: {
+      write: false,
+      lib: {
+        entry: `${root}/${input.entry}`,
+        name: input.name,
+        formats: ["iife"],
+      },
+      rollupOptions: { output: { inlineDynamicImports: true } },
+    },
+  })
+  const outputs = Array.isArray(result) ? result : [result]
+  const chunks: string[] = []
+  for (const output of outputs) {
+    if (!("output" in output)) throw new Error(`${input.label} is unavailable`)
+    for (const chunk of output.output) {
+      if (chunk.type !== "chunk") continue
+      if (chunk.imports.length || chunk.dynamicImports.length)
+        throw new Error(`${input.label} must be self-contained`)
+      chunks.push(chunk.code)
+    }
+  }
+  if (chunks.length === 0) throw new Error(`${input.label} produced no code`)
+  return chunks.join("\n")
+}
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, root, "VITE_")
   const origin = z.url().parse(env.VITE_APP_ORIGIN)
@@ -17,36 +60,26 @@ export default defineConfig(({ mode }) => {
       {
         name: "extension-manifest",
         async generateBundle(_options, bundle) {
-          const content = await build({
-            configFile: false,
-            logLevel: "error",
-            build: {
-              write: false,
-              lib: {
-                entry: `${root}/src/autofill/content.ts`,
-                name: "VsAutofill",
-                formats: ["iife"],
-              },
-              rollupOptions: { output: { inlineDynamicImports: true } },
-            },
+          this.emitFile({
+            type: "asset",
+            fileName: "autofill-content.js",
+            source: await selfContainedBundle({
+              entry: "src/autofill/content.ts",
+              name: "VsAutofill",
+              label: "Autofill content script",
+            }),
           })
-          const outputs = Array.isArray(content) ? content : [content]
-          for (const result of outputs) {
-            if (!("output" in result))
-              throw new Error("Autofill bundle is unavailable")
-            for (const chunk of result.output) {
-              if (chunk.type !== "chunk") continue
-              if (chunk.imports.length || chunk.dynamicImports.length)
-                throw new Error(
-                  "Autofill content script must be self-contained"
-                )
-              this.emitFile({
-                type: "asset",
-                fileName: "autofill-content.js",
-                source: chunk.code,
-              })
-            }
-          }
+          // Injected as text into a page's main world, so it carries its own
+          // copy of everything it uses.
+          this.emitFile({
+            type: "asset",
+            fileName: RUNTIME_BUNDLE_FILE,
+            source: await selfContainedBundle({
+              entry: "src/dom-agent/runtime/main.ts",
+              name: RUNTIME_LIB_NAME,
+              label: "DOM agent runtime",
+            }),
+          })
 
           const host = bundle["widget-host.js"]
           if (

@@ -19,3 +19,15 @@ export {
 } from "./autofill/interpreter-port"
 export { meaningForField, conditionsForField } from "./autofill/answers"
 export { isResumeUpload, acceptsResumePdf } from "./autofill/upload"
+
+// The source service replaced the prepare operation in place, so the two
+// operations the extension still calls are named here rather than through the
+// retired planner contract.
+export {
+  PrepareSourcesInputSchema,
+  SourcePreparationSchema,
+  PdfDocumentInputSchema,
+  PdfDocumentSchema,
+  type PdfDocument,
+  type SourcePreparation,
+} from "./dom-agent/source-service"

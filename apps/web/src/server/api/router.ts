@@ -90,39 +90,11 @@ export const router = shared.router({
     ),
   },
   autofill: {
-    draft: shared.autofill.draft.handler(({ input, context }) =>
-      context.services.autofill.draft(
-        input,
-        AbortSignal.any([context.signal, AbortSignal.timeout(30000)])
-      )
-    ),
     document: shared.autofill.document.handler(({ input, context }) =>
       context.services.autofill.document(input)
     ),
     prepare: shared.autofill.prepare.handler(({ input, context }) =>
       context.services.autofill.prepare(input)
-    ),
-    plan: shared.autofill.plan.handler(async ({ input, context }) => {
-      const result = await context.services.autofill.plan(
-        input,
-        AbortSignal.any([context.signal, AbortSignal.timeout(30000)])
-      )
-      context.log.info("autofill.plan", {
-        count: result.decisions.length,
-        steps: result.attempts,
-        autofillResolved: result.decisions.filter(
-          (d) => d.status === "resolved"
-        ).length,
-        autofillReview: result.decisions.filter((d) => d.status === "review")
-          .length,
-        autofillMissing: result.decisions.filter(
-          (d) => d.status === "missing_data"
-        ).length,
-      })
-      return result
-    }),
-    policy: shared.autofill.policy.handler(({ context }) =>
-      context.services.autofill.policy()
     ),
   },
   autofillAnswers: {

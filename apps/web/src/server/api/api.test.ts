@@ -372,7 +372,7 @@ describe("autofill API", () => {
     expect(JSON.stringify(log.info.mock.calls)).not.toContain("private")
   })
 
-  it("serves a stamped PDF source with private caching and no Profile data or logging", async () => {
+  it("serves a pinned PDF source with private caching and no Profile data or logging", async () => {
     const services = createServices(inMemoryPorts())
     deps.context.mockResolvedValue({
       services,
@@ -389,7 +389,7 @@ describe("autofill API", () => {
         legalGivenName: "private-profile-value",
       },
     })
-    const { sourceStamp } = await services.autofill.prepare({
+    const { bundle } = await services.autofill.prepare({
       resumeId: resume.id,
     })
     const response = await handleApi(
@@ -399,7 +399,7 @@ describe("autofill API", () => {
           Authorization: "Bearer synthetic",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ sourceStamp }),
+        body: JSON.stringify({ resumeId: resume.id, bundleId: bundle.id }),
       })
     )
     expect(response.status).toBe(200)
@@ -456,7 +456,7 @@ describe("autofill API", () => {
   })
   it("rejects oversized bodies before parsing or creating services", async () => {
     const response = await handleApi(
-      new Request("https://app.example.test/api/v1/autofill/plan", {
+      new Request("https://app.example.test/api/v1/autofill/prepare", {
         method: "POST",
         headers: {
           Authorization: "Bearer synthetic",
@@ -476,8 +476,8 @@ describe("autofill API", () => {
     })
     for (const path of [
       "autofill-profile",
-      "autofill/plan",
-      "autofill/draft",
+      "autofill/prepare",
+      "autofill/document",
       "autofill/answers",
     ]) {
       const response = await handleApi(

@@ -1,18 +1,13 @@
 import {
   AutofillProfileSchema,
   ProfileUpdateSchema,
-  PrepareInputSchema,
-  PrepareOutputSchema,
-  PlanInputSchema,
-  AutofillPlanOutputSchema,
-  PolicySchema,
-  AutofillDocumentInputSchema,
-  AutofillDocumentSchema,
+  PrepareSourcesInputSchema,
+  SourcePreparationSchema,
+  PdfDocumentInputSchema,
+  PdfDocumentSchema,
   ScopedAnswerSchema,
   SaveScopedAnswerSchema,
   DeleteScopedAnswerSchema,
-  DraftAnswerInputSchema,
-  AutofillDraftSchema,
 } from "@workspace/resume-core/contracts"
 import { oc } from "@orpc/contract"
 import {
@@ -70,26 +65,14 @@ export const contract = {
       .output(AutofillProfileSchema),
   },
   autofill: {
-    draft: base
-      .route({ method: "POST", path: "/autofill/draft" })
-      .input(DraftAnswerInputSchema)
-      .output(AutofillDraftSchema),
     document: base
       .route({ method: "POST", path: "/autofill/document" })
-      .input(AutofillDocumentInputSchema)
-      .output(AutofillDocumentSchema),
+      .input(PdfDocumentInputSchema)
+      .output(PdfDocumentSchema),
     prepare: base
       .route({ method: "POST", path: "/autofill/prepare" })
-      .input(PrepareInputSchema)
-      .output(PrepareOutputSchema),
-    plan: base
-      .route({ method: "POST", path: "/autofill/plan" })
-      .input(PlanInputSchema)
-      .output(AutofillPlanOutputSchema),
-    policy: base
-      .route({ method: "GET", path: "/autofill/policy" })
-      .input(z.strictObject({}))
-      .output(PolicySchema),
+      .input(PrepareSourcesInputSchema)
+      .output(SourcePreparationSchema),
   },
   autofillAnswers: {
     list: base

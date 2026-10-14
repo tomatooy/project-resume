@@ -2,7 +2,7 @@ import {
   AutofillProfileService,
   type AutofillProfileRepository,
 } from "../autofill-profile/service"
-import { AutofillService } from "../autofill/planner"
+import { SourceService } from "../dom-agent/source-service"
 import {
   ScopedAnswerService,
   type ScopedAnswerRepository,
@@ -73,7 +73,7 @@ export type Ports = {
 export type Services = {
   autofillProfile: AutofillProfileService
   autofillAnswers: ScopedAnswerService
-  autofill: AutofillService
+  autofill: SourceService
   resumes: ResumeService
   imports: ImportService
   versions: VersionService
@@ -111,18 +111,12 @@ export function createServices(ports: Ports): Services {
   return {
     autofillProfile,
     autofillAnswers,
-    autofill: new AutofillService(
-      ports.resumes,
-      ports.versions,
-      autofillProfile,
-      ports.autofillDecider,
-      ports.autofillQuota,
-      ports.autofillPolicy,
-      ports.clock,
-      autofillAnswers,
-      ports.autofillInterpreter,
-      ports.autofillDrafter
-    ),
+    autofill: new SourceService({
+      resumes: ports.resumes,
+      versions: ports.versions,
+      profiles: autofillProfile,
+      answers: autofillAnswers,
+    }),
     resumes,
     imports: new ImportService(ports.resumeParser, resumes, versions),
     versions,

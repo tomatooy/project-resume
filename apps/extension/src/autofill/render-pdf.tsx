@@ -1,16 +1,22 @@
 import { pdf, ResumeDocument } from "@workspace/resume-render"
 import {
   AUTOFILL_LIMITS,
-  type AutofillDocument,
+  type PdfDocument,
 } from "@workspace/resume-core/contracts"
 import { pdfDigest, ResumePdfSchema } from "./pdf-contract"
 
-export async function renderResumePdf(source: AutofillDocument) {
+/**
+ * Render the pinned document to PDF bytes. The returned file is identified by
+ * the bundle's PDF identity, not by a source stamp: the same resume, template
+ * and font assets have to produce the same identity, and a change to any of
+ * them has to produce a different one.
+ */
+export async function renderResumePdf(source: PdfDocument) {
   const blob = await pdf(
     <ResumeDocument
       resume={source.resume}
-      templateId={source.templateId}
-      options={source.templateOptions}
+      templateId={source.render.templateId}
+      options={source.render.templateOptions}
     />
   ).toBlob()
   if (!blob.size || blob.size > AUTOFILL_LIMITS.uploadBytes)
@@ -25,7 +31,7 @@ export async function renderResumePdf(source: AutofillDocument) {
     .replace(/^-|-$/g, "")
     .slice(0, 70)
   return ResumePdfSchema.parse({
-    sourceStamp: source.sourceStamp,
+    pdfId: source.pdfId,
     filename: `${name || "applicant"}-resume.pdf`,
     base64: btoa(binary),
     byteLength: bytes.length,
