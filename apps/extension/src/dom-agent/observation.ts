@@ -138,6 +138,13 @@ export type PageRead = {
   records: Map<string, string>
   /** nodeRef to the region that contains it. */
   regions: Map<string, string>
+  /**
+   * Group ref to the node ref of the control that adds another group to the
+   * same container. Only a container the read marked by repetition has one, so
+   * this is the reader's answer to "which control grows this", never a guess
+   * from a button's position.
+   */
+  groupAddControls: Map<string, string>
 }
 
 export type PageFragment = {
@@ -214,6 +221,12 @@ type Plan = {
   region: boolean
   regionLabel: string | null
   record: boolean
+  /**
+   * Set on the control that adds a group, to the ref of the container it
+   * grows. Carried on the child rather than the parent so the second pass can
+   * pair them once both have references.
+   */
+  addControlFor: string | null
   children: Plan[]
   kinds: string[]
 }
@@ -244,6 +257,10 @@ type BuildState = {
   regions: Map<string, string>
   regionLabels: Map<string, string>
   regionMembers: Map<string, string[]>
+  /** The ref each planned node was emitted under, so a pair can be found later. */
+  planRefs: Map<Plan, string>
+  /** Group ref to the ref of the control that adds a group to its container. */
+  groupAddControls: Map<string, string>
   refCounter: number
   recordCounter: number
 }
@@ -1134,6 +1151,7 @@ function planNode(
       region: false,
       regionLabel: null,
       record: false,
+      addControlFor: null,
       children: [],
       kinds: [],
     }
@@ -1172,6 +1190,7 @@ function planNode(
       region: false,
       regionLabel: null,
       record: false,
+      addControlFor: null,
       children: roots,
       kinds: rootKinds,
     }
@@ -1228,6 +1247,11 @@ function planNode(
 
   const region = isRegionNode(tag, attributes, role)
   const described = attributes.get("id")
+  // A button the page words as adding is kept although it holds no value: it is
+  // the control that grows a repeated container, and a node the read dropped
+  // could never be pressed. Every other bare button stays dropped, because the
+  // noise it would add to what the model reads is real.
+  const adds = addsSomething(tag, role, clamp(axText(ax?.name)))
   const keepText =
     flags.keepText ||
     tag === "label" ||
@@ -1258,6 +1282,7 @@ function planNode(
     children.length > 0 ||
     control !== null ||
     region ||
+    adds ||
     isTextHolder ||
     depth === 0
   if (!keep) return null
@@ -1285,6 +1310,7 @@ function planNode(
     region,
     regionLabel: region ? (clamp(axText(ax?.name), MAX_LABEL) ?? tag) : null,
     record: false,
+    addControlFor: null,
     children,
     kinds,
   }
@@ -1304,6 +1330,104 @@ function markRecords(children: Plan[]): void {
     const key = `${child.tag}:${[...child.kinds].sort().join(",")}`
     if ((counts.get(key) ?? 0) > 1 && child.kinds.length > 0)
       child.record = true
+  }
+}
+
+/** A button the page words as adding something. */
+const ADDS_SOMETHING = /^\s*(?:[+>›]\s*)?add\b/i
+
+/**
+ * Whether the page words this element as adding something.
+ *
+ * A bare button states nothing else about itself: it has no native kind and no
+ * submitted field, so its own wording is the only signal there is. A control
+ * that would submit the form is refused where it is pressed, not here, because
+ * only the activation shows what it does.
+ */
+function addsSomething(
+  tag: string,
+  role: string | null,
+  label: string | null
+): boolean {
+  if (tag !== "button" && role !== "button") return false
+  return label !== null && ADDS_SOMETHING.test(label)
+}
+
+function isAddAffordance(plan: Plan): boolean {
+  return addsSomething(plan.tag, plan.role, plan.name ?? plan.text)
+}
+
+/**
+ * Pair every repeated container with the control the page offers for growing it.
+ *
+ * The page states this twice over: it words the control as adding, and it either
+ * places the control inside the container or names the container in
+ * `aria-controls`. Both are read here. Neither a button's position nor its
+ * document order decides which container it grows, so a control that is merely
+ * near a list is never taken for that list's control.
+ *
+ * A container is repetition: one entry is not a group, so one entry is not a
+ * container either, and it offers nothing to grow. That is also what keeps the
+ * hazard out, because a page holding a single unmarked entry has no container to
+ * grow, so nothing is paired and nothing can be pressed.
+ */
+function linkAddControls(input: {
+  plans: readonly Plan[]
+  state: BuildState
+  source: Source
+}): void {
+  const { state } = input
+  const ancestors = new Map<Plan, readonly Plan[]>()
+  const containers = new Map<Plan, readonly string[]>()
+  const plans: Plan[] = []
+
+  const visit = (plan: Plan, chain: readonly Plan[]): void => {
+    plans.push(plan)
+    ancestors.set(plan, chain)
+    const groups: string[] = []
+    for (const child of plan.children) {
+      const childRef = state.planRefs.get(child)
+      const groupRef =
+        childRef === undefined ? undefined : state.records.get(childRef)
+      if (child.record && groupRef !== undefined) groups.push(groupRef)
+    }
+    if (groups.length > 1) containers.set(plan, groups)
+    for (const child of plan.children) visit(child, [...chain, plan])
+  }
+  for (const plan of input.plans) visit(plan, [])
+  if (containers.size === 0) return
+
+  /** The container an `aria-controls` names, when the page names one. */
+  const namedTarget = (plan: Plan): Plan | null => {
+    const declared = attributeMap(plan.dom).get("aria-controls")
+    if (declared === undefined) return null
+    const backendNodeId = input.source.ids.get(declared.trim())?.backendNodeId
+    if (backendNodeId === undefined) return null
+    return (
+      plans.find(
+        (candidate) => candidate.dom.backendNodeId === backendNodeId
+      ) ?? null
+    )
+  }
+
+  for (const plan of plans) {
+    if (!isAddAffordance(plan)) continue
+    const addRef = state.planRefs.get(plan)
+    if (addRef === undefined) continue
+    // The page's own statement first: a control that names the container it
+    // grows may sit anywhere. Without one, the nearest ancestor holding the
+    // repetition is the container the control was rendered with.
+    const declared = namedTarget(plan)
+    const container =
+      declared !== null && containers.has(declared)
+        ? declared
+        : [...(ancestors.get(plan) ?? [])]
+            .reverse()
+            .find((candidate) => containers.has(candidate))
+    if (!container) continue
+    // One container, one control: every group it holds reports the same one.
+    for (const groupRef of containers.get(container) ?? [])
+      state.groupAddControls.set(groupRef, addRef)
   }
 }
 
@@ -1336,6 +1460,7 @@ function emit(
     backendNodeId,
     frameId: plan.context.frameId,
   })
+  state.planRefs.set(plan, ref)
 
   // Every option gets a reference of its own, so a later action can address the
   // option it chose and a replayed one can be checked against live state. They
@@ -1529,6 +1654,8 @@ export async function observePage(input: {
     regions: new Map(),
     regionLabels: new Map(),
     regionMembers: new Map(),
+    planRefs: new Map(),
+    groupAddControls: new Map(),
     refCounter: 0,
     recordCounter: 0,
   }
@@ -1632,6 +1759,7 @@ export async function observePage(input: {
     const depthCapped = { count: 0 }
     const truncated = { count: 0 }
     const optionIdentity = { count: 0 }
+    const contextPlans: Plan[] = []
     for (const root of roots.roots) {
       const closedShadow = root.node.shadowRootType === "closed"
       if (closedShadow) {
@@ -1664,6 +1792,7 @@ export async function observePage(input: {
         })
         continue
       }
+      contextPlans.push(planned)
       const ref = emit(planned, state, {
         parentRef: null,
         regionRef: null,
@@ -1676,6 +1805,10 @@ export async function observePage(input: {
           detail: "the context root carried no browser identity",
         })
     }
+    // Pairing happens after the walk, because it needs both halves at once: the
+    // containers, which only the repetition shows, and the controls, which may
+    // sit outside the container they grow.
+    linkAddControls({ plans: contextPlans, state, source })
     if (excludedCredentials.count > 0)
       state.gaps.push({
         scope: "authentication and payment fields",
@@ -1786,6 +1919,7 @@ function finish(input: {
     evidence: state.evidence,
     records: state.records,
     regions: state.regions,
+    groupAddControls: state.groupAddControls,
   }
 }
 
@@ -2091,6 +2225,8 @@ function walkOne(input: {
     regions: new Map(),
     regionLabels: new Map(),
     regionMembers: new Map(),
+    planRefs: new Map(),
+    groupAddControls: new Map(),
     refCounter: 0,
     recordCounter: 0,
   }

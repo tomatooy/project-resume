@@ -1,4 +1,5 @@
 import {
+  DOM_AGENT_LIMITS,
   RunCheckpointSchema,
   type RunCheckpoint,
   accountStatePrefix,
@@ -61,7 +62,7 @@ export function resumeAttachmentSource(input: {
       const file = await prepareResumePdf(
         input.resumeId,
         input.bundleId,
-        AbortSignal.timeout(30_000),
+        AbortSignal.timeout(DOM_AGENT_LIMITS.uploadMs),
         input.accountId
       )
       return {

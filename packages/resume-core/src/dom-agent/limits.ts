@@ -27,6 +27,4 @@ export const DOM_AGENT_LIMITS = {
   questionsPerRequest: 32,
   /** Actions in one batch. */
   actionsPerBatch: 24,
-  /** Temporary runs kept per tab. */
-  retainedRuns: 8,
 } as const

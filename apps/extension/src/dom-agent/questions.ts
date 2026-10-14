@@ -1,5 +1,6 @@
 import {
   type CandidateQuestion,
+  CandidateQuestionSchema,
   type ControlKind,
   type CoverageGap,
   NATIVE_CONTROL_KINDS,
@@ -59,10 +60,28 @@ export type QuestionEnumeration = {
   /** Questions whose option list has to be read on request. */
   needingOptions: string[]
   /**
+   * The controls that grow a repeated container, one entry per control.
+   *
+   * They are questions because pressing one is how the page says a group is
+   * added, and every action addresses a question. They are kept out of
+   * `questions` because nothing answers them: a bare button holds no value, so
+   * a question list that carried it would ask the person to fill in a button.
+   */
+  addGroupControls: AddGroupControl[]
+  /**
    * What the enumeration refused to handle. A question nobody can answer is a
    * gap the audit has to see, not a disposition with nowhere to go.
    */
   gaps: CoverageGap[]
+}
+
+/** One control a repeated container offers for growing itself. */
+export type AddGroupControl = {
+  ref: string
+  controlRef: string
+  /** The groups this control grows, as the reader paired them. */
+  groupRefs: string[]
+  question: CandidateQuestion
 }
 
 /**
@@ -130,6 +149,8 @@ export function candidateQuestions(input: {
   regions: Map<string, string>
   /** nodeRef to the repeated-record container it belongs to. */
   records: Map<string, string>
+  /** Group ref to the control that grows the container it belongs to. */
+  groupAddControls?: Map<string, string>
 }): QuestionEnumeration {
   const questions: CandidateQuestion[] = []
   const dispositions: Record<string, QuestionDisposition> = {}
@@ -172,7 +193,57 @@ export function candidateQuestions(input: {
     if (evidence?.portal) needingOptions.push(ref)
   }
 
-  return { questions, dispositions, needingOptions, gaps }
+  return {
+    questions,
+    dispositions,
+    needingOptions,
+    addGroupControls: addGroupQuestions(input),
+    gaps,
+  }
+}
+
+/**
+ * The add controls, one question each, beside the questions a page asks.
+ *
+ * The reader paired each control with the groups it grows; this turns each pair
+ * into the question an action can address. The kind is `record_group` and the
+ * control kind stays absent, because a bare button is not part of the native
+ * vocabulary and calling it one would be a reading nothing supports.
+ */
+function addGroupQuestions(input: {
+  observation: Observation
+  records: Map<string, string>
+  groupAddControls?: Map<string, string>
+}): AddGroupControl[] {
+  const byControl = new Map<string, string[]>()
+  for (const [groupRef, controlRef] of input.groupAddControls ?? [])
+    byControl.set(controlRef, [...(byControl.get(controlRef) ?? []), groupRef])
+  const controls: AddGroupControl[] = []
+  for (const [controlRef, groupRefs] of byControl) {
+    const node = input.observation.nodes.find(
+      (candidate) => candidate.ref === controlRef
+    )
+    if (!node) continue
+    const ref = `g${controls.length + 1}`
+    controls.push({
+      ref,
+      controlRef,
+      groupRefs,
+      question: CandidateQuestionSchema.parse({
+        ref,
+        controlRef,
+        groupRef: input.records.get(controlRef) ?? null,
+        recordRef: null,
+        kind: "record_group",
+        text: node.name ?? node.text ?? "Add",
+        description: null,
+        options: [],
+        requiredness: { state: "unknown", evidence: [] },
+        scope: [],
+      }),
+    })
+  }
+  return controls
 }
 
 /**

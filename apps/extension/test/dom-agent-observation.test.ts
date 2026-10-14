@@ -800,3 +800,74 @@ describe("reads on request", () => {
     await read.session.detach()
   })
 })
+
+describe("the control that adds a group", () => {
+  const JOBS = `<div id="jobs">
+    <div class="job"><label for="e1">Employer name</label><input id="e1" value="Acme"></div>
+    <div class="job"><label for="e2">Employer name</label><input id="e2" value="Globex"></div>
+  </div>`
+
+  it("names the control a repeated container offers for growing itself", async () => {
+    const read = await readPage(
+      `<form>${JOBS}<button type="button" aria-controls="jobs">Add another experience</button></form>`
+    )
+
+    const found = [...read.groupAddControls.entries()]
+    expect(found).toHaveLength(2)
+    const [groupRef, addRef] = found[0] ?? []
+    // The group carries the control that grows the container it sits in, and
+    // that control is the page's own wording rather than a guess from position.
+    expect(groupRef).toMatch(/^r\d+$/)
+    const button = read.observation.nodes.find((node) => node.ref === addRef)
+    expect(button?.tag).toBe("button")
+    expect(button?.name).toMatch(/add another experience/i)
+    // It is kept as a node so it can be pressed, and it is not a question: a
+    // bare button states no value, so nothing here becomes something to answer.
+    expect(button?.control).toBeNull()
+    // One container, so every group in it is grown by the same control.
+    expect(found[1]?.[1]).toBe(addRef)
+    await read.session.detach()
+  })
+
+  it("leaves a button the page does not word as adding out of it", async () => {
+    const read = await readPage(
+      `<form>${JOBS}<button type="button">Remove this job</button></form>`
+    )
+    // Nothing names a control, so nothing can be pressed: the run reports the
+    // record it could not place rather than activating a control it misread.
+    expect([...read.groupAddControls.entries()]).toEqual([])
+    await read.session.detach()
+  })
+
+  it("reads a control the container holds, with nothing declared", async () => {
+    // The other half of the page's statement: the control sits inside the
+    // container it grows, and no `aria-controls` says so. Nearest ancestor wins,
+    // so a control rendered inside the list is that list's control.
+    const read = await readPage(
+      `<form><div id="jobs">
+        <div class="job"><label for="e1">Employer name</label><input id="e1" value="Acme"></div>
+        <div class="job"><label for="e2">Employer name</label><input id="e2" value="Globex"></div>
+        <button type="button">Add another experience</button>
+      </div></form>`
+    )
+
+    const found = [...read.groupAddControls.entries()]
+    expect(found).toHaveLength(2)
+    const button = read.observation.nodes.find(
+      (node) => node.ref === found[0]?.[1]
+    )
+    expect(button?.tag).toBe("button")
+    expect(found[1]?.[1]).toBe(found[0]?.[1])
+    await read.session.detach()
+  })
+
+  it("ignores an add button that grows something else", async () => {
+    const read = await readPage(
+      `<form>${JOBS}<button type="button">Add another reference</button></form>`
+    )
+    // The label matches, and the button is outside the container it would have
+    // to grow, so it is not this container's control.
+    expect([...read.groupAddControls.entries()]).toEqual([])
+    await read.session.detach()
+  })
+})

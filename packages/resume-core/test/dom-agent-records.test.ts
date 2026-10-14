@@ -251,6 +251,25 @@ describe("binding page groups to records", () => {
     expect(plan.next).toEqual({ kind: "add_group", recordId: "exp_1" })
   })
 
+  it("proposes no add when the page shows no group at all", () => {
+    // The hazard the reader cannot see past: a page holding a single entry
+    // marks no group, because marking needs repetition. An add proposed there
+    // presses a control that grows a container the page already fills, and the
+    // entry it duplicates is the person's own. With nothing observed, the run
+    // proposes nothing and reports itself incomplete instead.
+    const plan = recordGroupPlan({
+      groups: [],
+      records: [
+        { id: "exp_1", kind: "experience", identity: "Acme" },
+        { id: "exp_2", kind: "experience", identity: "Globex" },
+      ],
+    })
+    expect(plan.next).toEqual({ kind: "none" })
+    expect(plan.bindings).toEqual([])
+    expect(plan.missing).toEqual([])
+    expect(plan.refusals).toEqual([])
+  })
+
   it("binds a blank group only when one record is left, and refuses otherwise", () => {
     const last = recordGroupPlan({
       groups: [

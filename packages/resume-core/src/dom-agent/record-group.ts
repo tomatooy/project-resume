@@ -279,7 +279,7 @@ export function recordGroupPlan(input: {
   // is bound before the next one is asked for.
   const settled = refusals.length === 0 && missing.length === 0
   const next: NextRecordGroupStep = settled
-    ? nextAdd(input.records, bound)
+    ? nextAdd(input.groups, input.records, bound)
     : { kind: "none" }
 
   return RecordGroupPlanSchema.parse({
@@ -311,10 +311,22 @@ function sole(records: readonly SourceRecord[]): SourceRecord | undefined {
   return records.length === 1 ? records[0] : undefined
 }
 
+/**
+ * The record to add a group for next, or none.
+ *
+ * A page showing no group is not a page asking for one. The reader marks a
+ * group by the repetition it sees, so with nothing marked there is no container
+ * to grow and no control that grows it. Proposing an add anyway is how a page
+ * holding a single unmarked entry gets a blank duplicate of a record it already
+ * shows, which puts a wrong entry into a real application. Pressing nothing is
+ * the safe answer, and an incomplete run is the honest one.
+ */
 function nextAdd(
+  groups: readonly PageRecordGroup[],
   records: readonly SourceRecord[],
   bound: ReadonlySet<string>
 ): NextRecordGroupStep {
+  if (groups.length === 0) return { kind: "none" }
   const record = records.find((entry) => !bound.has(entry.id))
   return record ? { kind: "add_group", recordId: record.id } : { kind: "none" }
 }

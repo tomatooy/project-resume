@@ -1,10 +1,12 @@
 import {
   type Action,
+  type AddedGroup,
   type AnswerProposal,
   type CandidateQuestion,
   type InterpretationCache,
   type ObservationCoverage,
   type PageAudit,
+  type PageRecordGroup,
   type QuestionDisposition,
   type QuestionPlan,
   type ReadinessVerdict,
@@ -14,6 +16,7 @@ import {
   type RunCheckpoint,
   type RunState,
   type SourceBundle,
+  type SourceRecord,
   type AttemptDecision,
   allReceipts,
   assertTransition,
@@ -55,7 +58,7 @@ import {
   installRuntime,
   writeOne,
 } from "./page-steps"
-import { candidateQuestions } from "./questions"
+import { candidateQuestions, type AddGroupControl } from "./questions"
 import { payloadBytes } from "./metrics"
 import type { BundleLoader } from "./runtime-inject"
 import type { RenderedAttachment } from "./runtime-request"
@@ -122,9 +125,9 @@ export type RunReport = {
   recovered: RecoveryNote[]
   /**
    * What the observation's repeated groups are, and what the resume can serve
-   * them. Stated rather than acted on: a group is only added through a control
-   * the page provides for it, and the observation does not carry that control
-   * yet, so what cannot be placed is reported instead of guessed at.
+   * them. A group is added only through a control the reader paired with the
+   * container it grows, so a record with nowhere to go is acted on when the page
+   * offers that control and reported when it does not.
    */
   recordGroups: RecordGroupPlan
   /**
@@ -167,6 +170,8 @@ type Stage = {
   proposals: Record<string, AnswerProposal>
   coverage: ObservationCoverage
   recordGroups: RecordGroupPlan
+  /** The controls this page offers for growing a repeated container. */
+  addGroupControls: AddGroupControl[]
   keys: Map<string, string>
 }
 
@@ -486,6 +491,7 @@ export class PageRun {
       // decided before the move because a blocking question is reachable from
       // `running` and not from `auditing`: the table in run.ts is the authority
       // on which states exist.
+      const requests = this.recordRequests(this.stage)
       this.verdict =
         this.audit === null
           ? null
@@ -493,19 +499,50 @@ export class PageRun {
               audit: this.audit,
               questions: this.stage?.questions ?? [],
             })
+      // The audit judges the questions the page asked. An entry the page wants
+      // and the resume cannot serve is not one of them, so the run withholds the
+      // verdict itself rather than calling a page ready while it holds a request
+      // it cannot answer. Readiness stays a decision about evidence, and this is
+      // evidence the audit was never given.
+      if (requests.length > 0 && this.verdict?.state === "ready")
+        this.verdict = { state: "incomplete", reasons: requests }
       if (this.verdict?.state === "ready") {
         // `ready` is not reachable straight from `running`, so the pass records
         // that it audited before it claims the verdict.
         this.move("auditing")
         this.move("ready")
-      } else
+      } else {
+        if (requests.length > 0 && this.waiting === null)
+          this.waiting = {
+            reason: `The page asks for ${requests.join(", ")}`,
+          }
         this.move(
-          this.review.some((item) => item.blocking)
+          requests.length > 0 || this.review.some((item) => item.blocking)
             ? "needs_input"
             : "incomplete"
         )
+      }
       await this.save()
     }
+  }
+
+  /**
+   * What the record plan is waiting for a person to settle, if anything.
+   *
+   * A required entry the resume cannot account for is the applicant's history to
+   * supply, and a group whose record the run could not name is theirs to place.
+   * Neither is answerable from the sources, and neither may be guessed at, so
+   * both reach the run's report as a request rather than as silence.
+   */
+  private recordRequests(stage: Stage | null): string[] {
+    const plan = stage?.recordGroups
+    if (!plan) return []
+    const requests: string[] = []
+    if (plan.missing.length > 0)
+      requests.push(`${plan.missing.length} entry the resume does not hold`)
+    if (plan.refusals.length > 0)
+      requests.push(`${plan.refusals.length} entry this run could not place`)
+    return requests
   }
 
   /**
@@ -574,6 +611,7 @@ export class PageRun {
       evidence: read.evidence,
       regions: read.regions,
       records: read.records,
+      groupAddControls: read.groupAddControls,
     })
     const questions = await attachPortalOptions({
       session: this.deps.session,
@@ -594,19 +632,27 @@ export class PageRun {
     const keys = await installRuntime({
       session: this.deps.session,
       read,
-      questions,
+      // The add controls are questions to the runtime, so their documents need
+      // it installed as much as the ones a person fills in.
+      questions: [
+        ...questions,
+        ...enumeration.addGroupControls.map((control) => control.question),
+      ],
       loadBundle: this.deps.loadBundle,
     })
     const coverage = observationCoverage(
       [...read.observation.coverage.gaps, ...enumeration.gaps],
       read.observation.coverage.complete
     )
+    const groups = pageRecordGroups({
+      observation: read.observation,
+      questions,
+    })
+    const records = sourceRecords(this.deps.bundle.facts)
     const recordGroups = recordGroupPlan({
-      groups: pageRecordGroups({
-        observation: read.observation,
-        questions,
-      }),
-      records: sourceRecords(this.deps.bundle.facts),
+      groups,
+      records,
+      added: this.addedGroups(groups, records, enumeration.addGroupControls),
     })
     return {
       read,
@@ -615,8 +661,84 @@ export class PageRun {
       proposals: planned.proposals,
       coverage,
       recordGroups,
+      addGroupControls: enumeration.addGroupControls,
       keys,
     }
+  }
+
+  /**
+   * The groups this run added and has not yet placed.
+   *
+   * A record-creation intent is written before the add leaves, so an intent still
+   * open on the next read is the run's own account of what it grew, and the group
+   * that appeared is the one past the count recorded with it. Two guards keep
+   * that from becoming a guess: only a blank group can be the one that appeared,
+   * because a group holding values was there before, and the record is only
+   * placed when the container it was added to already holds a record of that
+   * kind. Otherwise nothing is bound and the group stays the person's to resolve.
+   */
+  private addedGroups(
+    groups: readonly PageRecordGroup[],
+    records: readonly SourceRecord[],
+    controls: readonly AddGroupControl[]
+  ): AddedGroup[] {
+    // An intent the page confirmed still counts. The run's own account of what it
+    // grew outlives the pass that settled it, and without it a group the run added
+    // is only placed while it happens to be the last record left, which fails the
+    // moment two entries are added for two records. An uncertain one never counts:
+    // the run cannot say that group appeared, so it cannot place it.
+    const recorded = this.checkpoint.intents.filter(
+      (intent) =>
+        intent.kind === "record_creation" && intent.settled !== "uncertain"
+    )
+    if (recorded.length === 0) return []
+    // What the rules would place without this run's own account of an add, which
+    // is what says which records are still free and which kind a container holds.
+    const before = recordGroupPlan({ groups, records })
+    // Only what the page itself placed counts. The rules also place a lone blank
+    // group for the last record left, and treating that as evidence would make
+    // the record this add was for look taken before the add is accounted for.
+    const placed = new Set(
+      before.bindings
+        .filter((binding) => binding.evidence === "observed_identity_match")
+        .map((binding) => binding.recordId)
+    )
+    const added: AddedGroup[] = []
+    for (const intent of recorded) {
+      const group =
+        intent.groupCount === null ? undefined : groups[intent.groupCount]
+      if (!group || group.values.length > 0) continue
+      const control = controls.find((entry) =>
+        entry.groupRefs.includes(group.groupRef)
+      )
+      const kind = control ? this.containerKind(control, before, records) : null
+      if (kind === null) continue
+      const record = records.find(
+        (entry) => entry.kind === kind && !placed.has(entry.id)
+      )
+      if (!record) continue
+      placed.add(record.id)
+      added.push({ groupRef: group.groupRef, recordId: record.id })
+    }
+    return added
+  }
+
+  /**
+   * The kind of record a container holds, from what it already placed. A
+   * container holding nothing yet has no kind this reader can state, and a group
+   * is never added to one on the strength of its position alone.
+   */
+  private containerKind(
+    control: AddGroupControl,
+    plan: RecordGroupPlan,
+    records: readonly SourceRecord[]
+  ): SourceRecord["kind"] | null {
+    for (const binding of plan.bindings) {
+      if (!control.groupRefs.includes(binding.groupRef)) continue
+      const record = records.find((entry) => entry.id === binding.recordId)
+      if (record) return record.kind
+    }
+    return null
   }
 
   /**
@@ -687,6 +809,15 @@ export class PageRun {
     const settled = this.settledRefs()
     const candidates: Candidate[] = []
     let counter = this.receipts.length
+    // A group is added before anything is written, and its own batch ends there.
+    // Growing the page can move every reference under it, so the writes are
+    // planned from a fresh observation of the page the add produced rather than
+    // from the observation it invalidated.
+    const add = this.recordGroupCandidate(stage, counter)
+    if (add) {
+      candidates.push(add)
+      counter += 1
+    }
     for (const question of stage.questions) {
       if (settled.has(question.ref)) continue
       const proposal = stage.proposals[question.ref]
@@ -716,6 +847,71 @@ export class PageRun {
     const upload = await this.attachmentCandidate(stage, settled, counter)
     if (upload) candidates.push(upload)
     return candidates
+  }
+
+  /**
+   * The one group this pass may add, or null.
+   *
+   * Both halves have to be on the page: a plan naming a record with nowhere to
+   * put it, and a control the reader paired with the container that record
+   * belongs to. The pair is required rather than inferred, because a control
+   * pressed on a page whose container nobody identified is how a blank entry
+   * lands in a real application. The run presses once, the intent is written
+   * before the dispatch leaves, and the batch re-observes so the group it grew
+   * is placed before another is asked for.
+   */
+  private recordGroupCandidate(
+    stage: Stage,
+    counter: number
+  ): Candidate | null {
+    const next = stage.recordGroups.next
+    if (next.kind !== "add_group") return null
+    const records = sourceRecords(this.deps.bundle.facts)
+    const record = records.find((entry) => entry.id === next.recordId)
+    if (!record) return null
+    const control = this.containerForKind(stage, record.kind)
+    if (!control) return null
+    const decision = this.attemptFor(stage, control.ref, "add_record_group")
+    if (decision.kind === "skip") {
+      this.notDispatchable.push(control.ref)
+      return null
+    }
+    const actionRef = `a${counter + 1}`
+    return {
+      actionRef,
+      questionRef: control.ref,
+      question: control.question,
+      proposal: null,
+      action: {
+        ref: actionRef,
+        questionRef: control.ref,
+        type: "add_record_group",
+        recordRef: record.id,
+      },
+      attachment: null,
+      effect: "record_group",
+    }
+  }
+
+  /**
+   * The container a record of this kind belongs to, from what that container
+   * already placed. A container holding no record of the kind has nothing that
+   * says it is the right one, so no control answers for it.
+   */
+  private containerForKind(
+    stage: Stage,
+    kind: SourceRecord["kind"]
+  ): AddGroupControl | null {
+    const records = sourceRecords(this.deps.bundle.facts)
+    for (const binding of stage.recordGroups.bindings) {
+      const bound = records.find((entry) => entry.id === binding.recordId)
+      if (!bound || bound.kind !== kind) continue
+      const control = stage.addGroupControls.find((entry) =>
+        entry.groupRefs.includes(binding.groupRef)
+      )
+      if (control) return control
+    }
+    return null
   }
 
   /**
@@ -1062,10 +1258,9 @@ function intentFor(
   input: { at: number; groupCount: number; attachmentName: string | null }
 ) {
   const type = candidate.action?.type
-  // Unreachable today, and deliberately left visible rather than deleted: no
-  // candidate carries an `add_record_group` action, because the observation does
-  // not name the control that adds a group. Until it does, a group the resume
-  // has no room for is reported in `RunReport.recordGroups` and never pressed.
+  // Record creation: the intent is on disk before the control is pressed, so a
+  // group the page grew is one the run wrote down and can place on the next
+  // observation rather than one it finds and has to guess about.
   if (type === "add_record_group")
     return intentForAction({
       kind: "record_creation",

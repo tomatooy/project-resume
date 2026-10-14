@@ -1168,3 +1168,183 @@ describe("a page only part of which the run can answer", () => {
     await harness.session.detach()
   })
 })
+
+describe("adding a record group", () => {
+  const JOBS = `<form>
+      <div id="jobs">
+        <div class="job"><label for="e1">Employer name</label><input id="e1" value="Acme"></div>
+        <div class="job"><label for="e2">Employer name</label><input id="e2" value="Globex"></div>
+      </div>
+      <button type="button" aria-controls="jobs">Add another experience</button>
+    </form>`
+
+  function threeRecords() {
+    return [
+      recordFact("rec_1", "Acme"),
+      recordFact("rec_2", "Globex"),
+      recordFact("rec_3", "Initech"),
+    ]
+  }
+
+  it("presses the page's own control once, after writing the intent", async () => {
+    const harness = await page(JOBS, { facts: threeRecords() })
+    const { run, store } = harness.run()
+    await run.start()
+
+    const adds = harness.dispatches.filter((entry) =>
+      entry.questionRef.startsWith("g")
+    )
+    expect(adds).toHaveLength(1)
+    // The intent was on disk at the moment the control was pressed, so a reply
+    // that never arrives leaves a record of the group rather than a second one.
+    expect(adds[0]?.intentsSavedSoFar).toContain(adds[0]?.actionRef)
+    const intent = store.checkpoint?.intents.find(
+      (entry) => entry.kind === "record_creation"
+    )
+    expect(intent?.questionRef).toBe(adds[0]?.questionRef)
+    // Two groups were on the page when it was written, which is the count the
+    // next observation is read against.
+    expect(intent?.groupCount).toBe(2)
+    await harness.session.detach()
+  })
+
+  it("places the group the page grew before another add is asked for", async () => {
+    const harness = await page(JOBS, { facts: threeRecords() })
+    const button = document.querySelector("button")
+    // The page's own reaction to its control: a blank group appears. A real page
+    // does this itself, and the double only re-reads on demand.
+    button?.addEventListener("click", () => {
+      const group = document.createElement("div")
+      group.className = "job"
+      const label = document.createElement("label")
+      label.setAttribute("for", "e3")
+      label.textContent = "Employer name"
+      const field = document.createElement("input")
+      field.id = "e3"
+      group.append(label, field)
+      document.querySelector("#jobs")?.append(group)
+      harness.reread()
+    })
+    const { run } = harness.run()
+    const report = await run.start()
+
+    // The record the resume states, which the page had no group for, is placed
+    // in the group this run's own add created rather than left for the person.
+    expect(report.recordGroups.bindings).toEqual([
+      {
+        groupRef: "r1",
+        recordId: "rec_1",
+        evidence: "observed_identity_match",
+      },
+      {
+        groupRef: "r2",
+        recordId: "rec_2",
+        evidence: "observed_identity_match",
+      },
+      { groupRef: "r3", recordId: "rec_3", evidence: "added_for_record" },
+    ])
+    expect(report.recordGroups.refusals).toEqual([])
+    await harness.session.detach()
+  })
+
+  it("still places a group it added once the page settled that add", async () => {
+    // The group the run grows asks a different question than the resume names,
+    // so it stays blank after the add. The page then confirms the add, and a
+    // second record has no group yet: the run must still know the blank group is
+    // its own, or the only honest answer left is to refuse a group it created.
+    const harness = await page(
+      `<form><div id="jobs">
+        <div class="job"><label for="e1">Employer name</label><input id="e1" value="Acme"></div>
+        <div class="job"><label for="e2">Employer name</label><input id="e2" value="Globex"></div>
+      </div><button type="button" aria-controls="jobs">Add another experience</button></form>`,
+      {
+        facts: [
+          recordFact("rec_1", "Acme"),
+          recordFact("rec_2", "Globex"),
+          recordFact("rec_3", "Initech"),
+          recordFact("rec_4", "Hooli"),
+        ],
+      }
+    )
+    const button = document.querySelector("button")
+    let added = 0
+    button?.addEventListener("click", () => {
+      added += 1
+      const group = document.createElement("div")
+      group.className = "job"
+      const label = document.createElement("label")
+      const field = document.createElement("input")
+      label.setAttribute("for", `x${added}`)
+      label.textContent = "Company"
+      field.id = `x${added}`
+      group.append(label, field)
+      document.querySelector("#jobs")?.append(group)
+      harness.reread()
+    })
+    const { run } = harness.run()
+    const report = await run.start()
+
+    expect(added).toBeGreaterThan(0)
+    const first = report.recordGroups.bindings.find(
+      (binding) => binding.recordId === "rec_3"
+    )
+    // The run's own add is what places it, and the page's confirmation of that
+    // add does not make the run forget it.
+    expect(first).toEqual({
+      groupRef: "r3",
+      recordId: "rec_3",
+      evidence: "added_for_record",
+    })
+    expect(
+      report.recordGroups.refusals.some((refusal) => refusal.groupRef === "r3")
+    ).toBe(false)
+    await harness.session.detach()
+  })
+
+  it("does not call a page ready while a group cannot be placed", async () => {
+    // Two entries both hold the name two records share, so neither can be
+    // placed. Every control on the page still reads back, so the audit alone
+    // would call it done: the run has to withhold that itself.
+    const harness = await page(
+      `<form><div id="jobs">
+        <div class="job"><label for="e1">Employer name</label><input id="e1" value="Acme"></div>
+        <div class="job"><label for="e2">Employer name</label><input id="e2" value="Globex"></div>
+      </div></form>`,
+      {
+        facts: [
+          recordFact("rec_1", "Acme"),
+          recordFact("rec_2", "Acme"),
+          recordFact("rec_3", "Globex"),
+        ],
+      }
+    )
+    const { run } = harness.run()
+    const report = await run.start()
+
+    expect(report.recordGroups.refusals).toHaveLength(1)
+    expect(report.state).toBe("needs_input")
+    expect(report.waiting?.reason).toMatch(/could not place/)
+    expect(report.verdict).toMatchObject({ state: "incomplete" })
+    await harness.session.detach()
+  })
+
+  it("asks for an entry the resume does not hold instead of inventing one", async () => {
+    const harness = await page(
+      `<form><div id="jobs">
+        <div class="job"><label for="e1">Employer name</label><input id="e1" value="Acme" required></div>
+        <div class="job"><label for="e2">Employer name</label><input id="e2" required></div>
+      </div></form>`,
+      { facts: [recordFact("rec_1", "Acme")] }
+    )
+    const { run } = harness.run()
+    const report = await run.start()
+
+    // Nothing is invented for the second entry, and the run asks rather than
+    // reporting a page it cannot finish.
+    expect(report.recordGroups.missing).toEqual(["r2"])
+    expect(report.recordGroups.next).toEqual({ kind: "none" })
+    expect(report.state).toBe("needs_input")
+    expect(report.waiting?.reason).toMatch(/does not hold/)
+    await harness.session.detach()
+  })
+})
