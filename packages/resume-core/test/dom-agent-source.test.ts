@@ -269,6 +269,28 @@ describe("stored answers without a question identity", () => {
     expect(outcome.fact.scope).toEqual([{ dimension: "country", value: "US" }])
   })
 
+  it("keeps an EEO answer reviewable even when it carries a structured value", () => {
+    // The mirror of the Profile-side exclusion. A row with the concept identity
+    // the retired engine demanded, the new question identity and a value the
+    // vocabulary can express would otherwise become an eligible source.
+    for (const concept of ["eeo_gender", "eeo_veteran"]) {
+      const outcome = factFromStoredAnswer(
+        legacy({
+          meaning: {
+            concept,
+            questionKey: concept.replace("eeo_", ""),
+            definitionVersion: "vs-us-1",
+          },
+          value: "woman",
+          questionKey: QUESTION_KEY,
+          factValue: { type: "text", text: "woman" },
+        })
+      )
+      if (outcome.kind !== "review") throw new Error("expected review")
+      expect(outcome.answer.reason).toBe("excluded_concept")
+    }
+  })
+
   it("keeps a keyed answer reviewable when it holds only a display string", () => {
     const outcome = factFromStoredAnswer(
       legacy({

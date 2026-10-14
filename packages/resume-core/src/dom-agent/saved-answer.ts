@@ -35,8 +35,11 @@ export const ReviewAnswerSchema = z.strictObject({
    * `unsupported_value`: the row is keyed, but it holds a display string where
    * the question needs a structured value, and parsing that string would be an
    * inference of ours rather than something the user stated.
+   * `excluded_concept`: the concept is excluded from sources by decision, so a
+   * keyed row that carries a structured value is no more eligible than an
+   * unkeyed one. EEO is the case today.
    */
-  reason: z.enum(["no_question_key", "unsupported_value"]),
+  reason: z.enum(["no_question_key", "unsupported_value", "excluded_concept"]),
   confirmedAt: z.iso.datetime(),
 })
 export type ReviewAnswer = z.infer<typeof ReviewAnswerSchema>
@@ -84,6 +87,14 @@ export function factFromStoredAnswer(raw: StoredAnswer): StoredAnswerOutcome {
     return {
       kind: "review",
       answer: reviewAnswer(answer, scope, "no_question_key"),
+    }
+  // EEO is excluded from the bundle outright (see the spec's decision table). A
+  // keyed row with a structured value would otherwise sail past the check below,
+  // which only catches the display-string case.
+  if (concept.startsWith("eeo_"))
+    return {
+      kind: "review",
+      answer: reviewAnswer(answer, scope, "excluded_concept"),
     }
   if (!answer.factValue && STRUCTURED_CONCEPT.test(concept))
     return {
