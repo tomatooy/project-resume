@@ -28,7 +28,7 @@ recorded as ADRs.
 | Distribution | No build is distributed outside the developer's machine. The API contract is reshaped in place, so no additive compatibility work or permission-rollout handling is needed. |
 | Replacement | The engine is replaced in place, file by file. Intermediate states leave the extension loadable and the LinkedIn path working, with the fill action refusing explicitly. |
 | Chrome facts | The `debugger` permission cannot be optional. An attached session keeps the MV3 worker alive (Chrome 118+, minimum here is 127). Offscreen documents expose only `runtime`, so the debugger client cannot live in the document that renders the PDF. |
-| Test lane | A fixture recorder dumps DOM, accessibility tree and geometry per page. The user runs it against the acceptance ATS pages and the fixtures replay offline, because agent-driven browser automation is not permitted in this repository. |
+| Test lane | A fixture recorder dumps the DOM and accessibility tree per page. The user runs it against the acceptance ATS pages and the fixtures replay offline, because agent-driven browser automation is not permitted in this repository. |
 
 ## Confirmed boundary
 
@@ -472,8 +472,12 @@ the per-field correctness or audit coverage compared with individual execution.
 Use deterministic tests for source provenance, question scope, guards, scheduling,
 and state transitions. Test the driver against recorded DOM/AX fixtures plus
 mocked protocol lifecycle events. Such tests do not establish live ATS support.
-A fixture recorder is part of this work: it dumps DOM, accessibility tree and
-geometry for one page, and the user runs it against the acceptance ATS pages.
+A fixture recorder is part of this work: it dumps DOM and accessibility tree
+for one page, and the user runs it against the acceptance ATS pages. Geometry is
+deliberately not captured yet: no observation field carries a box and nothing
+reads one, so it would be unread weight in every committed fixture. The
+fixture's version field is the door, and the recorder is re-runnable, so
+capturing geometry later costs one command rather than a migration.
 The performance acceptance harness, including its frozen multi-field form, is a
 deliverable rather than an existing asset.
 Release acceptance requires manual current-browser checks on all three ATS,

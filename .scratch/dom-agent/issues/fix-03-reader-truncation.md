@@ -61,3 +61,19 @@ A test double that serves more than the browser would hides exactly the bugs the
 payload shape causes. The stand-in returned uncut trees, so the ceiling path that
 production always takes was never exercised; the lane found it only after building a
 recorder that prunes the way the browser cuts.
+
+## Lane ownership (this pass)
+
+**Owns:** `apps/extension/src/dom-agent/observation.ts` and its payload module,
+`apps/extension/test/dom-agent-observation.test.ts`,
+`apps/extension/test/dom-agent-fixtures.test.ts`, the reader modules in
+`packages/resume-core/src/dom-agent/` if the gap vocabulary has to change, the
+dom-agent barrel if an export is needed, and this ticket plus
+`06a-button-based-choices.md`.
+
+**Must not touch:** `apps/extension/src/autofill/**`, `packages/agent/**`, or
+anything the other lane reads.
+
+`06a` is in the same lane on purpose: both changes are reader changes in
+`observation.ts`, and one writer per file is the rule that has kept every merge
+on this branch free of conflicts.

@@ -49,3 +49,9 @@ it shows nothing about a longer option list, and it has no `role="radio"` /
 show for those two when they arrive. The hidden checkbox also matters for the reader: it
 is unnamed to a person and `display:none`, and it must not be enumerated as a question
 of its own.
+
+## Lane ownership (this pass)
+
+Shares a lane with `fix-03-reader-truncation.md`: both change the reader, so one
+writer holds `observation.ts`, `questions.ts` and their tests. See fix-03 for the
+file list.
