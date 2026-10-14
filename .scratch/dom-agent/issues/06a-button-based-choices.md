@@ -17,3 +17,5 @@
 ## Notes
 
 Filed 2026-10-14 from lane A's report on ticket 04. The reader deliberately refused to guess the grouping rule without real markup, which is why this is a ticket rather than a silently wrong implementation. Ticket 09 must not ship ahead of it: the tracer bullet would demonstrate a form being completed while a question stayed invisible.
+
+Also worth reading off the same capture, though it is not an acceptance box here. The review pass over the reader found that its record-reference test only asserts that references exist and that siblings differ, which cannot catch a reader that marks every sibling as its own record. That rule is read off the same Ashby markup, so if the capture settles it, record what it shows next to the grouping rule above rather than leaving it for a future rediscovery. If it turns out to be its own piece of work, it belongs to ticket 13's lane, which owns record binding.
