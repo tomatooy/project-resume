@@ -12,3 +12,18 @@
 - [ ] Profile preserves unknown versus explicit yes or no, and unanswered versus answered versus decline.
 - [ ] Salary is stored as amount, currency and period separately, and the control receives the numeric representation rather than a display string.
 - [ ] Work authorization keeps its country and time scope.
+
+## Lane ownership (this pass)
+
+**Owns:** `apps/web/**`, `packages/resume-core/src/autofill-profile/**`,
+`packages/resume-core/src/dom-agent/saved-answer.ts`, and the tests for those.
+
+**Must not touch:** `apps/extension/**`, the other modules under
+`packages/resume-core/src/dom-agent/`, or that directory's `index.ts` (the coordinator
+lane owns the barrel; report any export line you need instead of adding it).
+
+**Preserve the EEO exclusion.** `factFromStoredAnswer` refuses an EEO response with the
+`excluded_concept` reason, and the source bundle excludes EEO facts outright. That is a
+deliberate product decision, not an oversight: no EEO answer is ever defaulted, and a
+stored EEO answer never enters the bundle. If your work touches that path, keep both
+rules and their tests.

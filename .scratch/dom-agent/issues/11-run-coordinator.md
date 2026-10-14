@@ -50,3 +50,18 @@ Those behaviours still have to hold; this ticket owes them new tests.
   01 and are recoverable with `git show 5693abd:apps/extension/test/autofill-session.test.ts`.
   Cancellation generations, worker restarts and auto-upload are still owed tests.
 
+
+## Lane ownership (this pass)
+
+**Owns:** `apps/extension/src/**` (including `autofill/**` and `dom-agent/**`), the
+run-adjacent modules under `packages/resume-core/src/dom-agent/` except the two named
+below, that directory's `index.ts` (this lane holds the barrel), and the extension's
+tests.
+
+**Must not touch:** `apps/web/**`, `packages/resume-core/src/autofill-profile/**`, or
+`packages/resume-core/src/dom-agent/saved-answer.ts`. Another lane owns those, and it is
+editing the module that carries the EEO exclusion.
+
+**Do not open the engine guard.** Wire the entry point so that flipping
+`engineCanStart()` later is a one-line change, and leave it refusing: the review queue
+and panel arrive with ticket 15, so a half-built path must stay unreachable.
