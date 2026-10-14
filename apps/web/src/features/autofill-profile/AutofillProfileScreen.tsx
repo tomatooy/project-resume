@@ -23,6 +23,7 @@ import { autofillProfileQuery, useResumes } from "@/lib/queries"
 import { getAutofillProfile, updateAutofillProfile, getResume } from "@/lib/api"
 import { ProfileEditor } from "./editor"
 import { SavedAnswers } from "./SavedAnswers"
+import { SavedQuestionAnswers } from "./SavedQuestionAnswers"
 
 const names: Record<ProfileSection, string> = {
   identity: "Identity",
@@ -263,6 +264,7 @@ function ProfileForm({
             {active === "eeo" ? "Clear EEO information" : "Clear section"}
           </Button>
         </footer>
+        <SavedQuestionAnswers userId={userId} />
         <SavedAnswers userId={userId} />
       </div>
     </div>

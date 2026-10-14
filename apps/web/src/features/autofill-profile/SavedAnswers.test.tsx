@@ -14,9 +14,10 @@ const api = vi.hoisted(() => ({
   saveAutofillAnswer:
     vi.fn<(input: SaveScopedAnswer) => Promise<ScopedAnswer>>(),
   removeAutofillAnswer: vi.fn<(input: DeleteScopedAnswer) => Promise<void>>(),
+  reviewSavedAnswers:
+    vi.fn<() => Promise<{ answerId: string; reason: string }[]>>(),
 }))
 vi.mock("@/lib/api", () => api)
-
 const answer: ScopedAnswer = {
   id: "550e8400-e29b-41d4-a716-446655440000",
   revision: 1,
@@ -37,6 +38,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   current = structuredClone(answer)
   api.listAutofillAnswers.mockImplementation(async () => [current])
+  api.reviewSavedAnswers.mockImplementation(async () => [])
   api.saveAutofillAnswer.mockImplementation(async (input) => {
     if (input.expectedRevision !== current.revision)
       throw new ApiError(

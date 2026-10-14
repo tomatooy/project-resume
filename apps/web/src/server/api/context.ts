@@ -3,7 +3,7 @@ import { getRequest } from "@tanstack/react-start/server"
 import { createSupabaseForRequest } from "../auth/supabase"
 import { verifyBearer } from "../auth/bearer"
 import { requireUser } from "../auth/require-user"
-import { supabasePorts } from "../container"
+import { supabasePorts, savedAnswersFor } from "../container"
 import { createLogger } from "../log"
 
 export async function createApiContext(request: Request = getRequest()) {
@@ -19,6 +19,7 @@ export async function createApiContext(request: Request = getRequest()) {
       accessToken: auth.accessToken,
       expiresAt: auth.expiresAt,
       services: createServices(supabasePorts(auth.db, auth.userId)),
+      savedAnswers: savedAnswersFor(auth.db, auth.userId),
       log: createLogger({ userId: auth.userId }),
       authKind: "bearer",
     }
@@ -34,6 +35,7 @@ export async function createApiContext(request: Request = getRequest()) {
     accessToken: data.session.access_token,
     expiresAt: data.session.expires_at,
     services: createServices(supabasePorts(db, user.userId)),
+    savedAnswers: savedAnswersFor(db, user.userId),
     log: createLogger({ userId: user.userId }),
     authKind: "cookie",
   }

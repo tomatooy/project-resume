@@ -9,7 +9,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../auth/supabase", () => ({ createSupabaseForRequest: mocks.cookies }))
 vi.mock("../auth/bearer", () => ({ verifyBearer: mocks.bearer }))
 vi.mock("../auth/require-user", () => ({ requireUser: mocks.requireUser }))
-vi.mock("../container", () => ({ supabasePorts: () => ({}) }))
+vi.mock("../container", () => ({
+  supabasePorts: () => ({}),
+  savedAnswersFor: () => ({}),
+}))
 vi.mock("@workspace/resume-core", async (original) => ({
   ...(await original<typeof import("@workspace/resume-core")>()),
   createServices: () => ({}),

@@ -9,6 +9,14 @@ import {
   SaveScopedAnswerSchema,
   DeleteScopedAnswerSchema,
 } from "@workspace/resume-core/contracts"
+// Saved answers in the question's own shape are additive: the procedures below
+// are new, and nothing above changes, because rows written under the retired
+// vocabulary have to stay readable exactly as they are.
+import {
+  RemoveSavedAnswerSchema,
+  SaveSavedAnswerSchema,
+  SavedAnswerSchema,
+} from "@workspace/resume-core"
 import { oc } from "@orpc/contract"
 import {
   JobIdentitySchema,
@@ -86,6 +94,20 @@ export const contract = {
     remove: base
       .route({ method: "POST", path: "/autofill/answers/remove" })
       .input(DeleteScopedAnswerSchema)
+      .output(z.void()),
+  },
+  savedAnswers: {
+    list: base
+      .route({ method: "GET", path: "/autofill/saved-answers" })
+      .input(z.strictObject({}))
+      .output(z.array(SavedAnswerSchema).max(500)),
+    save: base
+      .route({ method: "POST", path: "/autofill/saved-answers" })
+      .input(SaveSavedAnswerSchema)
+      .output(SavedAnswerSchema),
+    remove: base
+      .route({ method: "POST", path: "/autofill/saved-answers/remove" })
+      .input(RemoveSavedAnswerSchema)
       .output(z.void()),
   },
   resumes: {

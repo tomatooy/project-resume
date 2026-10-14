@@ -767,6 +767,7 @@ describe("dispatch", () => {
         state: "rejected",
         evidence: [RUNTIME_EVIDENCE.staleRevision],
       }),
+      userEditEpoch: 0,
     })
   })
 
@@ -811,6 +812,7 @@ describe("dispatch", () => {
         state: "rejected",
         evidence: [RUNTIME_EVIDENCE.staleRevision],
       }),
+      userEditEpoch: 0,
     })
     // The proof that nothing happened twice is the container, not the receipt.
     expect(document.querySelectorAll("#roles > div")).toHaveLength(2)
@@ -832,6 +834,7 @@ describe("dispatch", () => {
         state: "rejected",
         evidence: [RUNTIME_EVIDENCE.bundleChanged],
       }),
+      userEditEpoch: 0,
     })
   })
 
@@ -849,6 +852,7 @@ describe("dispatch", () => {
         state: "failed",
         evidence: [RUNTIME_EVIDENCE.pageThrew],
       }),
+      userEditEpoch: 0,
     })
   })
 })

@@ -4,6 +4,9 @@ import {
   sharedAutofillAnswers,
   sharedSaveAutofillAnswer,
   sharedRemoveAutofillAnswer,
+  sharedSavedAnswers,
+  sharedSaveSavedAnswer,
+  sharedRemoveSavedAnswer,
 } from "./shared-api"
 import {
   listSharedResumes,
@@ -34,6 +37,7 @@ import {
   tailorFromJob as tailorFromJobFn,
 } from "@/server/fns/jobs"
 import { decideSuggestions as decideSuggestionsFn } from "@/server/fns/suggestions"
+import { savedAnswersReview as savedAnswersReviewFn } from "@/server/fns/saved-answers"
 import {
   createUserSkill as createUserSkillFn,
   deleteUserSkill as deleteUserSkillFn,
@@ -342,3 +346,34 @@ export async function removeAutofillAnswer(
     throw toApiError(error)
   }
 }
+
+export async function listSavedAnswers() {
+  try {
+    return await sharedSavedAnswers()
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function saveSavedAnswer(
+  input: import("@workspace/resume-core").SaveSavedAnswer
+) {
+  try {
+    return await sharedSaveSavedAnswer(input)
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function removeSavedAnswer(
+  input: import("@workspace/resume-core").RemoveSavedAnswer
+) {
+  try {
+    return await sharedRemoveSavedAnswer(input)
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+/** Rows that cannot be reused, with the reason each one gives. */
+export const reviewSavedAnswers = guardNullary(savedAnswersReviewFn)

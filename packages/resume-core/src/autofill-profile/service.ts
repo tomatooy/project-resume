@@ -51,11 +51,20 @@ export class AutofillProfileService {
             ? undefined
             : this.clock().toISOString(),
       }))
-    if (input.section === "workAuthorization")
-      data.workAuthorization = data.workAuthorization.map((row) => ({
-        ...row,
-        confirmedAt: this.clock().toISOString(),
-      }))
+    if (input.section === "workAuthorization") {
+      const now = this.clock().toISOString()
+      data.workAuthorization = data.workAuthorization.map((row) => {
+        // A row nobody has answered is unanswered, not answered at a time. The
+        // same rule the EEO responses follow, and the reason an all-unknown row
+        // does not read as a confirmed no. Country travels with the row either
+        // way, so the scope of the answer is never lost.
+        const asserted =
+          row.authorizedToWork !== "unknown" ||
+          row.requiresSponsorshipNow !== "unknown" ||
+          row.requiresSponsorshipFuture !== "unknown"
+        return { ...row, confirmedAt: asserted ? now : undefined }
+      })
+    }
     if (input.section === "links" && data.links.linkedinUrl) {
       const parsed = new URL(data.links.linkedinUrl)
       data.links.linkedinUrl = `https://www.linkedin.com${parsed.pathname.replace(/\/$/, "")}`

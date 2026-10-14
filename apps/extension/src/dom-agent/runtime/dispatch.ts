@@ -6,8 +6,11 @@ import {
   readExpectation,
   readStep,
   type RuntimeEvidenceCode,
+  type RuntimeExpectation,
   type RuntimeOutcome,
   type RuntimeReply,
+  type RuntimeReplyBody,
+  type RuntimeStep,
   type RuntimeVerb,
 } from "./protocol"
 import {
@@ -29,6 +32,18 @@ import {
 export type RuntimeState = {
   /** The bundle id fixed for this application, established by the first call. */
   bundleId: string | null
+  /**
+   * The document generation this runtime was installed for, established by the
+   * first call. A request that states another one is addressing a document this
+   * runtime does not live in.
+   */
+  documentGeneration: string | null
+  /**
+   * How many times the user has edited this page since the runtime was
+   * installed. A request states the epoch it was planned against, so an edit
+   * between planning and writing is refused rather than written over.
+   */
+  userEditEpoch: number
   /** Highest revision handled per question, so a stale call is refused. */
   revisions: Map<string, number>
   /**
@@ -43,6 +58,8 @@ export type RuntimeState = {
 export function createRuntimeState(): RuntimeState {
   return {
     bundleId: null,
+    documentGeneration: null,
+    userEditEpoch: 0,
     revisions: new Map<string, number>(),
     writes: new Map<string, number>(),
   }
@@ -90,65 +107,101 @@ export async function handleDispatch(
   if (!parsedExpect) return { ok: false, reason: RUNTIME_EVIDENCE.malformed }
   if (!isElement(this)) return { ok: false, reason: RUNTIME_EVIDENCE.malformed }
   const runtime = state ?? createRuntimeState()
+  const replyFrom = (reply: RuntimeReplyBody): RuntimeReply =>
+    withEpoch(reply, runtime.userEditEpoch)
+
+  // The document this runtime lives in, established by the first call. A
+  // request stating another generation was planned against a different
+  // document, where the control it addresses may since have been replaced.
+  if (
+    runtime.documentGeneration !== null &&
+    runtime.documentGeneration !== parsedExpect.documentGeneration
+  )
+    return replyFrom({
+      ok: true,
+      outcome: refused(verb, RUNTIME_EVIDENCE.documentGenerationChanged),
+    })
+  // The user edited the page after this action was planned. The write is not
+  // stale in the way a value comparison detects: the page has moved on from the
+  // observation behind it, so the action is refused and the run pauses.
+  if (parsedExpect.userEditEpoch < runtime.userEditEpoch)
+    return replyFrom({
+      ok: true,
+      outcome: refused(verb, RUNTIME_EVIDENCE.userEditedPage),
+    })
 
   const held = runtime.revisions.get(questionRef)
   if (held !== undefined && parsedExpect.questionRevision < held)
-    return {
+    return replyFrom({
       ok: true,
       outcome: refused(verb, RUNTIME_EVIDENCE.staleRevision),
-    }
+    })
   const written = runtime.writes.get(questionRef)
   if (
     MUTATING_VERBS.has(verb) &&
     written !== undefined &&
     parsedExpect.questionRevision <= written
   )
-    return {
+    return replyFrom({
       ok: true,
       outcome: refused(verb, RUNTIME_EVIDENCE.staleRevision),
-    }
+    })
   if (
     runtime.bundleId !== null &&
     runtime.bundleId !== parsedExpect.sourceBundleId
   )
-    return {
+    return replyFrom({
       ok: true,
       outcome: refused(verb, RUNTIME_EVIDENCE.bundleChanged),
-    }
+    })
   runtime.bundleId = parsedExpect.sourceBundleId
+  runtime.documentGeneration = parsedExpect.documentGeneration
   runtime.revisions.set(questionRef, parsedExpect.questionRevision)
   if (MUTATING_VERBS.has(verb))
     runtime.writes.set(questionRef, parsedExpect.questionRevision)
+  return replyFrom(await runVerb(this, verb, parsedStep, parsedExpect))
+}
+
+/**
+ * Every reply the page makes carries its own edit count, refusals included: a
+ * worker that is refused has to learn the new epoch before it can plan against
+ * the page the user is working in.
+ */
+function withEpoch(
+  reply: RuntimeReplyBody,
+  userEditEpoch: number
+): RuntimeReply {
+  if (!reply.ok) return reply
+  return { ok: true, outcome: reply.outcome, userEditEpoch }
+}
+
+async function runVerb(
+  target: Element,
+  verb: RuntimeVerb,
+  step: RuntimeStep,
+  expect: RuntimeExpectation
+): Promise<RuntimeReplyBody> {
   try {
-    switch (parsedStep.kind) {
+    switch (step.kind) {
       case "read_control":
-        return { ok: true, outcome: readControl(this) }
+        return { ok: true, outcome: readControl(target) }
       case "discover_options":
-        return { ok: true, outcome: discoverOptions(this) }
+        return { ok: true, outcome: discoverOptions(target) }
       case "write_text":
-        return {
-          ok: true,
-          outcome: await writeText(this, parsedStep, parsedExpect),
-        }
+        return { ok: true, outcome: await writeText(target, step, expect) }
       case "select_option":
-        return {
-          ok: true,
-          outcome: await selectOption(this, parsedStep, parsedExpect),
-        }
+        return { ok: true, outcome: await selectOption(target, step, expect) }
       case "toggle":
-        return {
-          ok: true,
-          outcome: await toggle(this, parsedStep, parsedExpect),
-        }
+        return { ok: true, outcome: await toggle(target, step, expect) }
       case "attach_file":
         return {
           ok: true,
-          outcome: await attachFile(this, parsedStep, parsedExpect.settleMs),
+          outcome: await attachFile(target, step, expect.settleMs),
         }
       case "add_record_group":
-        return { ok: true, outcome: await addRecordGroup(this) }
+        return { ok: true, outcome: await addRecordGroup(target) }
       default: {
-        parsedStep satisfies never
+        step satisfies never
         return { ok: false, reason: RUNTIME_EVIDENCE.unknownVerb }
       }
     }

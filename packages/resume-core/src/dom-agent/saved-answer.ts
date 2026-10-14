@@ -1,5 +1,7 @@
 import { z } from "zod"
 import { ScopedAnswerSchema, type ScopedAnswer } from "../autofill/contract"
+import { ConceptSchema } from "../autofill/concept"
+import { SAVED_QUESTION_KEY_LENGTH } from "../saved-answers/schema"
 import {
   ProfileSectionSchema,
   ProfileSections,
@@ -15,11 +17,26 @@ import { FactValueSchema, type Fact, type FactValue } from "./source"
  * ADR 0001 makes the question key the identity, so a row without one cannot
  * become a source fact: a fact's provenance has to name the question it
  * answers. Every such row is returned for review rather than generalized.
+ *
+ * This shape is deliberately looser than the legacy contract, because it reads
+ * a row that was written by an older version or edited by hand rather than one
+ * this code just built. A tenant of the read path: a stored row that cannot be
+ * interpreted is a review outcome, never a thrown parse error, so one odd row
+ * cannot fail a whole page run. That covers a wording key of any length (the
+ * legacy key was free text, the new one is sixteen characters), a value the
+ * vocabulary cannot express, and a concept this version no longer knows.
  */
 export const StoredAnswerSchema = ScopedAnswerSchema.extend({
-  questionKey: z.string().length(16).optional(),
-  /** The value in the shape the question needs, when the row carries it. */
+  meaning: z.strictObject({
+    concept: z.string().min(1).max(200),
+    questionKey: z.string().max(4000).optional(),
+    definitionVersion: z.string().min(1).max(150).optional(),
+  }),
+  questionKey: z.string().max(4000).optional(),
+  /** A display string in the shape the question needs, when the row carries it. */
   factValue: FactValueSchema.optional(),
+  /** Empty is allowed here so an unusable row is reviewable, not unreadable. */
+  value: z.string().max(4000),
 })
 export type StoredAnswer = z.infer<typeof StoredAnswerSchema>
 
@@ -31,15 +48,24 @@ export const ReviewAnswerSchema = z.strictObject({
   scope: z.array(ScopeEntrySchema).max(10),
   /**
    * `no_question_key`: the row predates the question identity, so nothing can
-   * tell which question it belongs to and it must not be generalized.
+   * tell which question it belongs to and it must not be generalized. A row
+   * whose key is leftover free text from the old vocabulary belongs here too:
+   * the protocol names a saved answer by its sixteen-character identity, and a
+   * free-text key cannot be that identity.
    * `unsupported_value`: the row is keyed, but it holds a display string where
    * the question needs a structured value, and parsing that string would be an
    * inference of ours rather than something the user stated.
+   * `empty_value`: the row holds nothing usable, which is not an answer.
    * `excluded_concept`: the concept is excluded from sources by decision, so a
    * keyed row that carries a structured value is no more eligible than an
    * unkeyed one. EEO is the case today.
    */
-  reason: z.enum(["no_question_key", "unsupported_value", "excluded_concept"]),
+  reason: z.enum([
+    "no_question_key",
+    "unsupported_value",
+    "empty_value",
+    "excluded_concept",
+  ]),
   confirmedAt: z.iso.datetime(),
 })
 export type ReviewAnswer = z.infer<typeof ReviewAnswerSchema>
@@ -83,23 +109,41 @@ export function factFromStoredAnswer(raw: StoredAnswer): StoredAnswerOutcome {
   const answer = StoredAnswerSchema.parse(raw)
   const scope = scopeFromConditions(answer.conditions)
   const concept = answer.meaning.concept
-  if (!answer.questionKey)
-    return {
-      kind: "review",
-      answer: reviewAnswer(answer, scope, "no_question_key"),
-    }
-  // EEO is excluded from the bundle outright (see the spec's decision table). A
-  // keyed row with a structured value would otherwise sail past the check below,
-  // which only catches the display-string case.
+  // Decision first: an excluded concept is refused whatever else the row holds,
+  // so the reason the user reads names the decision rather than a shape.
   if (concept.startsWith("eeo_"))
     return {
       kind: "review",
       answer: reviewAnswer(answer, scope, "excluded_concept"),
     }
+  if (!ConceptSchema.safeParse(concept).success)
+    return {
+      kind: "review",
+      answer: reviewAnswer(answer, scope, "unsupported_value"),
+    }
+  if (!answer.questionKey)
+    return {
+      kind: "review",
+      answer: reviewAnswer(answer, scope, "no_question_key"),
+    }
+  // The legacy vocabulary wrote a free-text key; the new identity is sixteen
+  // characters, and a fact's provenance has to name that identity. A key of any
+  // other length is a row from before the rewrite, so it stays reviewable
+  // instead of becoming a fact nothing could ever match.
+  if (answer.questionKey.length !== SAVED_QUESTION_KEY_LENGTH)
+    return {
+      kind: "review",
+      answer: reviewAnswer(answer, scope, "no_question_key"),
+    }
   if (!answer.factValue && STRUCTURED_CONCEPT.test(concept))
     return {
       kind: "review",
       answer: reviewAnswer(answer, scope, "unsupported_value"),
+    }
+  if (!answer.value.trim())
+    return {
+      kind: "review",
+      answer: reviewAnswer(answer, scope, "empty_value"),
     }
   return {
     kind: "fact",
@@ -232,6 +276,19 @@ function profileFieldExists(section: ProfileSection, field: string): boolean {
   return profileFieldNames(section).includes(field)
 }
 
+/**
+ * Whether the Profile declares this field as a number.
+ *
+ * There is one, `preferences.salaryAmount`, and the money branch below is the
+ * only way it is filled. Text must not land in it, because the control needs
+ * the number itself and the way a figure reads is not a value. The amount,
+ * currency and period a salary carries are three separate fields, so nothing
+ * here joins them back together.
+ */
+function isNumericField(section: ProfileSection, field: string): boolean {
+  return section === "preferences" && field === "salaryAmount"
+}
+
 /** The value a Profile field expects, or a refusal. Never a coerced string. */
 export function profileFieldValue(
   value: FactValue,
@@ -246,6 +303,11 @@ export function profileFieldValue(
     const text = value.text.trim()
     if (!text)
       throw new AppError("VALIDATION", "An empty value cannot be saved")
+    if (isNumericField(target.section, target.field))
+      throw new AppError(
+        "VALIDATION",
+        "This Profile field needs a number, not the way a figure reads"
+      )
     return { [target.field]: text }
   }
   if (value.type === "money" && target.section === "preferences")

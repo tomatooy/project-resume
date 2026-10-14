@@ -108,6 +108,17 @@ export const router = shared.router({
       context.services.autofillAnswers.remove(input)
     ),
   },
+  savedAnswers: {
+    list: shared.savedAnswers.list.handler(({ context }) =>
+      context.savedAnswers.list()
+    ),
+    save: shared.savedAnswers.save.handler(({ input, context }) =>
+      context.savedAnswers.save(input)
+    ),
+    remove: shared.savedAnswers.remove.handler(({ input, context }) =>
+      context.savedAnswers.remove(input)
+    ),
+  },
   resumes: {
     page: shared.resumes.page.handler(({ input, context }) =>
       context.services.resumes.page(input)

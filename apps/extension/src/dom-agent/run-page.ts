@@ -3,14 +3,12 @@ import {
   type CandidateQuestion,
   type InterpretationCache,
   type ObservationCoverage,
-  type Precondition,
   type QuestionDisposition,
   type QuestionPlan,
   type Receipt,
   type ReviewItem,
   type RunState,
   type SourceBundle,
-  actionFor,
   dispositionFor,
   interpretPage,
   observationCoverage,
@@ -18,24 +16,10 @@ import {
   reviewQueue,
   verifiedProgress,
 } from "@workspace/resume-core/dom-agent"
-import { type PageRead, observePage, readOptions } from "./observation"
-import {
-  type QuestionEnumeration,
-  attachOptions,
-  candidateQuestions,
-} from "./questions"
-import {
-  type BundleLoader,
-  dispatchParams,
-  installParams,
-  readInstall,
-  releaseParams,
-  remoteObjectId,
-  remoteValue,
-  replyFromCdpResult,
-} from "./runtime-inject"
-import { runtimeCall, type RuntimeCall } from "./runtime-request"
-import { receiptFromReply } from "./runtime-receipt"
+import { type PageRead, observePage } from "./observation"
+import { candidateQuestions } from "./questions"
+import { attachPortalOptions, installRuntime, writeOne } from "./page-steps"
+import type { BundleLoader } from "./runtime-inject"
 import type { DriverSession } from "./session"
 
 /**
@@ -50,6 +34,9 @@ import type { DriverSession } from "./session"
  *
  * The run never claims the page is ready. Readiness is the audit's decision
  * (a later ticket), so the furthest this path goes is `auditing`.
+ *
+ * This is one pass with no memory: the coordinator beside it keeps the
+ * checkpoint, the batching and the recovery, and calls the same steps.
  */
 
 export type PageFillResult = {
@@ -73,6 +60,8 @@ export type PageFillResult = {
   state: RunState
   /** What the interpreter reused and what it had to read. */
   interpreted: { reused: string[]; interpreted: string[] }
+  /** The page's own edit count, as its last reply reported it. */
+  userEditEpoch: number
 }
 
 export async function fillCurrentPage(input: {
@@ -86,10 +75,12 @@ export async function fillCurrentPage(input: {
    * The revision every action in this pass states for its question. The page
    * refuses a write at or below the revision it already wrote, so a second
    * pass over the same document must advance this or be refused as a replay.
-   * Advancing it per observation is the run coordinator's job; the first pass
-   * over a fresh page is revision one.
+   * Advancing it is the run coordinator's job; the first pass over a fresh page
+   * is revision one.
    */
   questionRevision?: number
+  /** What the page reported for the user's own edits, if anything has. */
+  userEditEpoch?: number
   clock?: () => number
 }): Promise<PageFillResult> {
   const clock = input.clock ?? (() => Date.now())
@@ -103,7 +94,7 @@ export async function fillCurrentPage(input: {
     regions: read.regions,
     records: read.records,
   })
-  const questions = await withPortalOptions({
+  const questions = await attachPortalOptions({
     session,
     read,
     enumeration,
@@ -135,6 +126,7 @@ export async function fillCurrentPage(input: {
     keys,
     bundle: input.bundle,
     revision: input.questionRevision ?? 1,
+    userEditEpoch: input.userEditEpoch ?? 0,
     clock,
   })
 
@@ -188,68 +180,8 @@ export async function fillCurrentPage(input: {
       reused: interpretations.reused,
       interpreted: interpretations.interpreted,
     },
+    userEditEpoch: written.userEditEpoch,
   }
-}
-
-/**
- * Options that live in a portal belong to the control, not to a question of
- * their own, so they are read on request and attached to the question that
- * owns them. A read that fails leaves the question with the options the
- * observation already held.
- */
-async function withPortalOptions(input: {
-  session: DriverSession
-  read: PageRead
-  enumeration: QuestionEnumeration
-}): Promise<CandidateQuestion[]> {
-  const questions = [...input.enumeration.questions]
-  for (const ref of input.enumeration.needingOptions) {
-    const index = questions.findIndex((question) => question.ref === ref)
-    const question = questions[index]
-    if (!question) continue
-    const read = await readOptions({
-      session: input.session,
-      read: input.read,
-      controlRef: question.controlRef,
-    })
-    if (read.options.length > 0)
-      questions[index] = attachOptions(question, read.options)
-  }
-  return questions
-}
-
-/**
- * Install the runtime in every context a question lives in. One install per
- * document: each frame has its own global, and a control in a frame is not
- * reachable through the top document's runtime.
- */
-async function installRuntime(input: {
-  session: DriverSession
-  read: PageRead
-  questions: readonly CandidateQuestion[]
-  loadBundle: BundleLoader
-}): Promise<Map<string, string>> {
-  const keys = new Map<string, string>()
-  const contexts: string[] = []
-  for (const question of input.questions) {
-    const identity = input.read.index.resolve(question.controlRef)
-    if (identity && !contexts.includes(identity.contextId))
-      contexts.push(identity.contextId)
-  }
-  if (contexts.length === 0) return keys
-  const bundleText = await input.loadBundle()
-  for (const contextId of contexts) {
-    const result = await input.session.send(
-      contextId,
-      "Runtime.evaluate",
-      installParams(bundleText)
-    )
-    const installation = readInstall(remoteValue(result))
-    if (!installation)
-      throw new Error(`The page runtime did not install in ${contextId}`)
-    keys.set(contextId, installation.key)
-  }
-  return keys
 }
 
 /**
@@ -265,151 +197,47 @@ async function writeAnswers(input: {
   keys: Map<string, string>
   bundle: SourceBundle
   revision: number
+  userEditEpoch: number
   clock: () => number
 }): Promise<{
   receipts: Receipt[]
   attempted: number
   notDispatchable: string[]
+  userEditEpoch: number
 }> {
   const receipts: Receipt[] = []
   const notDispatchable: string[] = []
   let attempted = 0
   let counter = 0
+  let userEditEpoch = input.userEditEpoch
 
   for (const question of input.questions) {
     const proposal = input.planned.proposals[question.ref]
     if (!proposal) continue
-    const identity = input.read.index.resolve(question.controlRef)
-    const key = identity ? input.keys.get(identity.contextId) : undefined
-    if (!identity || !key) {
-      notDispatchable.push(question.ref)
-      continue
-    }
-    const node = input.read.observation.nodes.find(
-      (candidate) => candidate.ref === question.controlRef
-    )
     counter += 1
-    const precondition = preconditionFor({
-      contextId: identity.contextId,
-      read: input.read,
-      bundle: input.bundle,
+    const attempt = await writeOne({
       session: input.session,
-      revision: input.revision,
-    })
-    const options = question.options.map((option) => ({
-      ref: option.ref,
-      label: option.label,
-    }))
-    const action = actionFor({
-      actionRef: `a${counter}`,
+      read: input.read,
       question,
       proposal,
-      currentValue: node?.control?.value ?? null,
-      precondition,
-    })
-    if (!action) {
-      notDispatchable.push(question.ref)
-      continue
-    }
-    const call = runtimeCall({
-      action,
-      precondition,
-      options,
+      actionRef: `a${counter}`,
+      keys: input.keys,
+      bundle: input.bundle,
+      revision: input.revision,
+      userEditEpoch,
       // Attachments are a separate path: the bytes come from the pinned
       // bundle's rendering, and nothing here may claim to have them.
       attachment: null,
+      at: input.clock(),
     })
-    if (!call) {
-      notDispatchable.push(question.ref)
+    if (attempt.kind === "receipt") {
+      attempted += 1
+      receipts.push(attempt.receipt)
+      if (attempt.userEditEpoch !== null) userEditEpoch = attempt.userEditEpoch
       continue
     }
-    attempted += 1
-    receipts.push(
-      await sendAction({
-        session: input.session,
-        contextId: identity.contextId,
-        backendNodeId: identity.backendNodeId,
-        key,
-        actionRef: action.ref,
-        questionRef: question.ref,
-        call,
-        options,
-        at: input.clock(),
-      })
-    )
+    notDispatchable.push(question.ref)
   }
 
-  return { receipts, attempted, notDispatchable }
-}
-
-/**
- * What every action states about the moment it writes. `userEditEpoch` is
- * carried for the coordinator: the page compares it once something can move
- * it, and until then zero is the honest value.
- */
-function preconditionFor(input: {
-  contextId: string
-  read: PageRead
-  bundle: SourceBundle
-  session: DriverSession
-  revision: number
-}): Precondition {
-  const context = input.read.observation.contexts.find(
-    (candidate) => candidate.id === input.contextId
-  )
-  return {
-    documentGeneration: context?.generation ?? String(input.session.generation),
-    questionRevision: input.revision,
-    sourceBundleId: input.bundle.id,
-    userEditEpoch: 0,
-  }
-}
-
-async function sendAction(input: {
-  session: DriverSession
-  contextId: string
-  backendNodeId: number
-  key: string
-  actionRef: string
-  questionRef: string
-  call: RuntimeCall
-  options: readonly { ref: string; label: string }[]
-  at: number
-}): Promise<Receipt> {
-  // The control is resolved from the observation's own identity, so a control
-  // that was replaced since is a failure to resolve rather than a wrong write.
-  const objectId = remoteObjectId(
-    await input.session.send(input.contextId, "DOM.resolveNode", {
-      backendNodeId: input.backendNodeId,
-    })
-  )
-  if (!objectId)
-    throw new Error(`The control for ${input.questionRef} did not resolve`)
-  try {
-    const result = await input.session.send(
-      input.contextId,
-      "Runtime.callFunctionOn",
-      dispatchParams({
-        key: input.key,
-        elementObjectId: objectId,
-        actionRef: input.actionRef,
-        questionRef: input.questionRef,
-        step: input.call.step,
-        expect: input.call.expect,
-      })
-    )
-    return receiptFromReply({
-      actionRef: input.actionRef,
-      questionRef: input.questionRef,
-      reply: replyFromCdpResult(result),
-      observedOptions: input.options,
-      at: input.at,
-    })
-  } finally {
-    await input.session.send(
-      input.contextId,
-      "Runtime.releaseObject",
-      releaseParams(objectId)
-    )
-  }
+  return { receipts, attempted, notDispatchable, userEditEpoch }
 }

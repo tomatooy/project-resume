@@ -5,6 +5,7 @@ import {
   type RuntimeInstall,
   type RuntimeReply,
 } from "./protocol"
+import { watchUserEdits } from "./user-edits"
 
 /**
  * The bundle entry. Evaluating this file installs one dispatch function in the
@@ -21,6 +22,9 @@ export function install(): RuntimeInstall {
   const nonce = newNonce()
   const key = `${RUNTIME_GLOBAL_PREFIX}_${nonce}`
   const state = createRuntimeState()
+  // The page counts the user's own edits from here, so an action planned
+  // before one of them is refused rather than written over the user's work.
+  watchUserEdits(state)
   // The key is per-install so a page left holding a runtime from an earlier
   // extension build cannot be addressed by the current one.
   globalSlots()[key] = function (

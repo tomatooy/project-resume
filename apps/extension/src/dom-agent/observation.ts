@@ -11,7 +11,7 @@ import {
   observationCoverage,
   type Requiredness,
 } from "@workspace/resume-core/dom-agent"
-import type { DriverSession } from "./session"
+import { type DriverSession, DriverClosedError } from "./session"
 import {
   attributeMap,
   AxTreeSchema,
@@ -1501,6 +1501,17 @@ function nextObservationId(generation: number): string {
   return `obs-${generation}-${observationCounter}`
 }
 
+/**
+ * A lost debugging session is not an unreadable region. Every read inside
+ * observePage can fail because one region is gone, and each of those is a
+ * coverage gap; a closed session fails all of them at once, so it has to reach
+ * the caller that knows how to reattach. Swallowed here, a dead debugger became
+ * a page that happened to be empty, and the run reported itself as finished.
+ */
+function rethrowIfSessionLost(error: unknown): void {
+  if (error instanceof DriverClosedError) throw error
+}
+
 /** Read the page once. Every unreadable region becomes a gap. */
 export async function observePage(input: {
   session: DriverSession
@@ -1572,7 +1583,8 @@ export async function observePage(input: {
         depth: MAX_PLAN_DEPTH,
         pierce: true,
       })
-    } catch {
+    } catch (error) {
+      rethrowIfSessionLost(error)
       state.gaps.push({
         scope: base.url ?? base.id,
         reason: base.id === "root" ? "inaccessible" : "cross_origin",
@@ -1605,7 +1617,8 @@ export async function observePage(input: {
           reason: "unsupported",
           detail: "the accessibility tree shape was not recognised",
         })
-    } catch {
+    } catch (error) {
+      rethrowIfSessionLost(error)
       state.gaps.push({
         scope: base.url ?? base.id,
         reason: "unsupported",
@@ -1802,7 +1815,8 @@ function buildRegions(
   return regions
 }
 
-export function observationBytes(observation: Observation): number {
+/** Internal: only this module's byte budget reads it. */
+function observationBytes(observation: Observation): number {
   return new TextEncoder().encode(JSON.stringify(observation)).length
 }
 
@@ -1904,7 +1918,8 @@ export async function readFragment(input: {
       depth: input.depth ?? 4,
       pierce: true,
     })
-  } catch {
+  } catch (error) {
+    rethrowIfSessionLost(error)
     return emptyFragment("the fragment could not be read from this context")
   }
   const parsed = DomNodeResultSchema.safeParse(described)
@@ -1969,7 +1984,8 @@ export async function readOptions(input: {
       depth: MAX_PLAN_DEPTH,
       pierce: true,
     })
-  } catch {
+  } catch (error) {
+    rethrowIfSessionLost(error)
     return {
       options: [],
       gap: staleGap(input.controlRef, "the option portal could not be read"),
@@ -2179,7 +2195,8 @@ async function readAx(
     return parsed.success
       ? { nodes: parsed.data.nodes, failed: false }
       : { nodes: [], failed: true }
-  } catch {
+  } catch (error) {
+    rethrowIfSessionLost(error)
     return { nodes: [], failed: true }
   }
 }

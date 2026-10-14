@@ -33,10 +33,14 @@ import {
   listMessages,
   listResumePage,
   getResumeSummary,
+  listSavedAnswers,
   listSkills,
   listVersions,
+  removeSavedAnswer,
   renameResume,
   restoreVersion,
+  reviewSavedAnswers,
+  saveSavedAnswer,
   searchResumes,
   setSkillEnabled,
   updateUserSkill,
@@ -469,6 +473,57 @@ export function autofillAnswersQuery(userId: string) {
     gcTime: 0,
     retry: false,
   })
+}
+
+export function savedAnswersQuery(userId: string) {
+  return queryOptions({
+    queryKey: ["saved-answers", userId],
+    queryFn: listSavedAnswers,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  })
+}
+
+/**
+ * Why the rows the account cannot reuse are what they are. Read-only: a row of
+ * this kind is resolved on the page that asked the question, or removed.
+ */
+export function savedAnswersReviewQuery(userId: string) {
+  return queryOptions({
+    queryKey: ["saved-answers-review", userId],
+    queryFn: reviewSavedAnswers,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  })
+}
+
+function useSavedAnswerMutation<TVars, TOut>(
+  userId: string,
+  mutationFn: (input: TVars) => Promise<TOut>
+) {
+  const client = useQueryClient()
+  const refresh = () =>
+    client.invalidateQueries({
+      queryKey: savedAnswersQuery(userId).queryKey,
+    })
+  return useMutation({
+    mutationFn,
+    onSuccess: refresh,
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === "CONFLICT")
+        return refresh()
+    },
+  })
+}
+
+export function useSaveSavedAnswer(userId: string) {
+  return useSavedAnswerMutation(userId, saveSavedAnswer)
+}
+
+export function useRemoveSavedAnswer(userId: string) {
+  return useSavedAnswerMutation(userId, removeSavedAnswer)
 }
 
 function useAutofillAnswerMutation<TVars, TOut>(

@@ -102,3 +102,36 @@ export const sharedRemoveAutofillAnswer = createIsomorphicFn()
         baseUrl: `${window.location.origin}/api/v1`,
       }).autofillAnswers.remove(input)
   )
+
+export const sharedSavedAnswers = createIsomorphicFn()
+  .server(async () => {
+    const { listSavedAnswersDirect } = await import("../server/api/direct")
+    return listSavedAnswersDirect()
+  })
+  .client(() =>
+    createApiClient({
+      baseUrl: `${window.location.origin}/api/v1`,
+    }).savedAnswers.list({})
+  )
+
+export const sharedSaveSavedAnswer = createIsomorphicFn()
+  .server(async (input: import("@workspace/resume-core").SaveSavedAnswer) => {
+    const { saveSavedAnswerDirect } = await import("../server/api/direct")
+    return saveSavedAnswerDirect(input)
+  })
+  .client((input: import("@workspace/resume-core").SaveSavedAnswer) =>
+    createApiClient({
+      baseUrl: `${window.location.origin}/api/v1`,
+    }).savedAnswers.save(input)
+  )
+
+export const sharedRemoveSavedAnswer = createIsomorphicFn()
+  .server(async (input: import("@workspace/resume-core").RemoveSavedAnswer) => {
+    const { removeSavedAnswerDirect } = await import("../server/api/direct")
+    return removeSavedAnswerDirect(input)
+  })
+  .client((input: import("@workspace/resume-core").RemoveSavedAnswer) =>
+    createApiClient({
+      baseUrl: `${window.location.origin}/api/v1`,
+    }).savedAnswers.remove(input)
+  )

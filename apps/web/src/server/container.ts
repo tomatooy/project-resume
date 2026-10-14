@@ -8,6 +8,7 @@ import {
   SupabaseAutofillProfileRepository,
   SupabaseAutofillQuota,
   EnvironmentAutofillPolicy,
+  SupabaseSavedAnswerRepository,
   SupabaseScopedAnswerRepository,
 } from "./adapters/autofill"
 import { SupabaseTailorOperationRepository } from "./adapters/tailor-operation-repository"
@@ -23,6 +24,7 @@ import {
   type ResumeParser,
   type ResumeTailor,
   type Summarizer,
+  SavedAnswerService,
   createServices,
 } from "@workspace/resume-core"
 
@@ -85,6 +87,16 @@ const lazyResumeTailor: ResumeTailor = {
 }
 
 const jobFetcher = new WorkerJobFetcher()
+
+/**
+ * Account-level saved answers in the question's own shape. Built beside the
+ * ports rather than inside `createServices`, because the retired concept
+ * vocabulary and this shape are two readers over one table rather than one
+ * service with two modes, and only this one is the web app's to serve.
+ */
+export function savedAnswersFor(db: Db, userId: string): SavedAnswerService {
+  return new SavedAnswerService(new SupabaseSavedAnswerRepository(db, userId))
+}
 
 /**
  * The adapter half of the composition root: which Supabase class fills which

@@ -64,3 +64,28 @@ export async function removeAutofillAnswerDirect(
     context: await createApiContext(),
   }).autofillAnswers.remove(input)
 }
+
+export async function listSavedAnswersDirect() {
+  setResponseHeader("Cache-Control", "private, no-store")
+  return createRouterClient(router, {
+    context: await createApiContext(),
+  }).savedAnswers.list({})
+}
+
+export async function saveSavedAnswerDirect(
+  input: import("@workspace/resume-core").SaveSavedAnswer
+) {
+  setResponseHeader("Cache-Control", "private, no-store")
+  return createRouterClient(router, {
+    context: await createApiContext(),
+  }).savedAnswers.save(input)
+}
+
+export async function removeSavedAnswerDirect(
+  input: import("@workspace/resume-core").RemoveSavedAnswer
+) {
+  setResponseHeader("Cache-Control", "private, no-store")
+  return createRouterClient(router, {
+    context: await createApiContext(),
+  }).savedAnswers.remove(input)
+}

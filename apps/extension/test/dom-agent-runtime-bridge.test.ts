@@ -244,12 +244,18 @@ describe("reading a reply", () => {
         evidence: ["value_set"],
         options: [],
       },
+      userEditEpoch: 3,
     }
     expect(replyFromCdpResult({ result: { value: reply } })).toEqual(reply)
     expect(
       replyFromCdpResult({ result: { value: { ok: "maybe" } } })
     ).toBeNull()
     expect(replyFromCdpResult(null)).toBeNull()
+    // The edit count is part of the reply, not an optional extra: without it
+    // the worker cannot tell whether the page moved under the action, so a
+    // reply that omits it is unreadable rather than acceptable.
+    const { userEditEpoch: _omitted, ...withoutEpoch } = reply
+    expect(replyFromCdpResult({ result: { value: withoutEpoch } })).toBeNull()
   })
 
   it("names the observed option by label when the observation holds exactly one", () => {
@@ -271,6 +277,7 @@ describe("reading a reply", () => {
           evidence: ["option_selected"],
           options: [],
         },
+        userEditEpoch: 0,
       },
       observedOptions: [
         { ref: "opt-1", label: "Country" },
@@ -300,6 +307,7 @@ describe("reading a reply", () => {
           evidence: ["option_selected"],
           options: [],
         },
+        userEditEpoch: 0,
       },
       observedOptions: [
         { ref: "opt-1", label: "Yes" },
@@ -354,6 +362,7 @@ describe("reading a reply", () => {
           evidence: ["value_not_settled"],
           options: [],
         },
+        userEditEpoch: 0,
       },
       observedOptions: [],
       at: 1,
@@ -530,22 +539,35 @@ describe("translating an action", () => {
     )
   })
 
-  it("does not assert a checkbox state the action left open", () => {
-    const action = ActionSchema.parse({
+  it("refuses a toggle that cannot say what the control holds now", () => {
+    // The page declines to toggle a control on terms that do not state its
+    // current state, and a caller that cannot state it has not observed the
+    // control. The requirement is in the schema, so the action does not exist
+    // to be dispatched rather than being refused only at the page.
+    expect(() =>
+      ActionSchema.parse({
+        type: "toggle",
+        ref: "a1",
+        questionRef: "q1",
+        checked: true,
+        expectedChecked: null,
+      })
+    ).toThrow()
+    const asserted = ActionSchema.parse({
       type: "toggle",
       ref: "a1",
       questionRef: "q1",
       checked: true,
-      expectedChecked: null,
+      expectedChecked: false,
     })
     const call = runtimeCall({
-      action,
+      action: asserted,
       precondition,
       options,
       attachment: null,
     })
     expect(call?.step).toEqual({ kind: "toggle", checked: true })
-    expect(call?.expect.expectedChecked).toBeNull()
+    expect(call?.expect.expectedChecked).toBe(false)
   })
 
   it("asks for a record group with no payload beyond the control", () => {

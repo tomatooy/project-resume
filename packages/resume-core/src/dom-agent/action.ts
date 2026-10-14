@@ -41,7 +41,13 @@ export const ActionSchema = z.discriminatedUnion("type", [
     ...base,
     type: z.literal("toggle"),
     checked: z.boolean(),
-    expectedChecked: z.boolean().nullable(),
+    /**
+     * Required, not nullable: the page refuses to toggle a control on terms
+     * that do not say what it holds now, and a caller that cannot state that
+     * has not observed the control it is about to change. Only a read may
+     * carry no expectation, and a read is not this action.
+     */
+    expectedChecked: z.boolean(),
   }),
   z.strictObject({
     ...base,

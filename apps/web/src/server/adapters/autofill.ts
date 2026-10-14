@@ -8,6 +8,9 @@ import {
   type AutofillPolicyProvider,
   type ProfileData,
   ScopedAnswerSchema,
+  SavedAnswerSchema,
+  type SavedAnswer,
+  type SavedAnswerRepository,
   type ScopedAnswer,
   type ScopedAnswerRepository,
 } from "@workspace/resume-core"
@@ -21,6 +24,107 @@ const savedAnswerData = ScopedAnswerSchema.pick({
   value: true,
   provenance: true,
 })
+/**
+ * The marker a row in the question's own shape carries. Rows without it are
+ * rows the retired vocabulary wrote, and each reader sees only its own: a
+ * shape neither reader can parse must not be handed to it, because a stored row
+ * that fails to parse would fail a whole page run rather than one row.
+ */
+const QUESTION_SHAPE = "question"
+const savedQuestionData = z.strictObject({
+  shape: z.literal(QUESTION_SHAPE),
+  question: SavedAnswerSchema.shape.question,
+  value: SavedAnswerSchema.shape.value,
+})
+const savedQuestionRow = z.object({
+  id: z.uuid(),
+  revision: z.number(),
+  data: savedQuestionData,
+  confirmed_at: z.string(),
+  updated_at: z.string(),
+})
+function savedQuestionFromRow(
+  raw: z.input<typeof savedQuestionRow>
+): SavedAnswer {
+  const row = savedQuestionRow.parse(raw)
+  return SavedAnswerSchema.parse({
+    id: row.id,
+    revision: row.revision,
+    question: row.data.question,
+    value: row.data.value,
+    confirmedAt: new Date(row.confirmed_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  })
+}
+export class SupabaseSavedAnswerRepository implements SavedAnswerRepository {
+  constructor(
+    private readonly db: Db,
+    private readonly userId: string
+  ) {}
+
+  async list(): Promise<SavedAnswer[]> {
+    const { data, error } = await this.db
+      .from("autofill_scoped_answers")
+      .select("id,revision,data,confirmed_at,updated_at")
+      .eq("user_id", this.userId)
+      .eq("data->>shape", QUESTION_SHAPE)
+      .order("updated_at", { ascending: false })
+    if (error) throw error
+    return (data ?? []).map((row) =>
+      savedQuestionFromRow({ ...row, data: savedQuestionData.parse(row.data) })
+    )
+  }
+
+  async save(
+    answer: SavedAnswer,
+    expectedRevision: number
+  ): Promise<SavedAnswer | null> {
+    const value = {
+      data: toJson({
+        shape: QUESTION_SHAPE,
+        question: answer.question,
+        value: answer.value,
+      }),
+      confirmed_at: answer.confirmedAt,
+    }
+    const query =
+      expectedRevision === 0
+        ? this.db
+            .from("autofill_scoped_answers")
+            .insert({ ...value, id: answer.id, user_id: this.userId })
+        : this.db
+            .from("autofill_scoped_answers")
+            .update(value)
+            .eq("id", answer.id)
+            .eq("user_id", this.userId)
+            .eq("revision", expectedRevision)
+    const { data, error } = await query
+      .select("id,revision,data,confirmed_at,updated_at")
+      .maybeSingle()
+    if (error?.code === "23505") return null
+    if (error) throw error
+    return data
+      ? savedQuestionFromRow({
+          ...data,
+          data: savedQuestionData.parse(data.data),
+        })
+      : null
+  }
+
+  async remove(id: string, expectedRevision: number): Promise<boolean> {
+    const { data, error } = await this.db
+      .from("autofill_scoped_answers")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", this.userId)
+      .eq("revision", expectedRevision)
+      .eq("data->>shape", QUESTION_SHAPE)
+      .select("id")
+      .maybeSingle()
+    if (error) throw error
+    return Boolean(data)
+  }
+}
 const savedAnswerRow = z.object({
   id: z.uuid(),
   revision: z.number(),
@@ -50,6 +154,9 @@ export class SupabaseScopedAnswerRepository implements ScopedAnswerRepository {
       .from("autofill_scoped_answers")
       .select("id,revision,data,confirmed_at,updated_at")
       .eq("user_id", this.userId)
+      // Rows in the question's own shape belong to the reader that owns that
+      // shape. This one only ever sees rows it can parse.
+      .not("data->>shape", "eq", QUESTION_SHAPE)
       .order("updated_at", { ascending: false })
     if (error) throw error
     return (data ?? []).map((row) =>

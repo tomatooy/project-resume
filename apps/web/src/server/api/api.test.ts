@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createRouterClient } from "@orpc/server"
 import { createApiClient } from "@workspace/api/client"
-import { createServices } from "@workspace/resume-core"
+import { createServices, SavedAnswerService } from "@workspace/resume-core"
 import { inMemoryPorts } from "@workspace/resume-core/testing"
 import { WorkerJobFetcher } from "../adapters/job-fetcher"
 
@@ -129,6 +129,9 @@ describe("shared API HTTP and SSR", () => {
     await services.resumes.create({ title: "Test base" })
     const context = {
       services,
+      // The account surface's own service, empty in these fixtures: they are
+      // about the transport, not about kept answers.
+      savedAnswers: new SavedAnswerService(),
       log,
       userId: crypto.randomUUID(),
       accessToken: "test",
@@ -165,6 +168,7 @@ describe("shared API HTTP and SSR", () => {
       await services.resumes.create({ title: `Resume ${i}` })
     const context = {
       services,
+      savedAnswers: new SavedAnswerService(),
       log,
       userId: crypto.randomUUID(),
       accessToken: "test",
@@ -287,6 +291,7 @@ describe("tailoring configuration admission", () => {
       const client = createRouterClient(router, {
         context: {
           services,
+          savedAnswers: new SavedAnswerService(),
           log,
           userId: crypto.randomUUID(),
           accessToken: "test",

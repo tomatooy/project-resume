@@ -15,6 +15,7 @@ import {
 } from "@workspace/ui/components/alert-dialog"
 import {
   autofillAnswersQuery,
+  savedAnswersReviewQuery,
   useRemoveAutofillAnswer,
   useSaveAutofillAnswer,
 } from "@/lib/queries"
@@ -26,6 +27,26 @@ const conditionLabels: Record<string, string> = {
   jobId: "Job",
   currency: "Currency",
   salaryPeriod: "Pay period",
+}
+
+/**
+ * Why an older row is not reused. These rows carry the retired concept
+ * vocabulary rather than the question's own identity, so the account surface
+ * shows what each one holds and the reason it cannot be matched, and the answer
+ * stays resolvable on the page that asked the question.
+ */
+const reviewReasons: Record<string, string> = {
+  no_question_key:
+    "Saved before questions had an identity of their own, so no page can recognise this question. It is not reused.",
+  unsupported_value:
+    "This holds a display value where the question needs a structured one, so it is not reused as it stands.",
+  empty_value: "This holds no answer, so there is nothing to reuse.",
+  excluded_concept:
+    "Demographic answers are never reused. They are answered on each application.",
+}
+
+function reviewReason(reason: string): string {
+  return reviewReasons[reason] ?? "This answer is not reused as it stands."
 }
 
 function title(answer: ScopedAnswer): string {
@@ -65,6 +86,9 @@ export function SavedAnswers({ userId }: { userId: string }) {
 
 function SavedAnswersList({ userId }: { userId: string }) {
   const query = useQuery(autofillAnswersQuery(userId))
+  // The reasons come from the server, where the classifier lives. A row the
+  // list cannot match is shown with the reason rather than hidden.
+  const review = useQuery(savedAnswersReviewQuery(userId))
   const remove = useRemoveAutofillAnswer(userId)
   const [target, setTarget] = useState<ScopedAnswer | null>(null)
   const close = () => {
@@ -98,6 +122,10 @@ function SavedAnswersList({ userId }: { userId: string }) {
         <SavedAnswerCard
           key={answer.id}
           answer={answer}
+          reason={
+            review.data?.find((entry) => entry.answerId === answer.id)
+              ?.reason ?? null
+          }
           userId={userId}
           remove={() => {
             remove.reset()
@@ -151,10 +179,12 @@ function SavedAnswersList({ userId }: { userId: string }) {
 
 function SavedAnswerCard({
   answer,
+  reason,
   userId,
   remove,
 }: {
   answer: ScopedAnswer
+  reason: string | null
   userId: string
   remove: () => void
 }) {
@@ -176,6 +206,11 @@ function SavedAnswerCard({
   return (
     <article className="space-y-3 rounded-lg border border-border p-4">
       <h3 className="font-medium">{title(displayed)}</h3>
+      {reason ? (
+        <p role="status" className="text-sm text-warning">
+          {reviewReason(reason)}
+        </p>
+      ) : null}
       {displayed.meaning.questionKey ? (
         <p className="whitespace-pre-wrap break-words text-sm">
           {displayed.meaning.questionKey}

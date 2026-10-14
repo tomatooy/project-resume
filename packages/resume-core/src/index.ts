@@ -30,3 +30,11 @@ export {
   type SourceDeps,
   type SourcePreparation,
 } from "./dom-agent/source-service"
+
+// Account-level saved answers in the question's own shape. They belong on this
+// barrel because the web app answers account requests with them, unlike the
+// dom-agent protocol above, which is a page-side protocol and stays behind its
+// own subpath. The legacy concept rows are read into this shape by
+// `dom-agent/saved-answer.ts` and are never rewritten in place, so both
+// vocabularies stay readable side by side.
+export * from "./saved-answers"

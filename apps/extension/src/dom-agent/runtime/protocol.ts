@@ -108,6 +108,8 @@ export const RUNTIME_EVIDENCE = {
   unknownVerb: "unknown_verb",
   staleRevision: "stale_question_revision",
   bundleChanged: "source_bundle_changed",
+  documentGenerationChanged: "document_generation_changed",
+  userEditedPage: "user_edited_page",
   versionMismatch: "runtime_version_mismatch",
   expectedValueMismatch: "expected_value_mismatch",
   expectedCheckedMismatch: "expected_checked_mismatch",
@@ -187,9 +189,17 @@ export type RuntimeInstall = {
 /**
  * A call either reached a verb or did not. A malformed call is not a verb
  * outcome: reporting one would put a verb name on a receipt that never ran.
+ *
+ * The page's own edit count rides on the reply rather than inside the outcome:
+ * it is a fact about the page at that moment, not part of what the verb did, and
+ * a worker that is refused this way needs to learn it before it can plan again.
  */
-export type RuntimeReply =
+export type RuntimeReplyBody =
   | { ok: true; outcome: RuntimeOutcome }
+  | { ok: false; reason: RuntimeEvidenceCode }
+
+export type RuntimeReply =
+  | { ok: true; outcome: RuntimeOutcome; userEditEpoch: number }
   | { ok: false; reason: RuntimeEvidenceCode }
 
 export function emptyObserved(): RuntimeObserved {
@@ -318,15 +328,11 @@ export function readReply(value: unknown): RuntimeReply | null {
   if (!observed) return null
   const options = readOptions(outcome.options)
   if (!options) return null
+  if (!isCount(value.userEditEpoch)) return null
   return {
     ok: true,
-    outcome: {
-      state,
-      verb: outcome.verb,
-      observed,
-      evidence,
-      options,
-    },
+    outcome: { state, verb: outcome.verb, observed, evidence, options },
+    userEditEpoch: value.userEditEpoch,
   }
 }
 
