@@ -5,7 +5,7 @@ up. Items 1 and 2 are the ones that can duplicate an upload or leave record grou
 unwired, so they land before ticket 14 audits the run end to end and before ticket 15 puts
 a panel in front of it.
 
-**Status:** items 1, 3, 4, 6, 7 and 9 are landed with tests that bite; item 2 is landed (its dispatch half came with `11b-record-group-add.md`); item 5 is a restatement by decision; item 7's dead-constant residue is closed (2026-10-14); item 9's second box is closed (2026-10-14); item 10 is landed (the 4000-into-500 display cap, `f338724`); item 8 is unstarted and belongs to ticket 15. What remains is listed below rather than left in a box count.
+**Status:** items 1, 3, 4, 6, 7 and 9 are landed with tests that bite; item 2 is landed (its dispatch half came with `11b-record-group-add.md`); item 5 is a restatement by decision; item 6's residue is closed (2026-10-14); item 7's dead-constant residue is closed (2026-10-14); item 9's second box is closed (2026-10-14); item 10 is landed (the 4000-into-500 display cap, `f338724`); item 8 is unstarted and belongs to ticket 15. What remains is listed below rather than left in a box count.
 
 ## 1. HIGH: a lost upload response is settled uncertain and then sent again
 
@@ -62,10 +62,19 @@ combobox question has no matching fact, so its assertions are trivially true.
 
 ## 6. LOW-MEDIUM: recovery outcomes are flattened and partly wrong
 
-\`retry\` is coerced to \`uncertain\`, \`sameApplication\` is hard-coded true, the upload
-intent's attachment name is always null so its recovery can never say confirmed or
-did-not-land, and receipts are ignored, so an upload the page in fact accepted is still
-reported as doubtful on the next continue.
+**Landed**, with its residue closed 2026-10-14. A receipt decides first, \`sameApplication\` is
+derived from the page, and \`settled\` gained \`retried\`: a page that showed the action had not
+landed is recorded as that rather than flattened into doubt. \`addedGroups\` now lists the states
+that count instead of excluding one, which is what stops a retried add from counting as a group
+the run never grew.
+
+The upload name is a limit rather than a defect, and its reason is two facts. The reader is
+attribute-based and a file input's selection is not an attribute, so no read here can see the
+site's own attachment state; and \`recoveryFor\`'s upload branch is unreachable from the
+coordinator regardless, because \`settleIntents\` passes \`covered: false\` for every upload. An
+upload is settled by a receipt when the page answers and otherwise stays doubtful, which is the
+designed answer. The unreachable branch is filed in \`open-after-review-fixes.md\` rather than
+deleted here, because deleting it is a design decision.
 
 ## 7. LOW: the run-state machine is decorative, and the ceiling is checked once per round
 

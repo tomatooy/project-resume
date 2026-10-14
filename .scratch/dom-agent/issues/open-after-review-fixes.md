@@ -148,3 +148,37 @@ Pre-existing, left alone by the lane, and worth deleting when something else tou
 Verified: `grep -ic innerhtml` returns 0 in that file and the line it names builds a label with
 `document.createElement`. The lane replaced an `innerHTML` it had written during the run before
 reporting, so the blocker outlived the code it was about.
+
+## Found while landing 11a and the validation read (2026-10-14)
+
+- **A combobox whose options mount in a portal cannot be answered at all.** `readOptions` reads
+the mounted list on demand and never runs `emit`, so every option it returns carries `ref: ""`,
+while a proposal requires `optionRefs` of at least one character and a `select_option` action
+needs a node ref. `runtimeCall` resolves a ref back to a label against the current options, so the
+label mechanism exists and only the ref is missing. This is why 11a's portal-question clause could
+not be tested, and it is bigger than 11a: country, state and school pickers are usually built this
+way. Recorded rather than fixed, because giving portal options refs changes the read contract.
+- **A reused interpretation can carry a stale `optionRef`, and a swapped one writes the wrong
+option.** `QuestionInterpretation` holds `optionRef`, which is an observation-scoped node ref
+(`deterministic-path.ts`: `optionForFact(question, fact)?.ref ?? null`), while the cache key is
+built from the question's wording and option *labels*. A round that reuses a reading after an
+effect renumbered the page can therefore hand over a ref that now belongs to a different option:
+`deterministic-path.ts` passes it into the proposal and `runtimeCall` resolves it against the
+current options. A vanished ref is refused; a swapped one is silently a wrong value in a real
+application. **Close this before the guard is flipped.** The cheap shape is to cache the fact and
+recompute the ref against the current observation, which kills the class and keeps the semantic
+work cached, but that changes `QuestionInterpretationSchema`, a shared contract.
+- **`recoveryFor`'s upload branch is unreachable from the coordinator.** `settleIntents` passes
+`covered: false` for every upload, so the `attachmentName` comparison and its two `retry` verdicts
+never run in production: unit-tested but dead. Deleting it is a design decision, since the
+designed answer ("an unobservable outcome stays unverified") is what the coordinator implements.
+- **`RunReport.replanned` is the last round's read set**, so a run ending in a no-candidate round
+reports an empty set even if earlier rounds read narrowly. Low, and worth knowing before the
+panel renders it.
+- **Question refs are positional**, so a batch's `affected` refs mean nothing outside the
+observation that produced them. The coordinator reads them within one observation today; a
+resumed run reading an older checkpoint against a renumbered page would be reading other controls.
+- **`MAX_ISSUES` was raised** from `MAX_REPORTED + 64` to `MAX_REPORTED * 2 + 64`, because page
+errors add one issue per control and a pathological page could otherwise throw on the parse.
+- **`Plan.addControlFor` was dead state** left by the 11b lane: declared and initialised to null in
+three places, never set or read. Deleted in this wave.

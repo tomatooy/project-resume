@@ -101,3 +101,18 @@ directory is `engineCanStart`, and `dom-agent/engine.ts` hard-codes `{ ready: fa
 `autofill/background.ts:619` refuses every fill before run state exists. The whole replacement
 engine is dark by design. Ticket 15 owns the panel rebuild that wires it and ticket 18 owns
 deleting the retired engine; until then no part of tickets 01 to 17 is user-visible.
+
+## Progress after 11a and the validation read (2026-10-14)
+
+**Box 2 is 5 of 6.** Validation errors are checked now: `ControlEvidence` gained `invalid` and
+`errorText`, read from the page's own statement (`aria-invalid`, `aria-errormessage`) and only
+while the error stands; `buildPageAudit` takes `errors` and raises `validation_error`, which had
+no producer before; and `validation_errors` came off `UNCHECKED_DIMENSIONS`. Cross-field
+consistency stays unchecked with its reason rather than being guessed at: one field's observation
+cannot state a rule that spans fields, and nothing in the page declares one.
+
+**Box 5 is 6 of 7.** `validation_error` has a producer now. `conflict` still has none anywhere in
+the tree, so the report cannot distinguish an unresolved conflict the way the box asks.
+
+Box 6's readiness rule is unchanged by this and still holds: only a complete audit labels the page
+ready, and a page error is now one of the things an audit can see.

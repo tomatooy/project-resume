@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] Independent work is batched, and dependencies are observed rather than assumed, so a dynamic choice replans only the questions it affects.
+- [x] Independent work is batched, and dependencies are observed rather than assumed, so a dynamic choice replans only the questions it affects.
 - [x] Checkpoints are written at batch and pause boundaries, and record-creation and upload intents are persisted before dispatch so a lost response cannot duplicate them.
 - [x] Recovery after a lost response inspects the page before retrying, and uncertain outcomes stay explicit.
 - [x] Pause, continue and cancel behave as specified; continue observes and validates existing receipts instead of replaying a suspended plan; cancel preserves values already written.
@@ -98,11 +98,10 @@ nothing in \`src\` opening it.
 
 Met in part, and the boxes stay open:
 
-- **Box 1.** Batching is proven, but \`affects\` is hard-coded empty and
-  \`checkpoint.awaitingObservation\` is never populated, so after an effect the whole page is
-  re-observed and every question replanned rather than only the affected ones. The one
-  coordinator test for the claim is vacuous: its combobox question has no matching fact, so
-  the numbers it asserts are trivially equal. See \`fix-05\` item 5.
+- **Box 1.** Both clauses are proven as of 2026-10-14. `affects` is no longer hard-coded,
+  \`checkpoint.awaitingObservation\` carries the set, and the round after an effect replans the
+  affected questions instead of rereading the page's meaning. The vacuous test was replaced
+  rather than joined, and disabling the cache fails the replacement.
 - **Box 2.** Both halves are proven. The upload half: the intent is on disk before the dispatch
   leaves. The record-creation half landed with \`11b-record-group-add.md\`: a candidate carries
   \`add_record_group\`, \`intentFor\`'s branch fires, and \`recordGroupPlan\` has a production
@@ -121,14 +120,14 @@ upload the run already wrote down is not looked at again, the question goes to t
 not-dispatchable set, and it reaches the user through the review queue in the same pass.
 Removing the gate makes the harness record two dispatches for one attachment.
 
-**Box 1 stays open**, and the honest shape of what remains is now much smaller. Batching is
-proven and so is the dependency half: a failure is corrected before the batch continues.
-What is not implemented is "replans only the questions it affects", and it cannot be
-implemented in the coordinator, because nothing observes which questions a control's effect
-touches. The attempt key survives that gap, so a question answered earlier in the same run
-is found again without a model call, but the whole page is re-observed. Filed as
-`11a-scoped-replan.md`, which is the reader work that closes this box. Until then the code
-says so at the site instead of leaving the vacuous test as its evidence.
+**Box 1 is ticked (2026-10-14).** `11a-scoped-replan.md` delivered the reader evidence this box
+was waiting on. The observation now states which controls a control says it changes, where no
+entry differs from an empty list, and the checkpoint carries that set, so the round after an
+effect replans the affected questions instead of rereading the page's meaning. The vacuous test
+was replaced rather than joined, and disabling the cache fails the replacement. Two limits are
+recorded on that ticket rather than hidden: the declared set is not what decides reuse, a
+question's own evidence is, and the portal-question clause could not be tested because portal
+options carry no refs and therefore cannot be answered at all.
 
 **Box 2 is ticked (2026-10-14).** The record-creation half landed as
 `11b-record-group-add.md`: the observation names the control that adds a group, a record-creation
