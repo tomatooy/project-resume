@@ -32,3 +32,18 @@ Two things a real recording will show that the stand-in hides:
 2. The stand-in never reports a node without browser identity and never truncates
    mid-tree. Both paths exist in the reader and are covered by hand-built
    payloads, not by a real capture.
+
+## Lane ownership (this pass)
+
+**Owns:** a new dev-only recorder under `apps/extension/tools/`, the fixture loader in
+`apps/extension/test/helpers/`, `apps/extension/test/fixtures/**`, and the two suites it
+re-points at recordings (`test/dom-agent-observation.test.ts`,
+`test/dom-agent-questions.test.ts`).
+
+**Must not touch:** any file under `apps/extension/src/` (this ticket is a capture and a
+seam, not a reader change), anything under `packages/`, and the other lanes' tests.
+
+**Do not launch a browser**, by any means. The recorder is yours to build and the user's to
+run; the repository forbids agent-driven browser automation. Prove the pruning and the
+round-trip with an injected transport and a synthetic fixture, and leave the three real
+captures to the user.

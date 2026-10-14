@@ -13,3 +13,14 @@
 - [ ] Unknown facts become requests for information, never invented values, and no new prose is generated.
 - [ ] Model failure leaves deterministic fields filled and unexplained fields visible.
 - [ ] Tested with stubbed model responses, plus the existing live eval lane for the grounded-answer acceptance cases.
+
+## Lane ownership (this pass)
+
+**Owns:** `packages/agent/src/**` and its tests; a new port module in
+`packages/resume-core/src/dom-agent/`; and **both barrels**,
+`packages/resume-core/src/dom-agent/index.ts` and `packages/resume-core/src/index.ts`, so
+that exactly one writer ever edits them. New core tests go in
+`packages/resume-core/test/dom-agent-reasoner.test.ts`.
+
+**Must not touch:** anything under `apps/extension/`, or
+`packages/resume-core/test/dom-agent.test.ts`.
