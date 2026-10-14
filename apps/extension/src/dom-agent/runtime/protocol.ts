@@ -91,7 +91,15 @@ export type RuntimeExpectation = {
   expectedOptionLabel: string | null
 }
 
-/** Every reason a receipt can carry. Fixed codes, never page text. */
+/**
+ * Every reason a receipt can carry. Fixed codes, never page text.
+ *
+ * The attachment codes are three different claims. `file_list_assigned` is the
+ * local handoff. `upload_state_not_observable` says the site showed no state
+ * at all, which leaves the upload unverified. `attachment_state_accepted` and
+ * `attachment_state_rejected` are the site's own state, read from the field it
+ * belongs to.
+ */
 export const RUNTIME_EVIDENCE = {
   notConnected: "control_not_connected",
   disabled: "control_disabled",
@@ -122,6 +130,8 @@ export const RUNTIME_EVIDENCE = {
   fileMalformed: "attachment_bytes_rejected",
   fileAssignmentFailed: "file_assignment_failed",
   uploadStateNotObservable: "upload_state_not_observable",
+  attachmentStateAccepted: "attachment_state_accepted",
+  attachmentStateRejected: "attachment_state_rejected",
   submitAffordanceRefused: "submit_affordance_refused",
   groupChildCountIncreased: "group_child_count_increased",
   groupGrowthNotObservable: "group_growth_not_observable",

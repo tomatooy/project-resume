@@ -1,5 +1,6 @@
 import {
   applyFiles,
+  attachmentStateNear,
   buildFile,
   controlledChildCount,
   currentFiles,
@@ -351,13 +352,15 @@ export async function toggle(
 
 /**
  * The local handoff for an attachment: bytes become a FileList on the input.
- * Whether the site accepted the upload is a different question, which is why
- * this never reports accepted on its own.
+ * Whether the site took the upload is a different question, which is why this
+ * reports accepted only when the site shows a state of its own. A site that
+ * shows nothing leaves the outcome unverified.
  */
-export function attachFile(
+export async function attachFile(
   control: Element,
-  step: Step<"attach_file">
-): RuntimeOutcome {
+  step: Step<"attach_file">,
+  settleMs: number
+): Promise<RuntimeOutcome> {
   const block = blocked(control, "attach_file")
   if (block) return block
   if ((control as HTMLInputElement).type !== "file")
@@ -403,6 +406,35 @@ export function attachFile(
       [RUNTIME_EVIDENCE.fileAssignmentFailed],
       observed
     )
+  // The site's own state settles this, and the file list never does. A site
+  // that renders a chip naming the file has taken it; one that marks an error
+  // has refused it; one that shows neither leaves it unverified.
+  const settled = await settle(
+    () => attachmentStateNear(control, applied.name),
+    (state) => state !== null,
+    settleMs
+  )
+  const attachment = { ...emptyObserved(), attachmentName: applied.name }
+  if (settled === "rejected")
+    return outcome(
+      "attach_file",
+      "rejected",
+      [
+        RUNTIME_EVIDENCE.fileListAssigned,
+        RUNTIME_EVIDENCE.attachmentStateRejected,
+      ],
+      attachment
+    )
+  if (settled === "accepted")
+    return outcome(
+      "attach_file",
+      "accepted",
+      [
+        RUNTIME_EVIDENCE.fileListAssigned,
+        RUNTIME_EVIDENCE.attachmentStateAccepted,
+      ],
+      attachment
+    )
   return outcome(
     "attach_file",
     "unresolved",
@@ -410,7 +442,7 @@ export function attachFile(
       RUNTIME_EVIDENCE.fileListAssigned,
       RUNTIME_EVIDENCE.uploadStateNotObservable,
     ],
-    { ...emptyObserved(), attachmentName: applied.name }
+    attachment
   )
 }
 

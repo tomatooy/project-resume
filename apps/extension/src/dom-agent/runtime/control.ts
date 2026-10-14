@@ -283,6 +283,86 @@ export async function settle<T>(
 }
 
 /**
+ * How far above a control the site's own attachment state is looked for. A
+ * chip or an error is rendered near the field it belongs to, so searching
+ * further would start reading another field's state.
+ */
+const ATTACHMENT_SCOPE_DEPTH = 3
+/** Elements examined per scope, so a large form cannot turn this into a scan. */
+const ATTACHMENT_SCAN_LIMIT = 400
+
+/**
+ * The state the site itself exposes for an attachment, or null when it shows
+ * none. The file list is a local handoff and is never evidence: a label the
+ * site renders, or an error it marks on the field, is state the page owns.
+ *
+ * Scopes are read innermost first and the first one with a signal decides, so
+ * a form-level error cannot be read as this field's, and a chip cannot be read
+ * from another field's wrapper.
+ */
+export function attachmentStateNear(
+  element: Element,
+  fileName: string
+): "accepted" | "rejected" | null {
+  const wanted = normalizeLabel(fileName)
+  if (!wanted) return null
+  if (element.getAttribute("aria-invalid") === "true") return "rejected"
+  let scope: Element | null = element.parentElement
+  for (let depth = 1; depth <= ATTACHMENT_SCOPE_DEPTH && scope; depth += 1) {
+    const state = attachmentStateIn(scope, element, wanted)
+    if (state) return state
+    scope = scope.parentElement
+  }
+  return null
+}
+
+function attachmentStateIn(
+  scope: Element,
+  control: Element,
+  wanted: string
+): "accepted" | "rejected" | null {
+  let labelled = false
+  const found = scope.querySelectorAll("*")
+  const limit = Math.min(found.length, ATTACHMENT_SCAN_LIMIT)
+  for (let index = 0; index < limit; index += 1) {
+    const candidate = found[index]
+    if (!candidate) continue
+    // The control and its ancestors carry the field itself, not its state.
+    if (candidate === control || candidate.contains(control)) continue
+    if (candidate.hasAttribute("hidden")) continue
+    if (candidate.getAttribute("aria-hidden") === "true") continue
+    if (isErrorMarker(candidate)) return "rejected"
+    if (names(candidate, wanted)) labelled = true
+  }
+  return labelled ? "accepted" : null
+}
+
+/**
+ * An error the site marked on this field. `aria-live` alone is not one: sites
+ * announce progress and success through the same region, and reading that as a
+ * failure would be wrong more often than right.
+ */
+function isErrorMarker(element: Element): boolean {
+  const alert = element.getAttribute("role") === "alert"
+  const invalid = element.getAttribute("aria-invalid") === "true"
+  if (!alert && !invalid) return false
+  return ownText(element) !== "" || invalid
+}
+
+/** The element's own text, never its subtree: a container says nothing itself. */
+function ownText(element: Element): string {
+  let text = ""
+  for (const node of element.childNodes)
+    if (node.nodeType === 3) text += node.nodeValue ?? ""
+  return normalizeLabel(text)
+}
+
+function names(element: Element, wanted: string): boolean {
+  if (normalizeLabel(element.getAttribute("aria-label")) === wanted) return true
+  return ownText(element) === wanted
+}
+
+/**
  * The local handoff for an upload: bytes in, a FileList on the input. This is
  * not evidence the site accepted anything, only that the page was handed the
  * file, which is why the caller reports it as unresolved.

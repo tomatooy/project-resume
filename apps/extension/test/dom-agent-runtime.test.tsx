@@ -365,22 +365,46 @@ describe("choosing an option", () => {
 describe("attaching a file", () => {
   const bytes = pdfBytes()
 
-  it("hands the bytes to the input and says the upload is unverified", () => {
+  function attachStep(
+    overrides: Partial<{
+      name: string
+      type: string
+      sizeBytes: number
+      base64: string
+      replaceExisting: boolean
+      replacementConfirmed: boolean
+    }> = {}
+  ) {
+    return {
+      kind: "attach_file" as const,
+      file: {
+        name: overrides.name ?? "ada-resume.pdf",
+        type: overrides.type ?? "application/pdf",
+        sizeBytes: overrides.sizeBytes ?? bytes.sizeBytes,
+        base64: overrides.base64 ?? bytes.base64,
+      },
+      replaceExisting: overrides.replaceExisting ?? false,
+      replacementConfirmed: overrides.replacementConfirmed ?? false,
+    }
+  }
+
+  /** An attachment the user put there themselves. */
+  function withExistingFile(control: HTMLInputElement): void {
+    Object.defineProperty(control, "files", {
+      value: {
+        length: 1,
+        item: () => new File(["old"], "old.pdf", { type: "application/pdf" }),
+      },
+      configurable: true,
+    })
+  }
+
+  it("hands the bytes to the input and says the upload is unverified", async () => {
     mount('<input id="a" type="file">')
     const control = query("#a", HTMLInputElement)
-    const result = attachFile(control, {
-      kind: "attach_file",
-      file: {
-        name: "ada-resume.pdf",
-        type: "application/pdf",
-        sizeBytes: bytes.sizeBytes,
-        base64: bytes.base64,
-      },
-      replaceExisting: false,
-      replacementConfirmed: false,
-    })
-    // The FileList is a local handoff. The site accepting it is a separate
-    // question, so this is never reported as accepted.
+    const result = await attachFile(control, attachStep(), 50)
+    // The FileList is a local handoff. A site that shows no state of its own
+    // has not said anything about the upload, so this is not accepted.
     expect(result.state).toBe("unresolved")
     expect(result.evidence).toEqual([
       RUNTIME_EVIDENCE.fileListAssigned,
@@ -389,94 +413,158 @@ describe("attaching a file", () => {
     expect(result.observed.attachmentName).toBe("ada-resume.pdf")
   })
 
-  it("refuses to replace an attachment without a reviewed choice", () => {
+  it("reports the state the site itself shows for the attachment", async () => {
+    mount('<div id="field"><input id="a" type="file"></div>')
+    const control = query("#a", HTMLInputElement)
+    // A chip the site renders from its own state, not from the file list.
+    control.addEventListener("change", () => {
+      const chip = document.createElement("div")
+      chip.textContent = "ada-resume.pdf"
+      document.querySelector("#field")?.append(chip)
+    })
+    const result = await attachFile(control, attachStep(), 200)
+    expect(result.state).toBe("accepted")
+    expect(result.evidence).toEqual([
+      RUNTIME_EVIDENCE.fileListAssigned,
+      RUNTIME_EVIDENCE.attachmentStateAccepted,
+    ])
+  })
+
+  it("reports a rejection the site marks on the field", async () => {
+    mount('<div id="field"><input id="a" type="file"></div>')
+    const control = query("#a", HTMLInputElement)
+    control.addEventListener("change", () => {
+      const error = document.createElement("div")
+      error.setAttribute("role", "alert")
+      error.textContent = "That file type is not accepted"
+      document.querySelector("#field")?.append(error)
+    })
+    const result = await attachFile(control, attachStep(), 200)
+    expect(result.state).toBe("rejected")
+    expect(result.evidence).toEqual([
+      RUNTIME_EVIDENCE.fileListAssigned,
+      RUNTIME_EVIDENCE.attachmentStateRejected,
+    ])
+  })
+
+  it("does not read a progress region as a failure", async () => {
+    // Sites announce progress and success through live regions, so a live
+    // region on its own is not an error.
+    mount('<div id="field"><input id="a" type="file"></div>')
+    const control = query("#a", HTMLInputElement)
+    control.addEventListener("change", () => {
+      const progress = document.createElement("div")
+      progress.setAttribute("role", "status")
+      progress.setAttribute("aria-live", "polite")
+      progress.textContent = "Uploading..."
+      document.querySelector("#field")?.append(progress)
+    })
+    const result = await attachFile(control, attachStep(), 50)
+    expect(result.state).toBe("unresolved")
+  })
+
+  it("does not take a file name from outside the field as this one's state", async () => {
+    // The search is bounded to the field's own surroundings, so a name shown
+    // somewhere else on the page can never be read as this field accepting.
+    mount(
+      '<div id="far"><div><div><div><input id="a" type="file"></div></div></div><div id="chip">ada-resume.pdf</div></div>'
+    )
+    const result = await attachFile(
+      query("#a", HTMLInputElement),
+      attachStep(),
+      50
+    )
+    expect(result.state).toBe("unresolved")
+    expect(result.evidence).toEqual([
+      RUNTIME_EVIDENCE.fileListAssigned,
+      RUNTIME_EVIDENCE.uploadStateNotObservable,
+    ])
+  })
+
+  it("refuses to replace an attachment without a reviewed choice", async () => {
     mount('<input id="a" type="file">')
     const control = query("#a", HTMLInputElement)
-    Object.defineProperty(control, "files", {
-      value: {
-        length: 1,
-        item: () => new File(["old"], "old.pdf", { type: "application/pdf" }),
-      },
-      configurable: true,
-    })
-    const result = attachFile(control, {
-      kind: "attach_file",
-      file: {
-        name: "ada-resume.pdf",
-        type: "application/pdf",
-        sizeBytes: bytes.sizeBytes,
-        base64: bytes.base64,
-      },
-      replaceExisting: false,
-      replacementConfirmed: false,
-    })
+    withExistingFile(control)
+    const result = await attachFile(control, attachStep(), 50)
     expect(result.state).toBe("rejected")
     expect(result.evidence).toEqual([
       RUNTIME_EVIDENCE.existingAttachmentPreserved,
     ])
   })
 
-  it("refuses a replacement the page cannot see a review for", () => {
+  it("refuses a replacement the page cannot see a review for", async () => {
     // Belt and braces: the worker declines to express an unauthorized
     // replacement, and the page refuses one no authorization can justify, so a
     // malformed request cannot overwrite the file the user attached.
     mount('<input id="a" type="file">')
     const control = query("#a", HTMLInputElement)
-    Object.defineProperty(control, "files", {
-      value: {
-        length: 1,
-        item: () => new File(["old"], "old.pdf", { type: "application/pdf" }),
-      },
-      configurable: true,
-    })
-    const result = attachFile(control, {
-      kind: "attach_file",
-      file: {
-        name: "ada-resume.pdf",
-        type: "application/pdf",
-        sizeBytes: bytes.sizeBytes,
-        base64: bytes.base64,
-      },
-      replaceExisting: true,
-      replacementConfirmed: false,
-    })
+    withExistingFile(control)
+    const result = await attachFile(
+      control,
+      attachStep({ replaceExisting: true }),
+      50
+    )
     expect(result.state).toBe("rejected")
     expect(result.evidence).toEqual([RUNTIME_EVIDENCE.replacementUnconfirmed])
   })
 
-  it("refuses bytes that are not the rendered PDF", () => {
+  it("refuses bytes that are not the rendered PDF", async () => {
     mount('<input id="a" type="file">')
-    const result = attachFile(query("#a", HTMLInputElement), {
-      kind: "attach_file",
-      file: {
+    const result = await attachFile(
+      query("#a", HTMLInputElement),
+      attachStep({
         name: "notes.pdf",
-        type: "application/pdf",
         // The right length on purpose: a length the bytes do not have is
         // refused before the magic number is ever read, which would leave the
         // magic check untested.
         sizeBytes: 9,
         base64: btoa("not a pdf"),
-      },
-      replaceExisting: true,
-      replacementConfirmed: true,
-    })
+      }),
+      50
+    )
     expect(result.state).toBe("rejected")
     expect(result.evidence).toEqual([RUNTIME_EVIDENCE.fileMalformed])
   })
 
-  it("refuses a control that is not a file input", () => {
+  it("refuses bytes whose length is not what the file claims", async () => {
+    mount('<input id="a" type="file">')
+    const result = await attachFile(
+      query("#a", HTMLInputElement),
+      attachStep({ sizeBytes: bytes.sizeBytes + 1 }),
+      50
+    )
+    expect(result.state).toBe("rejected")
+    expect(result.evidence).toEqual([RUNTIME_EVIDENCE.fileMalformed])
+  })
+
+  it("refuses a file that is not a PDF", async () => {
+    mount('<input id="a" type="file">')
+    const result = await attachFile(
+      query("#a", HTMLInputElement),
+      attachStep({ type: "text/plain" }),
+      50
+    )
+    expect(result.state).toBe("rejected")
+    expect(result.evidence).toEqual([RUNTIME_EVIDENCE.fileMalformed])
+  })
+
+  it("dispatches the events a page listens for", async () => {
+    mount('<input id="a" type="file">')
+    const control = query("#a", HTMLInputElement)
+    const seen: string[] = []
+    control.addEventListener("input", () => seen.push("input"))
+    control.addEventListener("change", () => seen.push("change"))
+    await attachFile(control, attachStep(), 0)
+    expect(seen).toEqual(["input", "change"])
+  })
+
+  it("refuses a control that is not a file input", async () => {
     mount('<input id="a" type="text">')
-    const result = attachFile(query("#a", HTMLInputElement), {
-      kind: "attach_file",
-      file: {
-        name: "ada-resume.pdf",
-        type: "application/pdf",
-        sizeBytes: bytes.sizeBytes,
-        base64: bytes.base64,
-      },
-      replaceExisting: true,
-      replacementConfirmed: true,
-    })
+    const result = await attachFile(
+      query("#a", HTMLInputElement),
+      attachStep({ replaceExisting: true, replacementConfirmed: true }),
+      50
+    )
     expect(result.evidence).toEqual([RUNTIME_EVIDENCE.unsupportedControl])
   })
 })

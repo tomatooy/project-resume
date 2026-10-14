@@ -12,6 +12,7 @@ import type { PdfDocument } from "@workspace/resume-core/contracts"
 const mocks = vi.hoisted(() => ({ document: vi.fn() }))
 vi.mock("../src/lib/api", () => ({
   api: { autofill: { document: mocks.document } },
+  apiForAccount: async () => ({ autofill: { document: mocks.document } }),
 }))
 const send = vi.fn()
 const close = vi.fn(async () => {})
@@ -20,9 +21,12 @@ let source: PdfDocument
 let resumeId = ""
 let bundleId = ""
 let file: ResumePdf
+/** Renders actually performed, which is what the cache is there to avoid. */
+let renders = 0
 beforeEach(async () => {
   vi.resetModules()
   vi.clearAllMocks()
+  renders = 0
   const services = createServices(inMemoryPorts())
   const resume = await services.resumes.create()
   const prepared = await services.autofill.prepare({ resumeId: resume.id })
@@ -40,9 +44,9 @@ beforeEach(async () => {
   mocks.document.mockResolvedValue(source)
   send.mockImplementation(async (raw) => {
     const parsed = PdfRenderRequestSchema.safeParse(raw)
-    return parsed.success
-      ? { ok: true, requestId: parsed.data.requestId, file }
-      : { ready: true }
+    if (!parsed.success) return { ready: true }
+    renders += 1
+    return { ok: true, requestId: parsed.data.requestId, file }
   })
   vi.stubGlobal("chrome", {
     runtime: {
@@ -120,4 +124,53 @@ it("cancels while waiting for renderer readiness without leaving it open", async
   controller.abort()
   await rejected
   await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
+})
+it("renders a pinned document once and reuses its bytes", async () => {
+  const { prepareResumePdf } = await import("../src/autofill/pdf-background")
+  const first = await prepareResumePdf(
+    resumeId,
+    bundleId,
+    new AbortController().signal
+  )
+  const second = await prepareResumePdf(
+    resumeId,
+    bundleId,
+    new AbortController().signal
+  )
+  expect(first).toEqual(file)
+  expect(second).toEqual(file)
+  expect(renders).toBe(1)
+  expect(create).toHaveBeenCalledOnce()
+})
+it("renders again when the configuration that identifies the file changes", async () => {
+  const { prepareResumePdf } = await import("../src/autofill/pdf-background")
+  await prepareResumePdf(resumeId, bundleId, new AbortController().signal)
+  // The same bundle rendered by another template is different bytes, and the
+  // identity is what says so. Stale bytes must never be handed over.
+  const changed = { ...source, pdfId: "ffffffffffffffff" }
+  mocks.document.mockResolvedValue(changed)
+  file = { ...file, pdfId: changed.pdfId }
+  const second = await prepareResumePdf(
+    resumeId,
+    bundleId,
+    new AbortController().signal
+  )
+  expect(second.pdfId).toBe(changed.pdfId)
+  expect(renders).toBe(2)
+})
+it("does not hand one account's bytes to another", async () => {
+  const { prepareResumePdf } = await import("../src/autofill/pdf-background")
+  await prepareResumePdf(
+    resumeId,
+    bundleId,
+    new AbortController().signal,
+    "account-a"
+  )
+  await prepareResumePdf(
+    resumeId,
+    bundleId,
+    new AbortController().signal,
+    "account-b"
+  )
+  expect(renders).toBe(2)
 })

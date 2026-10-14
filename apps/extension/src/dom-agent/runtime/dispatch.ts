@@ -141,7 +141,10 @@ export async function handleDispatch(
           outcome: await toggle(this, parsedStep, parsedExpect),
         }
       case "attach_file":
-        return { ok: true, outcome: attachFile(this, parsedStep) }
+        return {
+          ok: true,
+          outcome: await attachFile(this, parsedStep, parsedExpect.settleMs),
+        }
       case "add_record_group":
         return { ok: true, outcome: await addRecordGroup(this) }
       default: {
@@ -163,7 +166,7 @@ export async function handleDispatch(
   }
 }
 
-export function refused(
+function refused(
   verb: RuntimeOutcome["verb"],
   reason: RuntimeEvidenceCode
 ): RuntimeOutcome {

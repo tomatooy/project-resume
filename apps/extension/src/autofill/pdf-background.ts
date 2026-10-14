@@ -3,6 +3,41 @@ import { api, apiForAccount } from "../lib/api"
 import { PdfRenderReplySchema, pdfBytes, type ResumePdf } from "./pdf-contract"
 
 let queue: Promise<void> = Promise.resolve()
+
+/**
+ * Rendered bytes, kept by the identity that covers the document and every
+ * choice that changes its appearance. A different template, option, locale or
+ * font asset produces a different identity, so a hit cannot be a stale file.
+ *
+ * Keyed with the account as well: two accounts can hold byte-identical
+ * sources, and bytes rendered for one are not handed to the other.
+ */
+const CACHE_LIMIT = 4
+const cache = new Map<string, ResumePdf>()
+
+function cacheKey(accountId: string | undefined, pdfId: string): string {
+  return `${accountId ?? "session"}:${pdfId}`
+}
+
+function cached(key: string): ResumePdf | null {
+  const found = cache.get(key)
+  if (!found) return null
+  // Re-inserted so the least recently used entry is the one evicted.
+  cache.delete(key)
+  cache.set(key, found)
+  return found
+}
+
+function remember(key: string, file: ResumePdf): void {
+  cache.delete(key)
+  cache.set(key, file)
+  while (cache.size > CACHE_LIMIT) {
+    const oldest = cache.keys().next().value
+    if (oldest === undefined) break
+    cache.delete(oldest)
+  }
+}
+
 function withSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   signal.throwIfAborted()
   return new Promise((resolve, reject) => {
@@ -29,6 +64,12 @@ export function prepareResumePdf(
       { signal: deadline }
     )
     if (source.bundleId !== bundleId) throw new Error("Source changed")
+    // The pinned document is what was rendered and checked before, so its
+    // bytes are reused instead of rendering the same file again. Only bytes
+    // that passed `pdfBytes` are ever stored, so a hit is a validated file.
+    const key = cacheKey(accountId, source.pdfId)
+    const hit = cached(key)
+    if (hit) return hit
     const url = chrome.runtime.getURL("offscreen.html")
     const contexts = await chrome.runtime.getContexts({
       contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
@@ -76,6 +117,7 @@ export function prepareResumePdf(
         throw new Error("PDF unavailable")
       await pdfBytes(reply.file)
       deadline.throwIfAborted()
+      remember(key, reply.file)
       return reply.file
     } finally {
       await chrome.offscreen.closeDocument().catch(() => undefined)
