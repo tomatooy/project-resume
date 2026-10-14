@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import {
   CandidateQuestionSchema,
   isUnlabelledWording,
@@ -14,7 +16,7 @@ import {
   unsupportedQuestions,
 } from "../src/dom-agent/questions"
 import { attachPage } from "./helpers/cdp-page"
-import { pageFromMarkup } from "./helpers/fixture-loader"
+import { FIXTURES_DIR, pageFromMarkup } from "./helpers/fixture-loader"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -446,6 +448,48 @@ describe("the deterministic tier stays bounded", () => {
     expect(unsupportedQuestions(page.questions)).toHaveLength(
       page.questions.length
     )
+    await page.session.detach()
+  })
+})
+
+describe("button-based choices, from the capture", () => {
+  it("enumerates the Ashby yes/no buttons as questions", async () => {
+    // The reduced capture the user took on 2026-09-28, tracked since 5693abd.
+    // Read from the file rather than hand-written markup, because the grouping
+    // rule for a button choice is read off real markup, not invented.
+    const html = readFileSync(
+      join(FIXTURES_DIR, "ashby-application.html"),
+      "utf8"
+    )
+    const page = await enumerate(html)
+
+    // One question per field, in document order: the two yes/no pairs are
+    // questions whose options are buttons, and the hidden checkbox that carries
+    // each answer is not a question of its own.
+    expect(page.questions.map((question) => question.controlKind)).toEqual([
+      "text",
+      "button_choice",
+      "button_choice",
+    ])
+    const choices = page.questions.filter(
+      (question) => question.controlKind === "button_choice"
+    )
+    expect(choices.map((question) => question.text)).toEqual([
+      "Are you legally authorized to work in the United States?",
+      "Will you now or in the future require visa sponsorship to work in the United States?",
+    ])
+    expect(choices.map((question) => question.kind)).toEqual([
+      "single_choice",
+      "single_choice",
+    ])
+    expect(choices[0]?.options.map((option) => option.label)).toEqual([
+      "Yes",
+      "No",
+    ])
+    // A page whose only unanswered question is a button choice cannot be called
+    // complete: the question is enumerated here, and nothing has answered it.
+    for (const question of choices)
+      expect(page.dispositions[question.ref]).toBe("unverified")
     await page.session.detach()
   })
 })

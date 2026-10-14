@@ -338,15 +338,17 @@ describe("replaying a recording", () => {
       false
     )
 
-    // And today the loss is not reported: completeness is computed from the gaps
-    // the walk found, the boundary node holds no control and no planned child so
-    // `planNode` returns null for it, and the child-count check lives in `emit`,
-    // which a node without a plan never reaches. The stand-in never cut a tree,
-    // so the reader's own ceiling was the only thing this ever exercised; with a
-    // tree cut the way Chrome cuts it, a page read past the ceiling reports
-    // itself complete. This is a reader change, reported rather than made here:
-    // ticket 05 owns the recorder and the loader, not `src/dom-agent`.
-    expect(read.observation.coverage.complete).toBe(true)
+    // And the loss is reported. The boundary node holds no control and no kept
+    // child, so planning drops it and the child-count check in `emit` never runs
+    // for it; the count planning reads on the way past is what makes the cut
+    // visible, so a page read past the ceiling cannot call itself complete. This
+    // is the path a live read always takes, because the reader asks the browser
+    // for a bounded depth.
+    expect(read.observation.coverage.complete).toBe(false)
+    const gap = read.observation.coverage.gaps.find((candidate) =>
+      candidate.detail.includes("fewer children")
+    )
+    expect(gap?.reason).toBe("truncated")
   })
 
   it("replays a recorded frame as its own context", async () => {

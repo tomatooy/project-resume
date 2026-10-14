@@ -6,13 +6,13 @@
 
 **Status:** ready-for-agent
 
-- [ ] A group of buttons that submits as one field is enumerated as exactly one question whose kind is `button_choice`, with each button as one option.
-- [ ] The grouping rule is derived from observed markup and written into this ticket when the capture settles it, so the next reader change does not have to rediscover it.
-- [ ] `aria-pressed` buttons and `role="radio"` / `role="radiogroup"` containers are both covered, because the two ATS families spell this differently.
-- [ ] A button that submits or navigates is never enumerated as a choice: Next, Back and Submit equivalents stay outside the question list, consistent with the never-click rule.
-- [ ] An element another control names through `aria-controls` remains that control's option list and never becomes a question of its own.
-- [ ] A page whose only unanswered question is a button choice cannot report ready, so the coverage number stops lying about it.
-- [ ] Tests are drawn from the capture rather than hand-written markup alone, and record which capture they came from.
+- [x] A group of buttons that submits as one field is enumerated as exactly one question whose kind is `button_choice`, with each button as one option.
+- [x] The grouping rule is derived from observed markup and written into this ticket when the capture settles it, so the next reader change does not have to rediscover it.
+- [x] `aria-pressed` buttons and `role="radio"` / `role="radiogroup"` containers are both covered, because the two ATS families spell this differently.
+- [x] A button that submits or navigates is never enumerated as a choice: Next, Back and Submit equivalents stay outside the question list, consistent with the never-click rule.
+- [x] An element another control names through `aria-controls` remains that control's option list and never becomes a question of its own.
+- [x] A page whose only unanswered question is a button choice cannot report ready, so the coverage number stops lying about it. **Reachable as far as the enumeration: the question is listed and seeded `unverified`, which is what an audit reads. The audit that consumes it is ticket 14.**
+- [x] Tests are drawn from the capture rather than hand-written markup alone, and record which capture they came from.
 
 ## Notes
 
@@ -55,3 +55,57 @@ of its own.
 Shares a lane with `fix-03-reader-truncation.md`: both change the reader, so one
 writer holds `observation.ts`, `questions.ts` and their tests. See fix-03 for the
 file list.
+
+## The rule as implemented (2026-10-14, reader lane)
+
+Read off `test/fixtures/ashby-application.html` and implemented in `findGroups`
+(`apps/extension/src/dom-agent/observation.ts`). No class name is used: those are the
+page's internals.
+
+1. A declared group first. An element with `role="radiogroup"` is the page saying these
+   elements are one choice, so one `role="radio"` descendant is enough evidence.
+   Members are its `role="radio"` descendants, never a nested radiogroup's.
+2. Then the undeclared case. A `button` (or `role="button"`) carrying `aria-pressed` is
+   a choice, and two or more of them under one container that also holds a hidden form
+   field are one question. The field is required evidence: without it two questions that
+   merely share an outer element would merge, and a merged question offers a person the
+   wrong options.
+3. The submitted field never becomes a question. A hidden form field inside a choices
+   container is the group's field, so it is dropped from the question list. Hidden means
+   `hidden`, `type="hidden"`, `aria-hidden="true"`, or an inline style of `display:none`
+   or `visibility:hidden`. A field hidden by a stylesheet class is not detectable here
+   and would still be read as a question of its own.
+4. The wording is the label the page authored for the field, found by the label's `for`
+   matching the field's `id` and, when the markup leaves the id off as Ashby does, its
+   `name`. That is what makes the question "Are you legally authorized to work in the
+   United States?" rather than "Yes".
+5. The option wording is the page's own text, ahead of the computed accessible name, so
+   a button says what it shows and a `role="radio"` div says what a person reads.
+
+Covered by `dom-agent-observation.test.ts` (the toggle pair, a declared radiogroup, a
+lone toggle, a submitting button and a navigating link, an `aria-controls` option list)
+and `dom-agent-questions.test.ts`, which enumerates the Ashby capture itself and asserts
+two `button_choice` questions in document order with their wordings, options and
+`unverified` dispositions. Removing the grouper fails three of those tests.
+
+Limits, stated rather than hidden:
+
+- A lone toggle button is not a question. One toggle is a control the page owns, and
+  treating every toolbar toggle as a question would fill the list with noise. The
+  capture's pattern is always a pair.
+- Two questions that each render one toggle inside their own wrapper, sharing no inner
+  container, would fall back to the nearest ancestor holding both and a hidden field.
+  Contrived markup, recorded rather than guessed around.
+- `data-option="yes"` is not read as the option's value. The label is what a person
+  reads and what a staleness check compares; a `data-` attribute is an internal
+  convention of the page.
+- `button_choice` is not in `NATIVE_CONTROL_KINDS`, so the deterministic tier refuses to
+  match wording against it. Intended and unchanged: the kind comes from reading markup.
+- The fragment is yes or no only, says nothing about a longer option list, and says
+  nothing about record groups, so the record-marking note above is still open for the
+  ticket 05 recordings to settle.
+- Follow-up outside this lane's ownership: `READ_AX_PROPERTIES` in
+  `apps/extension/tools/fixture-format.ts` does not keep the AX `pressed` property, so a
+  recording replays a pressed state from `aria-pressed` rather than from the tree. That
+  is sufficient today because the reader only detects a toggle by `aria-pressed`, and a
+  live read sees the AX property. Add it if a future reader needs the tree's spelling.

@@ -50,6 +50,18 @@ function requirednessOf(
   return evidence.requiredness
 }
 
+/**
+ * A labelled input built as an element. The frame and shadow tests need a real
+ * tree rather than a parsed string, because the reader walks elements and a
+ * fixture handed to it as markup text would test the parser instead.
+ */
+function labelledInput(label: string, name: string): HTMLInputElement {
+  const input = document.createElement("input")
+  input.setAttribute("name", name)
+  input.setAttribute("aria-label", label)
+  return input
+}
+
 describe("joining the two trees", () => {
   it("joins by browser identity, so two controls with one name stay two", async () => {
     const read = await readPage(
@@ -192,6 +204,94 @@ describe("grouped controls", () => {
     expect(found).toHaveLength(1)
     expect(found[0]?.control?.kind).toBe("checkbox_group")
     expect(found[0]?.control?.options).toHaveLength(2)
+    await read.session.detach()
+  })
+})
+
+describe("button choices", () => {
+  it("reads a pair of toggle buttons and the field they submit as one question", async () => {
+    const read = await readPage(
+      `<div>
+        <label for="work">Are you legally authorized to work in the United States?</label>
+        <div>
+          <button aria-pressed="false" data-option="yes">Yes</button>
+          <button aria-pressed="false" data-option="no">No</button>
+          <input type="checkbox" tabindex="-1" name="work" style="display:none">
+        </div>
+      </div>`
+    )
+    const found = controls(read)
+    // One question, not three: the two buttons are its options and the hidden
+    // checkbox is the field it submits through, not a control of its own.
+    expect(found).toHaveLength(1)
+    expect(found[0]?.control?.kind).toBe("button_choice")
+    expect(found[0]?.control?.options.map((option) => option.label)).toEqual([
+      "Yes",
+      "No",
+    ])
+    // The label the page authored for the field is the question, not the option
+    // text: answering "Yes" when the page asked about work authorization would
+    // be answering the wrong question.
+    expect(read.evidence.get(found[0]?.ref ?? "")?.labelText).toBe(
+      "Are you legally authorized to work in the United States?"
+    )
+    await read.session.detach()
+  })
+
+  it("reads role=radio members of a declared radiogroup as one question", async () => {
+    const read = await readPage(
+      `<div role="radiogroup" aria-label="Plan">
+        <div role="radio" aria-checked="false">Free</div>
+        <div role="radio" aria-checked="false">Pro</div>
+      </div>`
+    )
+    const found = controls(read)
+    expect(found).toHaveLength(1)
+    expect(found[0]?.control?.kind).toBe("button_choice")
+    expect(found[0]?.control?.options.map((option) => option.label)).toEqual([
+      "Free",
+      "Pro",
+    ])
+    expect(read.evidence.get(found[0]?.ref ?? "")?.labelText).toBe("Plan")
+    await read.session.detach()
+  })
+
+  it("never reads a button that submits or navigates as a choice", async () => {
+    const read = await readPage(
+      `<form><input name="a" aria-label="A">
+        <button>Submit application</button>
+        <a href="#next" role="button">Next</a>
+      </form>`
+    )
+    // Neither carries the state a choice is read from, so neither is one, and
+    // the engine never has to click something to find out what it does.
+    expect(controls(read).map((control) => control.control?.kind)).toEqual([
+      "text",
+    ])
+    await read.session.detach()
+  })
+
+  it("leaves a lone toggle button alone", async () => {
+    const read = await readPage(`<button aria-pressed="false">Mute</button>`)
+    // One toggle is a control the page owns. Two together, under one field, is
+    // the evidence that the page is asking a question.
+    expect(controls(read)).toHaveLength(0)
+    await read.session.detach()
+  })
+
+  it("keeps the option list another control names out of the question list", async () => {
+    const read = await readPage(
+      `<div role="combobox" aria-label="Country" aria-controls="list" aria-expanded="false"></div>
+       <div id="list">
+         <button aria-pressed="false">Portugal</button>
+         <button aria-pressed="false">Spain</button>
+       </div>`
+    )
+    // The list belongs to the control, so its buttons are its options and never
+    // a question of their own.
+    expect(controls(read).map((control) => control.control?.kind)).toEqual([
+      "combobox",
+    ])
     await read.session.detach()
   })
 })
@@ -395,10 +495,13 @@ describe("contexts", () => {
   it("reads a frame through its own context", async () => {
     const container = document.createElement("div")
     document.body.appendChild(container)
-    container.innerHTML = `<div><input name="outer" aria-label="Outer"></div><iframe id="inner"></iframe>`
-    const frame = container.querySelector("iframe")
-    if (!frame?.contentDocument) throw new Error("jsdom gave no frame document")
-    frame.contentDocument.body.innerHTML = `<input name="inner" aria-label="Inner">`
+    const wrapper = document.createElement("div")
+    wrapper.appendChild(labelledInput("Outer", "outer"))
+    const frame = document.createElement("iframe")
+    frame.id = "inner"
+    container.append(wrapper, frame)
+    if (!frame.contentDocument) throw new Error("jsdom gave no frame document")
+    frame.contentDocument.body.appendChild(labelledInput("Inner", "inner"))
 
     const page = createPageTransport()
     page.setDocument(null, buildPageFrom(container))
@@ -420,11 +523,13 @@ describe("contexts", () => {
   it("reads an open shadow root through its own context", async () => {
     const container = document.createElement("div")
     document.body.appendChild(container)
-    container.innerHTML = `<div><input name="outer" aria-label="Outer"></div><div id="widget"></div>`
-    const host = container.querySelector("#widget")
-    if (!host) throw new Error("fixture missing host")
+    const wrapper = document.createElement("div")
+    wrapper.appendChild(labelledInput("Outer", "outer"))
+    const host = document.createElement("div")
+    host.id = "widget"
+    container.append(wrapper, host)
     const shadow = host.attachShadow({ mode: "open" })
-    shadow.innerHTML = `<input name="shadowed" aria-label="Shadowed">`
+    shadow.appendChild(labelledInput("Shadowed", "shadowed"))
 
     const page = createPageTransport()
     page.setDocument(null, buildPageFrom(container))
@@ -506,9 +611,8 @@ describe("budgets", () => {
       "</div>".repeat(45)
     // This one test reads a payload the browser did not cut, because the reader's
     // own ceiling is only reachable while the tree still has levels past it. A
-    // recording is cut the way the browser cuts it, which is a different
-    // question about a different path, and `dom-agent-fixtures.test.ts` records
-    // what a cut recording reports today.
+    // recording is cut the way the browser cuts it, which is the other path, and
+    // `dom-agent-fixtures.test.ts` covers that one.
     const page = createPageTransport()
     page.setDocument(null, buildPage(deep))
     const { session } = await attachPage({ transport: page })
@@ -526,6 +630,40 @@ describe("budgets", () => {
     )
     expect(gap?.reason).toBe("truncated")
     await session.detach()
+  })
+
+  it("records a cut on a node planning drops, not only on the ones it keeps", async () => {
+    const built = buildPage(`<div id="cut"></div>`)
+    const cut = built.dom.children?.[0]
+    if (!cut) throw new Error("fixture missing the cut node")
+    // A bounded read cuts at its depth, so a boundary node arrives declaring
+    // children it did not return. This one holds no control, no region and no
+    // text of its own, so planning drops it and `emit` never sees it: the count
+    // is the only evidence of what was lost, and it has to be read on the way
+    // past. A cut recording in `dom-agent-fixtures.test.ts` is the same shape.
+    cut.childNodeCount = 3
+    cut.children = []
+    const page = createPageTransport()
+    page.setDocument(null, built)
+    const { session } = await attachPage({ transport: page })
+    const read = await observePage({ session })
+
+    expect(read.observation.coverage.complete).toBe(false)
+    const gap = read.observation.coverage.gaps.find((candidate) =>
+      candidate.detail.includes("fewer children")
+    )
+    expect(gap?.reason).toBe("truncated")
+    await session.detach()
+  })
+
+  it("does not report a cut when every child the node declares came back", async () => {
+    // The same dropped shape with nothing cut under it. The count matches, so
+    // there is no loss to report and the page is still complete: a gap here
+    // would make every page with a wrapper element look unreadable.
+    const read = await readPage(`<div><span>nothing to read here</span></div>`)
+    expect(read.observation.coverage.gaps).toHaveLength(0)
+    expect(read.observation.coverage.complete).toBe(true)
+    await read.session.detach()
   })
 
   it("reads the same page the same way twice", async () => {

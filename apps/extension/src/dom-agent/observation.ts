@@ -77,6 +77,10 @@ const MAX_PLAN_DEPTH = 40
 const MAX_ROOT_DEPTH = 10
 /** How deep an option list is walked before the rest is reported unread. */
 const MAX_OPTION_DEPTH = 6
+/** How far from a choice element its group container is looked for. */
+const CHOICE_CONTAINER_DEPTH = 3
+/** How deep under a choices container the field it submits is looked for. */
+const HIDDEN_FIELD_DEPTH = 3
 
 /** Derived, so the evidence vocabulary stays owned by the shared schema. */
 type RequirednessEvidence = Requiredness["evidence"][number]
@@ -170,8 +174,14 @@ type Root = { context: Context; node: DomNode; source: Source }
 type Grouped = {
   anchor: DomNode
   members: DomNode[]
-  kind: "radio_group" | "checkbox_group"
+  kind: "radio_group" | "checkbox_group" | "button_choice"
   container: DomNode | null
+  /**
+   * The field a button group submits through, when the page keeps a hidden one
+   * inside the choices. It carries the value rather than wording, so it is never
+   * a question of its own.
+   */
+  field: DomNode | null
 }
 
 type GroupTables = {
@@ -179,6 +189,8 @@ type GroupTables = {
   members: Set<number>
   anchors: Map<number, Grouped>
   byMember: Map<number, Grouped>
+  /** The hidden fields the groups submit through, never questions themselves. */
+  fields: Set<number>
 }
 
 /** What the first pass decides to keep. */
@@ -217,6 +229,8 @@ type PlanFlags = {
   excludedCredentials: { count: number }
   /** Counted, because a subtree dropped at the depth ceiling is a gap. */
   depthCapped: { count: number }
+  /** Counted, because a subtree the read itself cut short is a gap. */
+  truncated: { count: number }
   /** Counted, because an option nobody can choose is a gap in the list. */
   optionIdentity: { count: number }
 }
@@ -254,6 +268,15 @@ function isElement(node: DomNode): boolean {
 
 function isTextNode(node: DomNode): boolean {
   return node.nodeType === 3
+}
+
+/**
+ * True when the read returned fewer children than the node declares. The read is
+ * bounded, so a node at the bound arrives with its count and no children, and
+ * that count is the only evidence anything under it exists at all.
+ */
+function childrenCut(node: DomNode): boolean {
+  return (node.childNodeCount ?? 0) > (node.children ?? []).length
 }
 
 function attributeOrNull(
@@ -538,9 +561,14 @@ function selectedState(
   if (ax) {
     if (axBoolean(ax, "selected") === true) return true
     if (axBoolean(ax, "checked") === true) return true
+    // A toggle button reports its state as pressed, which is what a button
+    // choice commits and what the staleness check has to compare.
+    if (axBoolean(ax, "pressed") === true) return true
   }
   return (
-    attributes.has("selected") || attributes.get("aria-selected") === "true"
+    attributes.has("selected") ||
+    attributes.get("aria-selected") === "true" ||
+    attributes.get("aria-pressed") === "true"
   )
 }
 
@@ -605,6 +633,7 @@ function findGroups(root: DomNode): GroupTables {
   const members = new Set<number>()
   const anchors = new Map<number, Grouped>()
   const byMember = new Map<number, Grouped>()
+  const fields = new Set<number>()
   const byName = new Map<string, DomNode[]>()
   const containers = new Map<string, DomNode | undefined>()
 
@@ -664,6 +693,7 @@ function findGroups(root: DomNode): GroupTables {
       members: list,
       kind,
       container: containers.get(key) ?? null,
+      field: null,
     }
     anchors.set(anchor.backendNodeId ?? -1, group)
     for (const member of list) {
@@ -672,7 +702,186 @@ function findGroups(root: DomNode): GroupTables {
       byMember.set(id, group)
     }
   }
-  return { members, anchors, byMember }
+  addButtonGroups(root, { members, anchors, byMember, fields })
+  return { members, anchors, byMember, fields }
+}
+
+/** A button the page says is a stateful choice rather than an action. */
+function isToggleButton(node: DomNode): boolean {
+  if (!isElement(node)) return false
+  const attributes = attributeMap(node)
+  if (!attributes.has("aria-pressed")) return false
+  return tagOf(node) === "button" || attributes.get("role") === "button"
+}
+
+/** `role="radio"` members of a declared radiogroup, never a nested group's. */
+function collectRadios(
+  container: DomNode,
+  found: DomNode[],
+  depth: number
+): void {
+  if (depth > CHOICE_CONTAINER_DEPTH) return
+  for (const child of container.children ?? []) {
+    if (!isElement(child)) continue
+    const role = attributeMap(child).get("role")
+    if (role === "radiogroup") continue
+    if (role === "radio") found.push(child)
+    collectRadios(child, found, depth + 1)
+  }
+}
+
+/** How many choices sit under a container, stopping at a nested declared group. */
+function countChoices(node: DomNode, depth: number): number {
+  if (depth > CHOICE_CONTAINER_DEPTH) return 0
+  let count = 0
+  for (const child of node.children ?? []) {
+    if (!isElement(child)) continue
+    if (attributeMap(child).get("role") === "radiogroup") continue
+    if (isToggleButton(child)) count += 1
+    count += countChoices(child, depth + 1)
+  }
+  return count
+}
+
+/**
+ * The nearest ancestor holding two or more choices under one submitted field,
+ * which is where a page renders one set of buttons. Nearest first, and the field
+ * is required: without it two questions that merely share a page would merge
+ * into one, and merging two questions is worse than leaving one unread.
+ */
+function choiceContainer(ancestors: DomNode[]): DomNode | null {
+  for (const candidate of ancestors)
+    if (countChoices(candidate, 0) >= 2 && hiddenFieldIn(candidate))
+      return candidate
+  return null
+}
+
+/**
+ * A field nobody can see. Hidden by markup only: a class that hides it is not
+ * evidence without the stylesheet, and guessing would drop a real question.
+ */
+function hiddenFromPeople(attributes: Map<string, string>): boolean {
+  if (attributes.has("hidden")) return true
+  if (attributes.get("aria-hidden") === "true") return true
+  if ((attributes.get("type") ?? "").toLowerCase() === "hidden") return true
+  const style = (attributes.get("style") ?? "")
+    .replace(/\s+/g, "")
+    .toLowerCase()
+  return style.includes("display:none") || style.includes("visibility:hidden")
+}
+
+/**
+ * The field a button group submits through: the hidden form field inside the
+ * choices, if the page keeps one. Ashby carries the answer there while the
+ * buttons above it carry the wording and the state.
+ */
+function hiddenFieldIn(container: DomNode): DomNode | null {
+  let found: DomNode | null = null
+  const visit = (node: DomNode, depth: number): void => {
+    if (found || depth > HIDDEN_FIELD_DEPTH) return
+    for (const child of node.children ?? []) {
+      if (!isElement(child)) continue
+      const tag = tagOf(child)
+      if (
+        (tag === "input" || tag === "select" || tag === "textarea") &&
+        hiddenFromPeople(attributeMap(child))
+      ) {
+        found = child
+        return
+      }
+      visit(child, depth + 1)
+    }
+  }
+  visit(container, 1)
+  return found
+}
+
+/** One question, every choice it holds, and the field it submits through. */
+function addButtonGroup(
+  table: GroupTables,
+  container: DomNode,
+  members: DomNode[]
+): void {
+  // A member with no browser identity could never be chosen, so it is not an
+  // option; if that leaves nothing addressable, there is no group to bind.
+  const usable = members.filter((member) => member.backendNodeId !== undefined)
+  const anchor = usable[0]
+  if (!anchor) return
+  const anchorId = anchor.backendNodeId
+  if (anchorId === undefined || table.anchors.has(anchorId)) return
+  const group: Grouped = {
+    anchor,
+    members: usable,
+    kind: "button_choice",
+    container,
+    field: hiddenFieldIn(container),
+  }
+  table.anchors.set(anchorId, group)
+  for (const member of usable) {
+    const id = member.backendNodeId
+    if (id === undefined) continue
+    table.members.add(id)
+    table.byMember.set(id, group)
+  }
+  const fieldId = group.field?.backendNodeId
+  if (fieldId !== undefined) table.fields.add(fieldId)
+}
+
+/**
+ * Choices a page renders as elements rather than as a field.
+ *
+ * A `button` carrying `aria-pressed` and a `role="radio"` are a list of choices
+ * to the page and nothing to the DOM, so there is no `name` to group by the way
+ * radio inputs group. The evidence is structural instead: a declared
+ * radiogroup, or the two or more choices a page renders inside one container,
+ * together with the field the group submits through. Read off the reduced Ashby
+ * capture in test/fixtures, where a yes/no question is two toggle buttons and a
+ * hidden checkbox. Class names are never evidence; they are a page's internals.
+ */
+function addButtonGroups(root: DomNode, table: GroupTables): void {
+  // A declared radiogroup is the page saying these elements are one choice, so
+  // a single member is enough evidence.
+  const declared = new Map<DomNode, DomNode[]>()
+  const walkDeclared = (node: DomNode): void => {
+    if (isElement(node) && attributeMap(node).get("role") === "radiogroup") {
+      const listed: DomNode[] = []
+      collectRadios(node, listed, 0)
+      if (listed.length > 0) declared.set(node, listed)
+    }
+    for (const child of node.children ?? []) walkDeclared(child)
+    for (const shadow of node.shadowRoots ?? []) walkDeclared(shadow)
+    if (node.contentDocument) walkDeclared(node.contentDocument)
+  }
+  walkDeclared(root)
+  for (const [container, listed] of declared)
+    addButtonGroup(table, container, listed)
+
+  // Then the ones no container declares. Two or more rendered together is the
+  // evidence: a lone toggle is a control the page owns, and a button that
+  // submits or navigates carries no `aria-pressed` at all.
+  const byContainer = new Map<DomNode, DomNode[]>()
+  const walkLoose = (node: DomNode, ancestors: DomNode[]): void => {
+    if (isElement(node)) {
+      const id = node.backendNodeId
+      if (id !== undefined && isToggleButton(node) && !table.members.has(id)) {
+        const container = choiceContainer(ancestors)
+        if (container) {
+          const list = byContainer.get(container) ?? []
+          list.push(node)
+          byContainer.set(container, list)
+        }
+      }
+    }
+    const next = [node, ...ancestors].slice(0, CHOICE_CONTAINER_DEPTH)
+    for (const child of node.children ?? []) walkLoose(child, next)
+    for (const shadow of node.shadowRoots ?? []) walkLoose(shadow, next)
+    if (node.contentDocument) walkLoose(node.contentDocument, next)
+  }
+  walkLoose(root, [])
+  for (const [container, listed] of byContainer) {
+    if (listed.length < 2) continue
+    addButtonGroup(table, container, listed)
+  }
 }
 
 /**
@@ -680,6 +889,20 @@ function findGroups(root: DomNode): GroupTables {
  * "Male" when the page asked "Gender" would be answering the wrong question.
  */
 function groupLabelText(group: Grouped, source: Source): string {
+  // A button group is named by the label the page authored for the field it
+  // submits. The label's `for` names that field, by id and by name, and the
+  // Ashby capture is where the name is the only handle the markup offers.
+  const field = group.field
+  if (field) {
+    const attributes = attributeMap(field)
+    for (const key of [attributes.get("id"), attributes.get("name")]) {
+      if (!key) continue
+      for (const label of source.labelsFor.get(key) ?? []) {
+        const text = clamp(textOf(label), MAX_LABEL)
+        if (text) return text
+      }
+    }
+  }
   const container = group.container
   if (container) {
     const attributes = attributeMap(container)
@@ -778,8 +1001,13 @@ function describeControl(input: ControlInput): {
         input.optionIdentity.count += 1
         continue
       }
+      // The page's own text is the wording of a choice rendered as an element:
+      // a button says "Yes" in its content, and a role="radio" div says what a
+      // person reads. It comes before the computed name, which is derived rather
+      // than authored, and after the label sources, so native markup is unchanged.
       const label =
         labelTextFor(member, source, memberAttributes) ||
+        clamp(textOf(member), MAX_LABEL) ||
         clamp(axText(memberAx?.name), MAX_LABEL) ||
         (memberAttributes.get("value") ?? "")
       options.push({
@@ -877,6 +1105,11 @@ function planNode(
   depth: number,
   parentGroupText: string
 ): Plan | null {
+  // Counted before anything is kept or dropped: a node planning drops never
+  // reaches `emit`, so this is the only place it can report what it did not
+  // read, and a cut payload drops exactly the boundary nodes planning skips.
+  if (childrenCut(node)) flags.truncated.count += 1
+
   if (depth > MAX_PLAN_DEPTH) {
     flags.depthCapped.count += 1
     return null
@@ -951,6 +1184,13 @@ function planNode(
   // The option list of another control is not a question of its own. Its
   // options reach the model through the control that owns them.
   if (ownId !== undefined && flags.source.portalIds.has(ownId)) return null
+  // The field a button group submits through carries the value rather than any
+  // wording a person reads, so the group around it is the question, not this.
+  if (
+    node.backendNodeId !== undefined &&
+    flags.groups.fields.has(node.backendNodeId)
+  )
+    return null
   if (isCredential(tag, attributes)) {
     flags.excludedCredentials.count += 1
     return null
@@ -1155,19 +1395,6 @@ function emit(
       parentRef: ref,
       regionRef,
       recordRef,
-    })
-
-  // Truncation is reported, never inferred from a node count: a node the read
-  // returned without all of its children is a gap, whether a ceiling cut it or
-  // the read itself was bounded before it. Checking while the plan still had
-  // children missed every subtree cut at the depth ceiling.
-  const declared = plan.dom.childNodeCount ?? 0
-  const present = (plan.dom.children ?? []).length
-  if (declared > present)
-    state.gaps.push({
-      scope: plan.tag,
-      reason: "truncated",
-      detail: `${present} of ${declared} child nodes were read`,
     })
 
   return ref
@@ -1390,6 +1617,7 @@ export async function observePage(input: {
     const roots = rootsOf(source, base, parsed.data.root)
     const excludedCredentials = { count: 0 }
     const depthCapped = { count: 0 }
+    const truncated = { count: 0 }
     const optionIdentity = { count: 0 }
     for (const root of roots.roots) {
       const closedShadow = root.node.shadowRootType === "closed"
@@ -1411,6 +1639,7 @@ export async function observePage(input: {
         groupRequired: false,
         excludedCredentials,
         depthCapped,
+        truncated,
         optionIdentity,
       }
       const planned = planNode(root.node, root.context, flags, 0, "")
@@ -1445,6 +1674,12 @@ export async function observePage(input: {
         scope: base.url ?? base.id,
         reason: "truncated",
         detail: `${depthCapped.count} subtree(s) sit deeper than ${MAX_PLAN_DEPTH} levels and were not planned, so nothing inside them was read`,
+      })
+    if (truncated.count > 0)
+      state.gaps.push({
+        scope: base.url ?? base.id,
+        reason: "truncated",
+        detail: `${truncated.count} node(s) came back with fewer children than they declare, so the read stopped at its bound and nothing under them was read`,
       })
     if (optionIdentity.count > 0)
       state.gaps.push({
@@ -1845,6 +2080,7 @@ function walkOne(input: {
   }
   const excludedCredentials = { count: 0 }
   const depthCapped = { count: 0 }
+  const truncated = { count: 0 }
   const optionIdentity = { count: 0 }
   for (const root of input.roots) {
     const groups = findGroups(root.node)
@@ -1859,6 +2095,7 @@ function walkOne(input: {
         groupRequired: false,
         excludedCredentials,
         depthCapped,
+        truncated,
         optionIdentity,
       },
       0,
@@ -1874,6 +2111,12 @@ function walkOne(input: {
       scope: input.id,
       reason: "truncated",
       detail: `${depthCapped.count} subtree(s) sit deeper than ${MAX_PLAN_DEPTH} levels and were not read`,
+    })
+  if (truncated.count > 0)
+    state.gaps.push({
+      scope: input.id,
+      reason: "truncated",
+      detail: `${truncated.count} node(s) came back with fewer children than they declare, so the read stopped at its bound and nothing under them was read`,
     })
   if (optionIdentity.count > 0)
     state.gaps.push({

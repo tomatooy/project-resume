@@ -3,13 +3,13 @@
 **What to build:** the truncation gap must be reported for every node the read cut, not
 only for the nodes that survived planning.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A node the payload returned with fewer children than it declares records a gap even
+- [x] A node the payload returned with fewer children than it declares records a gap even
       when the node itself is dropped from the observation.
-- [ ] A test drives a payload cut the way a browser cuts it (children omitted, child
+- [x] A test drives a payload cut the way a browser cuts it (children omitted, child
       count present) and asserts the observation cannot report complete.
-- [ ] The test that records today's behaviour in `dom-agent-fixtures.test.ts` is updated
+- [x] The test that records today's behaviour in `dom-agent-fixtures.test.ts` is updated
       to assert the gap instead.
 
 ## Mechanism, verified by reading the code
@@ -77,3 +77,25 @@ anything the other lane reads.
 `06a` is in the same lane on purpose: both changes are reader changes in
 `observation.ts`, and one writer per file is the rule that has kept every merge
 on this branch free of conflicts.
+
+## Landed (2026-10-14, reader lane)
+
+The count moved out of `emit` and to the top of `planNode`, so every node the plan
+touches is checked exactly once whether planning keeps it or drops it. `emit`'s copy is
+deleted, because leaving both would report one cut twice. The count is summarised per
+context beside the depth-ceiling gap, so a wide page cannot push one gap per boundary
+node past the 64 the schema allows.
+
+Evidence, all observed: removing the check fails three tests, the dropped-node case
+added here (a leaf-shaped div declaring three children), the kept-node case that already
+existed, and the recording the depth model cuts. That last one asserted
+`complete === true` before this change and asserts the gap now.
+
+Deliberately not done: the per-node detail `n of m children were read` went with
+`emit`'s copy, and the summary names the count and the cause instead. If a future reader
+needs to know which nodes were cut, that detail has to come back without the per-node
+gaps.
+
+No change was needed in `resume-core`: `CoverageGap.reason` already carries
+`truncated`, and the summary uses it. Noticed while here and left alone as out of
+scope: `observationBytes` is exported and used only inside `observation.ts`.
