@@ -158,20 +158,30 @@ needs a node ref. `runtimeCall` resolves a ref back to a label against the curre
 label mechanism exists and only the ref is missing. This is why 11a's portal-question clause could
 not be tested, and it is bigger than 11a: country, state and school pickers are usually built this
 way. Recorded rather than fixed, because giving portal options refs changes the read contract.
-- **A reused interpretation can carry a stale `optionRef`, and a swapped one writes the wrong
-option.** `QuestionInterpretation` holds `optionRef`, which is an observation-scoped node ref
-(`deterministic-path.ts`: `optionForFact(question, fact)?.ref ?? null`), while the cache key is
-built from the question's wording and option *labels*. A round that reuses a reading after an
-effect renumbered the page can therefore hand over a ref that now belongs to a different option:
-`deterministic-path.ts` passes it into the proposal and `runtimeCall` resolves it against the
-current options. A vanished ref is refused; a swapped one is silently a wrong value in a real
-application. **Close this before the guard is flipped.** The cheap shape is to cache the fact and
-recompute the ref against the current observation, which kills the class and keeps the semantic
-work cached, but that changes `QuestionInterpretationSchema`, a shared contract.
-- **`recoveryFor`'s upload branch is unreachable from the coordinator.** `settleIntents` passes
-`covered: false` for every upload, so the `attachmentName` comparison and its two `retry` verdicts
-never run in production: unit-tested but dead. Deleting it is a design decision, since the
-designed answer ("an unobservable outcome stays unverified") is what the coordinator implements.
+- **Closed 2026-10-14: a reused interpretation could carry a stale `optionRef`, and a swapped
+one wrote the wrong option.** `QuestionInterpretation` held `optionRef`, an observation-scoped
+node ref, while the cache key was built from the question's wording and option labels, so a round
+that reused a reading after an effect renumbered the page could hand over a ref that belonged to a
+different option: the proposal carried it and `runtimeCall` resolved it against the current
+options. A vanished ref was refused, a swapped one wrote a wrong value into a real application.
+The fix caches the fact, which is stable because the bundle is pinned, and derives the ref where
+the proposal is built, so a reuse yields the current ref or nothing. The test that proves it fails
+against the old code as `expected ['Portugal'] to deeply equal ['Canada']`, which is the
+wrong-write itself.
+- **The cache key cannot see two things, and it no longer matters.** `canonicalQuestion` sorts
+option labels and never looks at `disabled`, so two options swapping positions under the same
+labels, or the matching option becoming disabled, both produce the same key and the reading is
+reused. Before the fix both were wrong-write paths, the second sending an option the page would
+refuse; now neither can be wrong, because the ref and the plan's reason are both derived from the
+fact and the current question. A test covers the `disabled` case deliberately, since the key cannot
+see it.
+- **Closed 2026-10-14: `recoveryFor`'s upload branch, deleted.** `settleIntents` builds
+`covered: intent.kind === "record_creation" && stage.coverage.complete`, so it is false for every
+upload and the function returns at its `!covered` guard before the `attachmentName` comparison,
+which was comparing null to null anyway because every writer passes null. The comparison, its two
+`retry` verdicts and the one test asserting that unreachable state are gone; the tail is a single
+`uncertain` with its reason, which keeps the function total for an upload without pretending a
+page-level judgement exists. The coordinator test that pins the live behaviour passes unchanged.
 - **`RunReport.replanned` is the last round's read set**, so a run ending in a no-candidate round
 reports an empty set even if earlier rounds read narrowly. Low, and worth knowing before the
 panel renders it.
@@ -182,3 +192,11 @@ resumed run reading an older checkpoint against a renumbered page would be readi
 errors add one issue per control and a pathological page could otherwise throw on the parse.
 - **`Plan.addControlFor` was dead state** left by the 11b lane: declared and initialised to null in
 three places, never set or read. Deleted in this wave.
+- **Two `attachmentName` fields now have no reader at all**, and no writer ever supplies a value:
+`RunIntent.attachmentName` (`checkpoint.ts:32`) and `RecoveryEvidence.attachmentName`
+(`scheduling.ts:163`), with the coordinator passing null at every call site. Recommended: remove
+both, with the fixtures that name them, in whichever lane next touches the checkpoint. Not done
+here, because `RunIntentSchema` is a `strictObject` inside the persisted `RunCheckpointSchema`, and
+a stricter read of an older row makes this repo drop the run rather than patch it. With the engine
+dark there are no such rows in the wild, so the change is safe in practice, but it is a
+persisted-contract change and therefore the user's call rather than a lane's.

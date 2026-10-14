@@ -73,8 +73,10 @@ attribute-based and a file input's selection is not an attribute, so no read her
 site's own attachment state; and \`recoveryFor\`'s upload branch is unreachable from the
 coordinator regardless, because \`settleIntents\` passes \`covered: false\` for every upload. An
 upload is settled by a receipt when the page answers and otherwise stays doubtful, which is the
-designed answer. The unreachable branch is filed in \`open-after-review-fixes.md\` rather than
-deleted here, because deleting it is a design decision.
+designed answer. The unreachable branch is deleted now, in a lane that verified the premise
+directly: \`settleIntents\` builds \`covered\` as \`intent.kind === "record_creation" &&
+stage.coverage.complete\`, so it is false for an upload and the function returns at its
+\`!covered\` guard before ever reaching the comparison.
 
 ## 7. LOW: the run-state machine is decorative, and the ceiling is checked once per round
 

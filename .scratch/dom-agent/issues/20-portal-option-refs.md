@@ -26,7 +26,9 @@ ticket fixes is the one 11a just made routine.
 
 `readOptions` (`apps/extension/src/dom-agent/observation.ts`) reads the mounted list on demand and
 returns `ObservedOption[]` carrying `ref: ""` for every option, because it never runs `emit` and so
-never allocates a reference. The three sites that build options at plan time carry `ref: ""` too,
+never allocates a reference. The read is triggered by the question's own `evidence.portal` through
+`needingOptions` (`questions.ts`), and `attachOptions` then attaches what came back to the question
+without assigning anything. The three sites that build options at plan time carry `ref: ""` too,
 and are fixed up later by `emit`, which is the step the on-demand path skips.
 
 Two things downstream need a real reference:
