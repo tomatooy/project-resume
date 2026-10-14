@@ -41,3 +41,21 @@ while the engine refused to start. Ticket 09 has now landed with that exact prop
 run through the same reconcile gate, so what box 6 still needs is one test that fails the
 model and asserts the deterministic answers survived. Until that exists this ticket is not
 done, and it is one small test away.
+
+## What box 6 still needs, and who owns it (this pass)
+
+The remaining half is "deterministic fields are still filled" when the model fails. That
+property belongs to two places, so it is being proven in two steps rather than by one lane
+editing another's file:
+
+- The reasoner's own failure behaviour (a model that errors or returns nothing leaves the run
+  alive and its questions explicit rather than inventing values) is proven in the agent
+  package's loop tests, which the small-fixes lane owns this pass.
+- The coordinator half (the deterministic proposals still reconcile and land, and the
+  questions nothing could answer stay visible in the report) is verified against the final
+  coordinator code once ticket 14's lane has finished with it, because that lane owns
+  `run-coordinator.ts` and two writers on one file is how patches conflict.
+
+The header of `packages/resume-core/test/dom-agent-deterministic-path.test.ts` already
+promises the property, "exercised without a browser and without a model", so the second step
+should extend that promise rather than start a file of its own.

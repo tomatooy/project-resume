@@ -56,3 +56,8 @@ its own test. Untouched by every lane so far because it would have widened their
 fails inside a worktree even when run alone, because the documented bootstrap links
 `node_modules` entries to the primary's real paths and Vite's fs allowlist then denies the
 worker's resolved path. It passes in the primary checkout. Lanes should not chase it.
+
+**Ownership, this pass.** The 4000-into-500 display cap is a small-fixes lane's item, together
+with the reasoner's failure test, in `packages/resume-core/src/dom-agent/saved-answer.ts` and
+the agent package's loop tests. It must end as a review outcome rather than a throw, because
+truncating a person's stored answer silently changes what it says.
