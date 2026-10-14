@@ -13,7 +13,7 @@ import {
   createPageReasoner,
   reasoningAbortSignal,
 } from "../src/dom-agent/reasoner"
-import { testModels, textStream, toolCallStream } from "./mock"
+import { emptyStream, testModels, textStream, toolCallStream } from "./mock"
 
 /**
  * The reasoning loop, driven by stubbed model responses.
@@ -330,6 +330,44 @@ describe("output that cannot be used", () => {
     expect(result.outcome).toBe("failed")
     expect(result.proposals).toEqual([])
     expect(result.rejections).toEqual([{ questionRef: null, code: "unparsed" }])
+    expect(result.unresolved).toEqual(["q1", "q2"])
+  })
+
+  it("survives a model that never answered, with every question visible", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        throw new Error("the model was unreachable")
+      },
+    })
+
+    // The run stays alive: a model that dies must not take the deterministic
+    // answers with it, and nothing may be invented to fill the gap.
+    const result = await reasoner(model).reason(
+      {
+        questions: [question({ ref: "q1" }), question({ ref: "q2" })],
+        facts: [fact()],
+      },
+      options()
+    )
+
+    expect(result.outcome).toBe("failed")
+    expect(result.proposals).toEqual([])
+    expect(result.rejections).toEqual([{ questionRef: null, code: "unparsed" }])
+    expect(result.unresolved).toEqual(["q1", "q2"])
+  })
+
+  it("survives a model that said nothing, with every question visible", async () => {
+    const model = new MockLanguageModelV3({ doStream: [emptyStream()] })
+    const result = await reasoner(model).reason(
+      {
+        questions: [question({ ref: "q1" }), question({ ref: "q2" })],
+        facts: [fact()],
+      },
+      options()
+    )
+
+    expect(result.outcome).toBe("failed")
+    expect(result.proposals).toEqual([])
     expect(result.unresolved).toEqual(["q1", "q2"])
   })
 

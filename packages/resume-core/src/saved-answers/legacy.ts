@@ -1,7 +1,7 @@
 import type { ScopedAnswer } from "../autofill/contract"
 import {
   StoredAnswerSchema,
-  factFromStoredAnswer,
+  reviewFromStoredAnswer,
   type ReviewAnswer,
 } from "../dom-agent/saved-answer"
 
@@ -20,10 +20,7 @@ export type { ReviewAnswer } from "../dom-agent/saved-answer"
 export function legacySavedAnswersReview(
   rows: readonly ScopedAnswer[]
 ): ReviewAnswer[] {
-  const review: ReviewAnswer[] = []
-  for (const row of rows) {
-    const outcome = factFromStoredAnswer(StoredAnswerSchema.parse(row))
-    if (outcome.kind === "review") review.push(outcome.answer)
-  }
-  return review
+  return rows.map((row) =>
+    reviewFromStoredAnswer(StoredAnswerSchema.parse(row))
+  )
 }

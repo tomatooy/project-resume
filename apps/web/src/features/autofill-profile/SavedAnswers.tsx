@@ -40,7 +40,6 @@ const reviewReasons: Record<string, string> = {
     "Saved before questions had an identity of their own, so no page can recognise this question. It is not reused.",
   unsupported_value:
     "This holds a display value where the question needs a structured one, so it is not reused as it stands.",
-  empty_value: "This holds no answer, so there is nothing to reuse.",
   excluded_concept:
     "Demographic answers are never reused. They are answered on each application.",
 }

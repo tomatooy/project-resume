@@ -13,7 +13,7 @@ import {
 } from "../src"
 import {
   StoredAnswerSchema,
-  factFromStoredAnswer,
+  reviewFromStoredAnswer,
 } from "../src/dom-agent/saved-answer"
 import { FactSchema } from "../src/dom-agent/source"
 import { describe, expect, it } from "vitest"
@@ -434,70 +434,52 @@ function legacy(over: Record<string, unknown> = {}) {
 }
 
 describe("a legacy row stays readable", () => {
-  it("reviews a key that is not the identity, in either direction", () => {
-    // The retired vocabulary wrote free-text keys: normalize(label + description).
-    // Both a short one and a long one broke the read, which threw instead of
-    // returning the outcome the review exists for.
+  it("reviews a row whatever free-text key the vocabulary left in it", () => {
+    // The retired vocabulary wrote its key inside `meaning`: normalize(label +
+    // description). A short one and a long one both used to break the read,
+    // which threw where the review exists precisely to avoid that.
     const short = "country"
     const long =
       "are you legally authorized to work in the united states?\nrequired"
-    for (const questionKey of [
-      short,
-      long,
-      `${"a".repeat(15)}`,
-      `${"b".repeat(17)}`,
-    ]) {
-      const outcome = factFromStoredAnswer(legacy({ questionKey }))
-      if (outcome.kind !== "review") throw new Error("expected a review")
-      expect(outcome.answer.reason).toBe("no_question_key")
+    for (const questionKey of [short, long]) {
+      const row = legacy({ meaning: { concept: "open_answer", questionKey } })
+      expect(reviewFromStoredAnswer(row).reason).toBe("no_question_key")
     }
+    // A row carrying no key at all ends in the same place.
+    expect(reviewFromStoredAnswer(legacy()).reason).toBe("no_question_key")
   })
 
-  it("still turns a row with the real identity into a fact", () => {
-    const outcome = factFromStoredAnswer(
-      legacy({
-        meaning: { concept: "country" },
-        questionKey: "0123456789abcdef",
-        factValue: { type: "text", text: "United States" },
-      })
-    )
-    if (outcome.kind !== "fact") throw new Error("expected a fact")
-    expect(outcome.fact.source).toEqual({
-      kind: "saved_answer",
-      answerId: ID,
-      questionKey: "0123456789abcdef",
-    })
+  it("cannot be handed the identity that would make it a fact", () => {
+    // The reason this reader has no fact to return, pinned so nobody adds one
+    // back. The identity a source fact cites is derived from the live page, and
+    // the retired payload is the four concept fields and nothing else, so a row
+    // trying to carry a top-level identity is refused rather than read.
+    expect(() => legacy({ questionKey: "0123456789abcdef" })).toThrow()
   })
 
   it("reviews a row that holds nothing, and one this version cannot name", () => {
-    const empty = factFromStoredAnswer(
-      legacy({ questionKey: "0123456789abcdef", value: "" })
+    // An empty row is in the same position as any other legacy row: nothing can
+    // name its question, so the reason says that rather than guessing at shape.
+    expect(reviewFromStoredAnswer(legacy({ value: "" })).reason).toBe(
+      "no_question_key"
     )
-    if (empty.kind !== "review") throw new Error("expected a review")
-    expect(empty.answer.reason).toBe("empty_value")
 
     // A concept this version no longer knows cannot be matched safely, so it
     // stays reviewable rather than becoming a fact with a meaningless meaning.
-    const unknown = factFromStoredAnswer(
-      legacy({
-        meaning: { concept: "concept_from_a_later_release" },
-        questionKey: "0123456789abcdef",
-      })
+    const unknown = reviewFromStoredAnswer(
+      legacy({ meaning: { concept: "concept_from_a_later_release" } })
     )
-    if (unknown.kind !== "review") throw new Error("expected a review")
-    expect(unknown.answer.reason).toBe("unsupported_value")
+    expect(unknown.reason).toBe("unsupported_value")
   })
 
   it("keeps the decision the reason names for an excluded concept", () => {
-    const outcome = factFromStoredAnswer(
+    const outcome = reviewFromStoredAnswer(
       legacy({
-        meaning: { concept: "eeo_gender" },
-        questionKey: "0123456789abcdef",
+        meaning: { concept: "eeo_gender", definitionVersion: "vs-us-1" },
         value: "woman",
       })
     )
-    if (outcome.kind !== "review") throw new Error("expected a review")
     // The reason is the decision, not the missing identity.
-    expect(outcome.answer.reason).toBe("excluded_concept")
+    expect(outcome.reason).toBe("excluded_concept")
   })
 })

@@ -1,7 +1,6 @@
 import { z } from "zod"
 import { ScopedAnswerSchema, type ScopedAnswer } from "../autofill/contract"
 import { ConceptSchema } from "../autofill/concept"
-import { SAVED_QUESTION_KEY_LENGTH } from "../saved-answers/schema"
 import {
   ProfileSectionSchema,
   ProfileSections,
@@ -9,22 +8,25 @@ import {
 } from "../autofill-profile/schema"
 import { AppError } from "../domain/errors"
 import { ScopeEntrySchema, type ScopeEntry } from "./primitives"
-import { FactValueSchema, type Fact, type FactValue } from "./source"
+import type { FactValue } from "./source"
 
 /**
- * A stored answer as it is read back, plus the question identity it may carry.
+ * A stored answer as it is read back.
  *
- * ADR 0001 makes the question key the identity, so a row without one cannot
- * become a source fact: a fact's provenance has to name the question it
- * answers. Every such row is returned for review rather than generalized.
+ * ADR 0001 makes the question identity what a source fact cites, and that
+ * identity is derived from the live page rather than stored from the wire. A
+ * row in the retired concept vocabulary cannot carry one: its payload is the
+ * four concept fields and nothing else, and this shape is strict, so a row
+ * edited by hand cannot supply one either. Every such row is therefore a
+ * review, which is why the reader below has no fact to return.
  *
  * This shape is deliberately looser than the legacy contract, because it reads
  * a row that was written by an older version or edited by hand rather than one
  * this code just built. A tenant of the read path: a stored row that cannot be
  * interpreted is a review outcome, never a thrown parse error, so one odd row
  * cannot fail a whole page run. That covers a wording key of any length (the
- * legacy key was free text, the new one is sixteen characters), a value the
- * vocabulary cannot express, and a concept this version no longer knows.
+ * legacy key was free text, the new one is sixteen characters) and a concept
+ * this version no longer knows.
  */
 export const StoredAnswerSchema = ScopedAnswerSchema.extend({
   meaning: z.strictObject({
@@ -32,9 +34,6 @@ export const StoredAnswerSchema = ScopedAnswerSchema.extend({
     questionKey: z.string().max(4000).optional(),
     definitionVersion: z.string().min(1).max(150).optional(),
   }),
-  questionKey: z.string().max(4000).optional(),
-  /** A display string in the shape the question needs, when the row carries it. */
-  factValue: FactValueSchema.optional(),
   /** Empty is allowed here so an unusable row is reviewable, not unreadable. */
   value: z.string().max(4000),
 })
@@ -47,39 +46,23 @@ export const ReviewAnswerSchema = z.strictObject({
   value: z.string().max(4000),
   scope: z.array(ScopeEntrySchema).max(10),
   /**
-   * `no_question_key`: the row predates the question identity, so nothing can
-   * tell which question it belongs to and it must not be generalized. A row
-   * whose key is leftover free text from the old vocabulary belongs here too:
-   * the protocol names a saved answer by its sixteen-character identity, and a
-   * free-text key cannot be that identity.
-   * `unsupported_value`: the row is keyed, but it holds a display string where
-   * the question needs a structured value, and parsing that string would be an
-   * inference of ours rather than something the user stated.
-   * `empty_value`: the row holds nothing usable, which is not an answer.
-   * `excluded_concept`: the subject is excluded from sources by decision, so a
-   * keyed row that carries a structured value is no more eligible than an
-   * unkeyed one. EEO is the case today, on both readers: the retired concept
-   * vocabulary names it `eeo_*`, and an identity-first row records the decision
-   * on the question itself.
+   * `no_question_key`: nothing can tell which question this row belongs to, so
+   * it must not be generalized. Every row in the retired vocabulary lands here,
+   * because the identity a fact cites is derived from the live page and that
+   * vocabulary had nowhere to keep it. A leftover free-text key counts too: the
+   * protocol names a saved answer by its sixteen-character identity, and free
+   * text cannot be that identity.
+   * `unsupported_value`: the row names a concept this version does not know, so
+   * it cannot be matched safely and stays visible instead.
+   * `excluded_concept`: a subject excluded from sources by decision, so it is
+   * no more eligible than an unnamed row. EEO is the case today, on both
+   * readers: the retired concept vocabulary names it `eeo_*`, and an
+   * identity-first row records the decision on the question itself.
    */
-  reason: z.enum([
-    "no_question_key",
-    "unsupported_value",
-    "empty_value",
-    "excluded_concept",
-  ]),
+  reason: z.enum(["no_question_key", "unsupported_value", "excluded_concept"]),
   confirmedAt: z.iso.datetime(),
 })
 export type ReviewAnswer = z.infer<typeof ReviewAnswerSchema>
-
-/**
- * Concepts whose answer is a structured value. A stored display string is not
- * one, and parsing text into a number or a date is the invented inference the
- * specification forbids, so these stay reviewable until the row carries a
- * value the vocabulary can express.
- */
-const STRUCTURED_CONCEPT =
-  /^(salary|work_authorized|sponsorship_|relocation|available_from|eeo_|experience_|education_|current_employer$|recent_employer$)/
 
 /** Legacy conditions as explicit scope. Scope is meaning, so this is spelled out. */
 export function scopeFromConditions(
@@ -99,69 +82,26 @@ export function scopeFromConditions(
   return scope
 }
 
-export type StoredAnswerOutcome =
-  | { kind: "fact"; fact: Fact }
-  | { kind: "review"; answer: ReviewAnswer }
-
 /**
- * Map one stored row. A row with a question key and a value the vocabulary can
- * express becomes a fact; anything else stays visible for the user to resolve.
+ * Map one stored row to what the user has to settle about it.
+ *
+ * Every row this can be handed is a legacy row in the retired concept
+ * vocabulary, and every one of them is a review. That is structural rather
+ * than a policy: the identity a source fact cites is derived from the live
+ * page, and no row this reader can receive carries one. See
+ * `StoredAnswerSchema` for why.
  */
-export function factFromStoredAnswer(raw: StoredAnswer): StoredAnswerOutcome {
+export function reviewFromStoredAnswer(raw: StoredAnswer): ReviewAnswer {
   const answer = StoredAnswerSchema.parse(raw)
   const scope = scopeFromConditions(answer.conditions)
   const concept = answer.meaning.concept
   // Decision first: an excluded concept is refused whatever else the row holds,
   // so the reason the user reads names the decision rather than a shape.
   if (concept.startsWith("eeo_"))
-    return {
-      kind: "review",
-      answer: reviewAnswer(answer, scope, "excluded_concept"),
-    }
+    return reviewAnswer(answer, scope, "excluded_concept")
   if (!ConceptSchema.safeParse(concept).success)
-    return {
-      kind: "review",
-      answer: reviewAnswer(answer, scope, "unsupported_value"),
-    }
-  if (!answer.questionKey)
-    return {
-      kind: "review",
-      answer: reviewAnswer(answer, scope, "no_question_key"),
-    }
-  // The legacy vocabulary wrote a free-text key; the new identity is sixteen
-  // characters, and a fact's provenance has to name that identity. A key of any
-  // other length is a row from before the rewrite, so it stays reviewable
-  // instead of becoming a fact nothing could ever match.
-  if (answer.questionKey.length !== SAVED_QUESTION_KEY_LENGTH)
-    return {
-      kind: "review",
-      answer: reviewAnswer(answer, scope, "no_question_key"),
-    }
-  if (!answer.factValue && STRUCTURED_CONCEPT.test(concept))
-    return {
-      kind: "review",
-      answer: reviewAnswer(answer, scope, "unsupported_value"),
-    }
-  if (!answer.value.trim())
-    return {
-      kind: "review",
-      answer: reviewAnswer(answer, scope, "empty_value"),
-    }
-  return {
-    kind: "fact",
-    fact: {
-      id: `saved:${answer.id}`,
-      meaning: meaningPhrase(concept, scope),
-      display: answer.value,
-      value: answer.factValue ?? { type: "text", text: answer.value },
-      scope,
-      source: {
-        kind: "saved_answer",
-        answerId: answer.id,
-        questionKey: answer.questionKey,
-      },
-    },
-  }
+    return reviewAnswer(answer, scope, "unsupported_value")
+  return reviewAnswer(answer, scope, "no_question_key")
 }
 
 function reviewAnswer(

@@ -4,8 +4,10 @@ import {
   type CandidateQuestion,
   type InterpretationCache,
   type ObservationCoverage,
+  type PageAudit,
   type QuestionDisposition,
   type QuestionPlan,
+  type ReadinessVerdict,
   type Receipt,
   type RecordGroupPlan,
   type ReviewItem,
@@ -17,6 +19,7 @@ import {
   assertTransition,
   attemptPolicy,
   attachmentTargets,
+  buildPageAudit,
   ceilingStatus,
   dispositionFor,
   exhaustionReport,
@@ -29,6 +32,7 @@ import {
   pageRecordGroups,
   planAnswers,
   planBatches,
+  readiness,
   recordGroupPlan,
   recordedUpload,
   recoveryFor,
@@ -74,9 +78,11 @@ import {
  * working and waiting for a person is part of the state, not a detail of the
  * loop: the ceiling excludes the time the user was the blocker, and a page the
  * user edits pauses the run rather than being written over.
+ * One thing the run does not decide for itself is whether the page is ready.
+ * That is the audit's verdict, computed from what was covered and what the page
+ * confirmed rather than from the number of writes, and reported beside the run's
+ * own state rather than folded into it.
  */
-
-/** Where a checkpoint lives. The extension supplies session storage. */
 export type RunStore = {
   load(stateKey: string): Promise<RunCheckpoint | null>
   save(checkpoint: RunCheckpoint): Promise<void>
@@ -121,6 +127,19 @@ export type RunReport = {
    * yet, so what cannot be placed is reported instead of guessed at.
    */
   recordGroups: RecordGroupPlan
+  /**
+   * The whole-page audit this pass produced, or null when no pass has read a
+   * page. Facts about the page, not a claim about it: every question is placed
+   * in one outcome, and what could not be checked is stated in `unchecked`.
+   */
+  audit: PageAudit | null
+  /**
+   * The audit's own decision, or null when this pass did not reach one. A run
+   * that stopped for the ceiling, for a person, or for a lost connection holds
+   * none: what stopped it is reported instead, and readiness is a verdict only
+   * a finished pass can give.
+   */
+  verdict: ReadinessVerdict | null
   /**
    * Size of the observation this run read, as it would be sent. Reported rather
    * than recomputed by a caller, because the caller cannot see the observation
@@ -179,6 +198,10 @@ export class PageRun {
   private recovered: RecoveryNote[] = []
   private waiting: { reason: string } | null = null
   private exhausted: RunReport["exhausted"] = null
+  private audit: PageAudit | null = null
+  private verdict: ReadinessVerdict | null = null
+  /** When this pass read the page, which is not when it wrote to it. */
+  private observedAt: number | null = null
   private stopRequested: "pause" | "cancel" | null = null
   private readonly clock: () => number
 
@@ -236,6 +259,9 @@ export class PageRun {
     // values already written stay where they are either way.
     if (!isTerminal(this.checkpoint.state))
       this.move("cancelled", { kind: "user", reason })
+    // The audit's facts about the page stand, but the verdict was about a pass
+    // this run no longer is: a cancelled run is not the audit's to call ready.
+    this.verdict = null
     await this.save()
     return this.report()
   }
@@ -248,6 +274,7 @@ export class PageRun {
     if (!isTerminal(this.checkpoint.state))
       this.move("paused", { kind: "user", reason })
     this.waiting = { reason }
+    this.verdict = null
     await this.save()
     return this.report()
   }
@@ -351,6 +378,10 @@ export class PageRun {
   }
 
   private async driveRounds(mode: "start" | "continue"): Promise<void> {
+    // A report from an earlier pass is not this pass's: both are cleared here so
+    // a pass that ends early reports no verdict rather than a stale one.
+    this.audit = null
+    this.verdict = null
     // A round is one observation and the batches planned from it, up to the
     // first batch that changes what the next questions are. Bounded by the run
     // ceiling, which every round checks before it dispatches anything.
@@ -426,10 +457,53 @@ export class PageRun {
       if (this.stopRequested || this.waiting) break
       if (!observedAgain) break
     }
+    // What the pass saw, reported whether or not it reached a verdict: the audit
+    // is a record of the page, and a pass that stopped for the ceiling or for a
+    // person has still read it. The queue is rebuilt here too, where the receipts
+    // and the dispositions already are. Without that rebuild a write the page
+    // refused reaches the user a pass later, which is the same cold-versus-warm
+    // disagreement the dispositions were moved for. Decisions taken before the
+    // batch stay in the queue: `notDispatchable` accumulates across the round.
+    if (this.stage !== null) {
+      this.audit = buildPageAudit({
+        id: `audit-${this.stage.read.observation.id}`,
+        observation: this.stage.read.observation,
+        observedAt: this.observedAt ?? this.clock(),
+        questions: this.stage.questions,
+        dispositions: this.dispositions(),
+        receipts: this.receipts,
+      })
+      this.review = reviewQueue({
+        questions: this.stage.questions,
+        plans: this.stage.plans,
+        receipts: this.receipts,
+        notDispatchable: this.notDispatchable,
+      })
+    }
+
     if (this.checkpoint.state === "running") {
-      this.move(
-        this.review.some((item) => item.blocking) ? "needs_input" : "auditing"
-      )
+      // The verdict is the audit's decision, never the number of writes. It is
+      // decided before the move because a blocking question is reachable from
+      // `running` and not from `auditing`: the table in run.ts is the authority
+      // on which states exist.
+      this.verdict =
+        this.audit === null
+          ? null
+          : readiness({
+              audit: this.audit,
+              questions: this.stage?.questions ?? [],
+            })
+      if (this.verdict?.state === "ready") {
+        // `ready` is not reachable straight from `running`, so the pass records
+        // that it audited before it claims the verdict.
+        this.move("auditing")
+        this.move("ready")
+      } else
+        this.move(
+          this.review.some((item) => item.blocking)
+            ? "needs_input"
+            : "incomplete"
+        )
       await this.save()
     }
   }
@@ -492,7 +566,9 @@ export class PageRun {
     // Questions this pass could not express are collected per observation, not
     // accumulated across a run.
     this.notDispatchable = []
+    const at = this.clock()
     const read = await observePage({ session: this.deps.session })
+    this.observedAt = at
     const enumeration = candidateQuestions({
       observation: read.observation,
       evidence: read.evidence,
@@ -931,6 +1007,8 @@ export class PageRun {
       exhausted: this.exhausted,
       recovered: this.recovered,
       recordGroups: this.stage?.recordGroups ?? NO_RECORD_GROUPS,
+      audit: this.audit,
+      verdict: this.verdict,
       observationBytes: this.stage
         ? payloadBytes(this.stage.read.observation)
         : null,

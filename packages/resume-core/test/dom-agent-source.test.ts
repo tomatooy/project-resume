@@ -14,7 +14,7 @@ import {
 import {
   StoredAnswerSchema,
   answerDestination,
-  factFromStoredAnswer,
+  reviewFromStoredAnswer,
   scopeFromConditions,
 } from "../src/dom-agent/saved-answer"
 import { SourcePreparationSchema } from "../src/dom-agent/source-service"
@@ -70,6 +70,43 @@ describe("the source bundle", () => {
     ).toBe(true)
     expect(prepared.bundle.render.templateId).toBe(resume.templateId)
     expect(prepared.review).toEqual([])
+  })
+
+  it("previews a long summary instead of failing the whole bundle", async () => {
+    const { ports, services, resume } = await setup()
+    const summary = "y".repeat(501)
+    await ports.resumes.updateData({
+      id: resume.id,
+      schemaVersion: 1,
+      data: { ...resume.data, basics: { ...resume.data.basics, summary } },
+    })
+    const prepared = await services.autofill.prepare({ resumeId: resume.id })
+    const fact = prepared.bundle.facts.find(
+      (entry) => entry.id === "resume:basics.summary"
+    )
+    // The document allows 2000 characters here and a display stops at 500, so
+    // the bundle previews the summary rather than refusing every other source.
+    expect(fact?.display).toHaveLength(500)
+    expect(fact?.value).toEqual({ type: "text", text: summary })
+  })
+
+  it("previews a long profile link instead of failing the whole bundle", async () => {
+    const { services, resume } = await setup()
+    const profile = await services.autofillProfile.get()
+    const portfolioUrl = `https://example.com/${"a".repeat(600)}`
+    await services.autofillProfile.update({
+      expectedRevision: profile.revision,
+      section: "links",
+      data: { ...profile.data.links, portfolioUrl },
+    })
+    const prepared = await services.autofill.prepare({ resumeId: resume.id })
+    const fact = prepared.bundle.facts.find(
+      (entry) => entry.id === "profile:links.portfolioUrl"
+    )
+    // A Profile link may run to 2000 characters, which is another way into the
+    // same 500 character display.
+    expect(fact?.display).toHaveLength(500)
+    expect(fact?.value).toEqual({ type: "text", text: portfolioUrl })
   })
 
   it("never carries an EEO answer into the bundle, even a confirmed one", async () => {
@@ -261,31 +298,12 @@ describe("stored answers without a question identity", () => {
     ).toEqual([saved.id])
   })
 
-  it("turns a keyed answer into a fact that cites its question", () => {
-    const outcome = factFromStoredAnswer(
-      legacy({
-        meaning: { concept: "work_authorized" },
-        value: "yes",
-        questionKey: QUESTION_KEY,
-        factValue: { type: "boolean", state: "yes" },
-      })
-    )
-    if (outcome.kind !== "fact") throw new Error("expected a source fact")
-    expect(outcome.fact.source).toEqual({
-      kind: "saved_answer",
-      answerId: "11111111-1111-4111-8111-111111111111",
-      questionKey: QUESTION_KEY,
-    })
-    expect(outcome.fact.value).toEqual({ type: "boolean", state: "yes" })
-    expect(outcome.fact.scope).toEqual([{ dimension: "country", value: "US" }])
-  })
-
   it("keeps an EEO answer reviewable even when it carries a structured value", () => {
     // The mirror of the Profile-side exclusion. A row with the concept identity
     // the retired engine demanded, the new question identity and a value the
     // vocabulary can express would otherwise become an eligible source.
     for (const concept of ["eeo_gender", "eeo_veteran"]) {
-      const outcome = factFromStoredAnswer(
+      const outcome = reviewFromStoredAnswer(
         legacy({
           meaning: {
             concept,
@@ -293,17 +311,14 @@ describe("stored answers without a question identity", () => {
             definitionVersion: "vs-us-1",
           },
           value: "woman",
-          questionKey: QUESTION_KEY,
-          factValue: { type: "text", text: "woman" },
         })
       )
-      if (outcome.kind !== "review") throw new Error("expected review")
-      expect(outcome.answer.reason).toBe("excluded_concept")
+      expect(outcome.reason).toBe("excluded_concept")
     }
   })
 
-  it("keeps a keyed answer reviewable when it holds only a display string", () => {
-    const outcome = factFromStoredAnswer(
+  it("keeps a legacy row reviewable when it holds only a display string", () => {
+    const outcome = reviewFromStoredAnswer(
       legacy({
         meaning: { concept: "salary" },
         conditions: {
@@ -312,11 +327,16 @@ describe("stored answers without a question identity", () => {
           salaryPeriod: "year",
         },
         value: "145000 USD / year",
-        questionKey: QUESTION_KEY,
       })
     )
-    if (outcome.kind !== "review") throw new Error("expected review")
-    expect(outcome.answer.reason).toBe("unsupported_value")
+    // The scope still travels with the reason, so the user can see what the row
+    // was for even though nothing here can match it to a question.
+    expect(outcome.reason).toBe("no_question_key")
+    expect(outcome.scope).toEqual([
+      { dimension: "country", value: "US" },
+      { dimension: "currency", value: "USD" },
+      { dimension: "period", value: "year" },
+    ])
   })
 
   it("spells stored conditions out as scope", () => {

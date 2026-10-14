@@ -73,6 +73,7 @@ function audit(overrides: Partial<PageAudit> = {}): PageAudit {
     issues: [],
     verified: [],
     preserved: [],
+    unchecked: [],
     ...overrides,
   }
 }

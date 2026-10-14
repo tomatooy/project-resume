@@ -21,8 +21,8 @@ import {
   ReviewAnswerSchema,
   StoredAnswerSchema,
   answerDestination,
-  factFromStoredAnswer,
   profileFieldValue,
+  reviewFromStoredAnswer,
   type AnswerDestination,
   type DestinationChoice,
   type ProfileTarget,
@@ -126,11 +126,10 @@ export class SourceService {
       ...resumeFacts(doc, resumeId, versionId ?? null),
       ...profileFacts(profile),
     ]
-    for (const row of stored) {
-      const outcome = factFromStoredAnswer(StoredAnswerSchema.parse(row))
-      if (outcome.kind === "fact") facts.push(outcome.fact)
-      else review.push(outcome.answer)
-    }
+    // Every legacy row is a review, so nothing here adds a fact. The reader
+    // says why at its own doc comment.
+    for (const row of stored)
+      review.push(reviewFromStoredAnswer(StoredAnswerSchema.parse(row)))
     // Both readers feed one bundle and one review list: a row in the concept
     // vocabulary and a row in the question's own shape are answered from the
     // same facts, and a row either reader refuses stays visible to the user.
@@ -389,6 +388,23 @@ function answer(value: string): FactValue | null {
   return null
 }
 
+/** `FactSchema.display` stops here, so a longer value is previewed instead. */
+const DISPLAY_LIMIT = 500
+
+/**
+ * The display a fact shows when its source text may run past the limit.
+ *
+ * A display is a preview and the value carries the whole text, so cutting here
+ * costs nothing a reader or the model needs: the document allows a summary to
+ * run to 2000 characters and a Profile link to 2000, while a display stops at
+ * 500, and one long source must not fail the bundle every other source is read
+ * into. This is not the saved-answer rule: this is the person's own resume
+ * being previewed into a bundle, not a stored answer of theirs being changed.
+ */
+function preview(text: string): string {
+  return text.slice(0, DISPLAY_LIMIT)
+}
+
 /**
  * The resume's own text as facts. Reading it authorizes no edit. Module-private:
  * the service composes facts, and nothing outside this file consumes them
@@ -412,7 +428,7 @@ function resumeFacts(
     facts.push({
       id: `resume:basics.${field}`,
       meaning,
-      display: value,
+      display: preview(value),
       value: text(value),
       scope: [],
       source: { ...source, nodeId: "basics", field },
@@ -548,7 +564,9 @@ function profileFacts(profile: AutofillProfile): Fact[] {
   ]
   for (const [meaning, key, value] of simple) {
     if (!value.trim()) continue
-    add(key, meaning, key.split(".")[1] ?? key, text(value), value)
+    // The four link URLs are the reason this previews: the Profile allows them
+    // to run to 2000 characters where a display stops at 500.
+    add(key, meaning, key.split(".")[1] ?? key, text(value), preview(value))
   }
   if (data.address.countryCode)
     add(

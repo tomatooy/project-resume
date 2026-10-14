@@ -81,6 +81,19 @@ export function textStream(text: string): LanguageModelV3StreamResult {
   return { stream: simulateReadableStream({ chunks }) }
 }
 
+/** One model turn that ends without saying anything at all. */
+export function emptyStream(): LanguageModelV3StreamResult {
+  const chunks: LanguageModelV3StreamPart[] = [
+    { type: "stream-start", warnings: [] },
+    {
+      type: "finish",
+      finishReason: { unified: "stop", raw: undefined },
+      usage,
+    },
+  ]
+  return { stream: simulateReadableStream({ chunks }) }
+}
+
 export function textGenerate(text: string): LanguageModelV3GenerateResult {
   return {
     content: [{ type: "text", text }],

@@ -403,7 +403,12 @@ describe("batching independent work", () => {
     expect(report.checkpoint.batches).toHaveLength(1)
     expect(report.checkpoint.batches[0]?.actionRefs).toHaveLength(2)
     expect(store.saves.length).toBeGreaterThan(0)
-    expect(report.state).toBe("auditing")
+    // Every question is accounted for and the page was read in full, so the
+    // audit labels it: the run reaches its verdict through `auditing` rather
+    // than stopping there.
+    expect(report.state).toBe("ready")
+    expect(report.verdict).toEqual({ state: "ready" })
+    expect(report.audit?.verified).toEqual(["q1", "q2"])
     await harness.session.detach()
   })
 
@@ -944,6 +949,222 @@ describe("what the state table refuses", () => {
     expect(again.state).toBe("cancelled")
     expect(again.waiting?.reason).toMatch(/cancelled/i)
     expect(harness.dispatches.length).toBe(dispatched)
+    await harness.session.detach()
+  })
+})
+
+describe("the page audit", () => {
+  it("reports a required question it has nothing for instead of filling one in", async () => {
+    const harness = await page(`<form>
+      <label for="why">Why do you want this role?</label>
+      <textarea id="why" required></textarea>
+    </form>`)
+    const { run } = harness.run()
+    const report = await run.start()
+
+    // Nothing was written and nothing was invented: the page has to ask, and
+    // the audit says which question it is asking about.
+    expect(harness.dispatches).toEqual([])
+    expect(report.progress.dispatched).toBe(0)
+    expect(report.state).toBe("needs_input")
+    expect(report.verdict).toMatchObject({ state: "incomplete" })
+    expect(report.audit?.issues).toEqual([
+      { kind: "missing_required", questionRef: report.questions[0]?.ref },
+    ])
+    await harness.session.detach()
+  })
+
+  it("refuses to call a page ready while a region went unread", async () => {
+    const harness = await page(`<form>
+      <label for="email">Email address</label><input id="email" type="text">
+      <label for="city">City</label><input id="city" type="text">
+      <label for="pw">Password</label><input id="pw" type="password">
+    </form>`)
+    const { run } = harness.run()
+    const report = await run.start()
+
+    // Every question the run could see is answered, and the page is still not
+    // ready: a field it did not read is not a field that was fine.
+    expect(report.progress.accepted).toBe(2)
+    expect(report.coverage.complete).toBe(false)
+    expect(report.state).toBe("incomplete")
+    expect(report.verdict).toMatchObject({ state: "incomplete" })
+    const region = report.audit?.issues.find(
+      (issue) => issue.kind === "unobserved_region"
+    )
+    expect(region?.kind === "unobserved_region" ? region.scope : "").toMatch(
+      /authentication/
+    )
+    // The excluded field never became a question, so nothing was counted as
+    // answered where nothing was read.
+    expect(report.questions).toHaveLength(2)
+    await harness.session.detach()
+  })
+
+  it("keeps a value the page owns and counts it as preserved, not filled", async () => {
+    const harness = await page(`<form>
+      <label for="email">Email address</label>
+      <input id="email" type="text" readonly value="ada@old.example.com">
+      <label for="city">City</label><input id="city" type="text">
+    </form>`)
+    const { run } = harness.run()
+    const report = await run.start()
+
+    const email = report.questions.find(
+      (question) => question.text === "Email address"
+    )?.ref
+    const city = report.questions.find(
+      (question) => question.text === "City"
+    )?.ref
+    // A fact matches this wording, and the page's own value still wins: the
+    // question is preserved, never verified, and never becomes an answer.
+    expect(report.audit?.preserved).toEqual([email])
+    expect(report.audit?.verified).toEqual([city])
+    expect(report.audit?.issues).toEqual([])
+    expect(document.querySelector<HTMLInputElement>("#email")?.value).toBe(
+      "ada@old.example.com"
+    )
+    expect(report.state).toBe("ready")
+    await harness.session.detach()
+  })
+
+  it("reports a control the page would not take as a failed control", async () => {
+    const harness = await page(FORM)
+    const field = document.querySelector<HTMLInputElement>("#email")
+    // The page takes the value back the moment it is written.
+    field?.addEventListener("input", () => {
+      if (field) field.value = ""
+    })
+    const { run } = harness.run()
+    const report = await run.start()
+
+    const email = report.questions.find(
+      (question) => question.text === "Email address"
+    )?.ref
+    const city = report.questions.find(
+      (question) => question.text === "City"
+    )?.ref
+    // A refusal is its own outcome: "the page would not take it" is not the
+    // same as a write nothing answered for.
+    expect(report.audit?.verified).toEqual([city])
+    expect(report.audit?.issues).toEqual([
+      {
+        kind: "failed_control",
+        questionRef: email,
+        detail: expect.stringContaining("value_reverted"),
+      },
+    ])
+    expect(report.state).toBe("needs_input")
+    expect(report.verdict).toMatchObject({ state: "incomplete" })
+    await harness.session.detach()
+  })
+
+  it("holds no verdict once the user pauses the run", async () => {
+    const harness = await page(FORM)
+    const { run } = harness.run()
+    const filled = await run.start()
+    expect(filled.verdict).toEqual({ state: "ready" })
+
+    // A verdict is about the pass that ran. Once a person takes the run over,
+    // what the audit saw still stands and its decision does not.
+    const paused = await run.pause("Waiting for the user")
+    expect(paused.state).toBe("paused")
+    expect(paused.verdict).toBeNull()
+    expect(paused.audit?.verified).toEqual(["q1", "q2"])
+    await harness.session.detach()
+  })
+
+  it("holds no verdict once the user cancels the run", async () => {
+    const harness = await page(FORM)
+    const { run } = harness.run()
+    const filled = await run.start()
+    expect(filled.verdict).toEqual({ state: "ready" })
+
+    const stopped = await run.cancel()
+    expect(stopped.state).toBe("cancelled")
+    expect(stopped.verdict).toBeNull()
+    expect(stopped.audit?.verified).toEqual(["q1", "q2"])
+    await harness.session.detach()
+  })
+
+  it("holds no verdict for a run the ceiling stopped", async () => {
+    const harness = await page(FORM)
+    const { run } = harness.run()
+    clock = 1_000 + 121_000
+    const report = await run.start()
+
+    // The audit still reports the page it read, and no verdict is attached: a
+    // run that stopped for its budget is not the audit's to call ready. Both
+    // answers were matched and neither was written, which is what the run's own
+    // dispositions say too.
+    expect(report.state).toBe("incomplete")
+    expect(report.verdict).toBeNull()
+    expect(report.audit?.verified).toEqual([])
+    expect(report.audit?.issues).toEqual([
+      {
+        kind: "unverified",
+        questionRef: report.questions[0]?.ref,
+        detail: expect.stringContaining("no write reached the page"),
+      },
+      {
+        kind: "unverified",
+        questionRef: report.questions[1]?.ref,
+        detail: expect.stringContaining("no write reached the page"),
+      },
+    ])
+    await harness.session.detach()
+  })
+})
+
+/**
+ * Ticket 10's box 6 on the coordinator's side: the deterministic proposals
+ * still land, and the questions nothing could answer stay visible.
+ *
+ * This run has no model anywhere in it, so it is also what "the model failed"
+ * reduces to here: nothing but the run's own reading answered anything.
+ */
+describe("a page only part of which the run can answer", () => {
+  it("fills what a fact answers and keeps the rest visible", async () => {
+    const harness = await page(`<form>
+      <label for="email">Email address</label><input id="email" type="text">
+      <label for="why">Why do you want this role?</label>
+      <textarea id="why" required></textarea>
+    </form>`)
+    const { run } = harness.run()
+    const report = await run.start()
+
+    const email = report.questions.find(
+      (question) => question.text === "Email address"
+    )?.ref
+    const why = report.questions.find(
+      (question) => question.text === "Why do you want this role?"
+    )?.ref
+
+    // The half a fact answers is filled: the proposal reconciled and reached
+    // the page, and the audit counts it as verified rather than assumed.
+    expect(report.progress.accepted).toBe(1)
+    expect(harness.dispatches.map((entry) => entry.questionRef)).toEqual([
+      email,
+    ])
+    expect(report.audit?.verified).toEqual([email])
+
+    // The half nothing answers stays visible. The page keeps its own empty
+    // value, the question is asked rather than filled, and neither the run nor
+    // the audit calls the page done on its behalf.
+    expect(document.querySelector<HTMLTextAreaElement>("#why")?.value).toBe("")
+    expect(report.dispositions[why ?? ""]).toBe("needs_input")
+    expect(
+      report.review.map((item) => [
+        item.questionRef,
+        item.reason,
+        item.blocking,
+      ])
+    ).toEqual([[why, "no_matching_fact", true]])
+    expect(report.audit?.issues).toEqual([
+      { kind: "missing_required", questionRef: why },
+    ])
+    expect(report.state).toBe("needs_input")
+    expect(report.verdict).toMatchObject({ state: "incomplete" })
     await harness.session.detach()
   })
 })
