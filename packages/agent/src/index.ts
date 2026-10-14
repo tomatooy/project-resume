@@ -30,3 +30,8 @@ export {
 export { createJevDecider } from "./autofill/jev-decider"
 export { createPageInterpreter } from "./autofill/page-interpreter"
 export { createAutofillDrafter } from "./autofill/drafter"
+
+// The reasoning port's implementation. Nothing else in this package is
+// reachable from the autofill path: the caller hands it questions and facts and
+// gets proposals back, and the browser contract stays in resume-core.
+export { createPageReasoner } from "./dom-agent/reasoner"
