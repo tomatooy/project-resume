@@ -99,6 +99,54 @@ function codes(result: { rejections: { code: string }[] }): string[] {
   return result.rejections.map((rejection) => rejection.code)
 }
 
+/** One scope entry as the page or the resume states it. */
+function scopeOf(
+  dimension: "country" | "period",
+  value: string
+): CandidateQuestion["scope"] {
+  return [{ dimension, value }]
+}
+
+describe("scope", () => {
+  it("refuses a value copied from a fact that means something else", () => {
+    // The same value under a different scope is a different meaning, so a
+    // figure that answers one country's question does not answer another's.
+    const result = gate(output({ answers: [answer()] }), {
+      questions: [question({ scope: scopeOf("country", "US") })],
+      facts: [fact({ scope: scopeOf("country", "CA") })],
+    })
+
+    expect(result.proposals).toEqual([])
+    expect(codes(result)).toEqual(["scope_mismatch"])
+    expect(result.unresolved).toEqual(["q1"])
+  })
+
+  it("answers a question the fact's scope agrees with", () => {
+    // Compared the way a question key compares scope, so spacing and case are
+    // not a disagreement.
+    const result = gate(output({ answers: [answer()] }), {
+      questions: [question({ scope: scopeOf("country", " us ") })],
+      facts: [fact({ scope: scopeOf("country", "US") })],
+    })
+
+    expect(codes(result)).toEqual([])
+    expect(result.proposals).toHaveLength(1)
+  })
+
+  it("compares only the dimensions both sides state", () => {
+    // The question is about a country and the fact about a period. Neither
+    // says the other is wrong, and a dimension one side leaves out is not a
+    // claim the other side has to match.
+    const result = gate(output({ answers: [answer()] }), {
+      questions: [question({ scope: scopeOf("country", "US") })],
+      facts: [fact({ scope: scopeOf("period", "month") })],
+    })
+
+    expect(codes(result)).toEqual([])
+    expect(result.proposals).toHaveLength(1)
+  })
+})
+
 describe("copy", () => {
   it("takes an exact value and expands the fact into provenance", () => {
     const result = gate(output({ answers: [answer()] }))

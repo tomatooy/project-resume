@@ -165,8 +165,13 @@ describe("assembling the page's groups", () => {
       question("q5", nodes[0]?.ref ?? "", null, false),
     ]
     expect(pageRecordGroups({ observation, questions })).toEqual([
-      { groupRef: "r1", values: ["Acme", "Globex"], required: true },
-      { groupRef: "r2", values: [], required: false },
+      {
+        kind: null,
+        groupRef: "r1",
+        values: ["Acme", "Globex"],
+        required: true,
+      },
+      { kind: null, groupRef: "r2", values: [], required: false },
     ])
   })
 })
@@ -179,7 +184,9 @@ describe("binding page groups to records", () => {
 
   it("binds a group the page already filled from one record", () => {
     const plan = recordGroupPlan({
-      groups: [{ groupRef: "r1", values: ["Acme"], required: true }],
+      groups: [
+        { kind: null, groupRef: "r1", values: ["Acme"], required: true },
+      ],
       records,
     })
     expect(plan.bindings).toEqual([
@@ -200,7 +207,9 @@ describe("binding page groups to records", () => {
       { id: "exp_3", kind: "experience" as const, identity: "Acme" },
     ]
     const plan = recordGroupPlan({
-      groups: [{ groupRef: "r1", values: ["Acme"], required: true }],
+      groups: [
+        { kind: null, groupRef: "r1", values: ["Acme"], required: true },
+      ],
       records: twoAtAcme,
     })
     expect(plan.bindings).toEqual([])
@@ -217,8 +226,8 @@ describe("binding page groups to records", () => {
   it("never places one record twice", () => {
     const plan = recordGroupPlan({
       groups: [
-        { groupRef: "r1", values: ["Acme"], required: true },
-        { groupRef: "r2", values: ["Acme"], required: true },
+        { kind: null, groupRef: "r1", values: ["Acme"], required: true },
+        { kind: null, groupRef: "r2", values: ["Acme"], required: true },
       ],
       records,
     })
@@ -232,7 +241,9 @@ describe("binding page groups to records", () => {
     // Content the resume does not state is the applicant's own entry. It stays
     // in the application, so no binding is claimed and no record is consumed.
     const plan = recordGroupPlan({
-      groups: [{ groupRef: "r1", values: ["Freelance"], required: false }],
+      groups: [
+        { kind: null, groupRef: "r1", values: ["Freelance"], required: false },
+      ],
       records,
     })
     expect(plan.supplements).toEqual(["r1"])
@@ -242,7 +253,9 @@ describe("binding page groups to records", () => {
 
   it("binds a blank group only when one record is left, and refuses otherwise", () => {
     const last = recordGroupPlan({
-      groups: [{ groupRef: "r1", values: [], required: true }],
+      groups: [
+        { kind: "experience", groupRef: "r1", values: [], required: true },
+      ],
       records: [{ id: "exp_2", kind: "experience", identity: "Globex" }],
     })
     expect(last.bindings).toEqual([
@@ -256,7 +269,7 @@ describe("binding page groups to records", () => {
     // Two blanks and two records leave a pairing nobody can justify, and
     // position is not evidence for it.
     const ambiguous = recordGroupPlan({
-      groups: [{ groupRef: "r1", values: [], required: true }],
+      groups: [{ kind: null, groupRef: "r1", values: [], required: true }],
       records,
     })
     expect(ambiguous.bindings).toEqual([])
@@ -274,7 +287,7 @@ describe("binding page groups to records", () => {
 
   it("binds a group this run added for a named record", () => {
     const plan = recordGroupPlan({
-      groups: [{ groupRef: "r2", values: [], required: true }],
+      groups: [{ kind: null, groupRef: "r2", values: [], required: true }],
       records,
       added: [{ groupRef: "r2", recordId: "exp_2" }],
     })
@@ -291,8 +304,8 @@ describe("binding page groups to records", () => {
     // it and the run does not pretend the history is complete.
     const plan = recordGroupPlan({
       groups: [
-        { groupRef: "r1", values: ["Acme"], required: true },
-        { groupRef: "r2", values: [], required: true },
+        { kind: null, groupRef: "r1", values: ["Acme"], required: true },
+        { kind: null, groupRef: "r2", values: [], required: true },
       ],
       records: [records[0]].flatMap((entry) => (entry ? [entry] : [])),
     })
@@ -303,7 +316,7 @@ describe("binding page groups to records", () => {
 
   it("leaves an optional group with no record blank", () => {
     const plan = recordGroupPlan({
-      groups: [{ groupRef: "r1", values: [], required: false }],
+      groups: [{ kind: null, groupRef: "r1", values: [], required: false }],
       records: [],
     })
     expect(plan.missing).toEqual([])
@@ -314,7 +327,12 @@ describe("binding page groups to records", () => {
   it("binds an education group to a school", () => {
     const plan = recordGroupPlan({
       groups: [
-        { groupRef: "r1", values: ["Instituto Superior"], required: true },
+        {
+          kind: "education",
+          groupRef: "r1",
+          values: ["Instituto Superior"],
+          required: true,
+        },
       ],
       records: [
         { id: "edu_1", kind: "education", identity: "Instituto Superior" },
@@ -331,9 +349,40 @@ describe("binding page groups to records", () => {
 
   it("ignores the spacing and case the page adds to a name", () => {
     const plan = recordGroupPlan({
-      groups: [{ groupRef: "r1", values: ["  acme  "], required: true }],
+      groups: [
+        { kind: null, groupRef: "r1", values: ["  acme  "], required: true },
+      ],
       records,
     })
     expect(plan.bindings[0]?.recordId).toBe("exp_1")
+  })
+
+  it("leaves a blank education group unbound when only a job is left", () => {
+    // The page asks for education and the only record left is a job. Binding it
+    // would invent a school, so the group is reported as facts the applicant
+    // has to supply instead.
+    const plan = recordGroupPlan({
+      groups: [
+        { kind: "education", groupRef: "r1", values: [], required: true },
+      ],
+      records: [{ id: "exp_2", kind: "experience", identity: "Globex" }],
+    })
+    expect(plan.bindings).toEqual([])
+    expect(plan.refusals).toEqual([])
+    expect(plan.missing).toEqual(["r1"])
+  })
+
+  it("does not read a job as the answer to an education group", () => {
+    // The group's content matches a job's employer, but the group says it is an
+    // education group. Content the resume cannot account for in the kind the
+    // page asked for stays the applicant's own entry, never a binding.
+    const plan = recordGroupPlan({
+      groups: [
+        { kind: "education", groupRef: "r1", values: ["Acme"], required: true },
+      ],
+      records,
+    })
+    expect(plan.supplements).toEqual(["r1"])
+    expect(plan.bindings).toEqual([])
   })
 })

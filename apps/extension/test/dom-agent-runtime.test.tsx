@@ -508,6 +508,58 @@ describe("attaching a file", () => {
     expect(result.evidence).toEqual([RUNTIME_EVIDENCE.replacementUnconfirmed])
   })
 
+  it("refuses an unconfirmed attach while the site still shows a file", async () => {
+    // Sites take the file, keep it on their own side, and clear the input, so
+    // an empty input says nothing about whether an attachment is already there.
+    // The chip is the site's own statement that one is.
+    mount(
+      '<div id="field"><input id="a" type="file"><div>ada-resume.pdf</div></div>'
+    )
+    const result = await attachFile(
+      query("#a", HTMLInputElement),
+      attachStep({ replaceExisting: true }),
+      50
+    )
+    expect(result.state).toBe("rejected")
+    expect(result.evidence).toEqual([RUNTIME_EVIDENCE.replacementUnconfirmed])
+  })
+
+  it("preserves a file the site still shows rather than filling over it", async () => {
+    // Same evidence, the other gate: nothing asked to replace anything, and a
+    // file the site holds is never quietly replaced.
+    mount(
+      '<div id="field"><input id="a" type="file"><div>ada-resume.pdf</div></div>'
+    )
+    const result = await attachFile(
+      query("#a", HTMLInputElement),
+      attachStep(),
+      50
+    )
+    expect(result.state).toBe("rejected")
+    expect(result.evidence).toEqual([
+      RUNTIME_EVIDENCE.existingAttachmentPreserved,
+    ])
+  })
+
+  it("still uploads to an empty field that only shows a format hint", async () => {
+    // A hint is not a file. Reading one as a held file would refuse a first
+    // upload the applicant is entitled to make, so the shape has to be strict
+    // about separators.
+    mount(
+      '<div id="field"><input id="a" type="file"><div>Accepted: .pdf, .docx up to 10MB</div></div>'
+    )
+    const result = await attachFile(
+      query("#a", HTMLInputElement),
+      attachStep(),
+      50
+    )
+    expect(result.state).toBe("unresolved")
+    expect(result.evidence).toEqual([
+      RUNTIME_EVIDENCE.fileListAssigned,
+      RUNTIME_EVIDENCE.uploadStateNotObservable,
+    ])
+  })
+
   it("refuses bytes that are not the rendered PDF", async () => {
     mount('<input id="a" type="file">')
     const result = await attachFile(

@@ -6,7 +6,7 @@ import {
 } from "./answer"
 import { DOM_AGENT_LIMITS } from "./limits"
 import { QuestionRefSchema, type QuestionKind } from "./primitives"
-import type { CandidateQuestion } from "./question"
+import { normalizeQuestionText, type CandidateQuestion } from "./question"
 import type { Fact, FactValue } from "./source"
 
 type ProposedValue = z.infer<typeof ProposedValueSchema>
@@ -70,6 +70,7 @@ export const ReasoningRejectionCodeSchema = z.enum([
   "option_count",
   "kind_mismatch",
   "constraint",
+  "scope_mismatch",
   "unparsed",
 ])
 
@@ -233,12 +234,46 @@ function optionRefs(value: ProposedValue): string[] {
  * The gate over one answer. Returns the code it fails on, or null when every
  * rule holds. Order matters only for which reason is reported.
  */
+/**
+ * Scope is meaning, so a fact valid in one country does not answer a question
+ * asked about another. Only dimensions both sides state can be compared, and
+ * only a stated difference refuses: a dimension one side omits is not evidence
+ * of a mismatch, because a page that states no country has not claimed one.
+ *
+ * Values are compared the way a question key compares them, so two spellings of
+ * one scope are one scope here as they are there.
+ */
+function scopeMismatch(
+  question: CandidateQuestion,
+  cited: readonly Fact[]
+): boolean {
+  if (question.scope.length === 0) return false
+  for (const fact of cited) {
+    for (const entry of fact.scope) {
+      const asked = question.scope.find(
+        (candidate) => candidate.dimension === entry.dimension
+      )
+      if (
+        asked &&
+        normalizeQuestionText(asked.value) !==
+          normalizeQuestionText(entry.value)
+      ) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
 function checkAnswer(
   question: CandidateQuestion,
   answer: ReasonerAnswer,
   cited: Fact[]
 ): ReasoningRejectionCode | null {
   const { value, transformation } = answer
+  // Asked for before anything about the value: a correctly copied value from a
+  // fact that means something else is still the wrong answer to this question.
+  if (scopeMismatch(question, cited)) return "scope_mismatch"
   // An attachment is rendered from the pinned bundle, so a proposal naming one
   // is claiming a source it does not have.
   if (value.type === "file") return "kind_mismatch"

@@ -60,6 +60,15 @@ export const PageRecordGroupSchema = z.strictObject({
   values: z.array(z.string().max(500)).max(40),
   /** Whether the page marks this group as required. */
   required: z.boolean(),
+  /**
+   * The kind of record this group is for, when something states one. Null means
+   * nothing said, never "either kind": the observation cannot state a kind,
+   * because a group's label is the record's own name and a section heading is
+   * page wording rather than a vocabulary. The caller that added a group knows
+   * which control it pressed, declares the kind here, and the rules below then
+   * hold it to that.
+   */
+  kind: z.enum(["experience", "education"]).nullable(),
 })
 export type PageRecordGroup = z.infer<typeof PageRecordGroupSchema>
 
@@ -79,7 +88,7 @@ export function pageRecordGroups(input: {
     if (groupRef === null) continue
     let group = groups.get(groupRef)
     if (!group) {
-      group = { groupRef, values: [], required: false }
+      group = { groupRef, values: [], required: false, kind: null }
       groups.set(groupRef, group)
     }
     const value = groupValue(nodes.get(question.controlRef))
@@ -184,8 +193,10 @@ export function recordGroupPlan(input: {
       blank.push(group)
       continue
     }
-    const matched = input.records.filter((record) =>
-      group.values.some((value) => sameName(value, record.identity))
+    const matched = input.records.filter(
+      (record) =>
+        kindMatches(group, record) &&
+        group.values.some((value) => sameName(value, record.identity))
     )
     if (matched.length === 0) {
       supplements.push(group.groupRef)
@@ -232,12 +243,14 @@ export function recordGroupPlan(input: {
     })
   }
 
-  const remaining = input.records.filter((record) => !bound.has(record.id))
   const unclaimed = blank.filter(
     (group) => !bindings.some((binding) => binding.groupRef === group.groupRef)
   )
   const lone = unclaimed.length === 1 ? unclaimed[0] : undefined
-  const last = remaining.length === 1 ? remaining[0] : undefined
+  // Only a record of the group's own kind can answer it: a blank education
+  // group is not completed by a job, however few jobs are left. A group that
+  // declares nothing keeps the old answer, which is that any record may serve.
+  const last = lone ? sole(remainingFor(lone, input.records, bound)) : undefined
   if (lone && last) {
     bound.add(last.id)
     bindings.push({
@@ -247,6 +260,7 @@ export function recordGroupPlan(input: {
     })
   } else {
     for (const group of unclaimed) {
+      const remaining = remainingFor(group, input.records, bound)
       if (remaining.length === 0) {
         // A page asking for more history than this resume holds is a question
         // for the user, never a reason to invent a record.
@@ -275,6 +289,26 @@ export function recordGroupPlan(input: {
     missing,
     next,
   })
+}
+
+/** A group that declares no kind is answered by either, so nothing is refused twice. */
+function kindMatches(group: PageRecordGroup, record: SourceRecord): boolean {
+  return group.kind === null || group.kind === record.kind
+}
+
+/** The records still free to answer this group, of its own kind only. */
+function remainingFor(
+  group: PageRecordGroup,
+  records: readonly SourceRecord[],
+  bound: ReadonlySet<string>
+): SourceRecord[] {
+  return records.filter(
+    (record) => !bound.has(record.id) && kindMatches(group, record)
+  )
+}
+
+function sole(records: readonly SourceRecord[]): SourceRecord | undefined {
+  return records.length === 1 ? records[0] : undefined
 }
 
 function nextAdd(

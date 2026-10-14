@@ -338,6 +338,53 @@ function attachmentStateIn(
 }
 
 /**
+ * Whether the field's own surroundings already show a file. The input can be
+ * empty while the site still holds one, which is ordinary: a site takes the
+ * file, keeps it on its own side, and clears the input. The name cannot be
+ * compared here, because the name is exactly what is missing, so the shape of
+ * a file name stands in for it.
+ */
+export function attachmentPresentNear(element: Element): boolean {
+  let scope: Element | null = element.parentElement
+  for (let depth = 1; depth <= ATTACHMENT_SCOPE_DEPTH && scope; depth += 1) {
+    if (scopeShowsFile(scope, element)) return true
+    scope = scope.parentElement
+  }
+  return false
+}
+
+/**
+ * A file name as a site renders one: a single token ending in an extension,
+ * with an optional size in brackets after it. Deliberately strict, because a
+ * format hint is the cheap way to be wrong: "PDF, DOCX" and "Accepted: .pdf,
+ * .docx" both fail on their separators, and reading a hint as a held file would
+ * refuse a first upload the applicant is entitled to make.
+ */
+const ATTACHMENT_NAME_SHAPE = /^[^\s/\\]{2,}\.[a-z0-9]{2,5}$/i
+
+function looksLikeFileName(text: string): boolean {
+  const bare = text.replace(/\s*[([].*$/, "").trim()
+  return ATTACHMENT_NAME_SHAPE.test(bare)
+}
+
+function scopeShowsFile(scope: Element, control: Element): boolean {
+  const found = scope.querySelectorAll("*")
+  const limit = Math.min(found.length, ATTACHMENT_SCAN_LIMIT)
+  for (let index = 0; index < limit; index += 1) {
+    const candidate = found[index]
+    if (!candidate) continue
+    // The control and its ancestors carry the field itself, not its state.
+    if (candidate === control || candidate.contains(control)) continue
+    if (candidate.hasAttribute("hidden")) continue
+    if (candidate.getAttribute("aria-hidden") === "true") continue
+    if (looksLikeFileName(ownText(candidate))) return true
+    const aria = normalizeLabel(candidate.getAttribute("aria-label"))
+    if (looksLikeFileName(aria)) return true
+  }
+  return false
+}
+
+/**
  * An error the site marked on this field. `aria-live` alone is not one: sites
  * announce progress and success through the same region, and reading that as a
  * failure would be wrong more often than right.

@@ -1,5 +1,6 @@
 import {
   applyFiles,
+  attachmentPresentNear,
   attachmentStateNear,
   buildFile,
   controlledChildCount,
@@ -366,11 +367,16 @@ export async function attachFile(
   if ((control as HTMLInputElement).type !== "file")
     return refused("attach_file", RUNTIME_EVIDENCE.unsupportedControl)
   const existing = currentFiles(control)
+  // A site can take the file, keep it, and clear the input, so the input's own
+  // list is not the only evidence that it holds one. Both gates below treat the
+  // site's state as an attachment too, which is what keeps a cleared input from
+  // looking like an empty field.
+  const held = existing.length > 0 || attachmentPresentNear(control)
   const observed = {
     ...emptyObserved(),
     attachmentName: existing[0]?.name ?? null,
   }
-  if (existing.length > 0 && !step.replaceExisting)
+  if (held && !step.replaceExisting)
     return refused(
       "attach_file",
       RUNTIME_EVIDENCE.existingAttachmentPreserved,
@@ -379,7 +385,7 @@ export async function attachFile(
   // Belt and braces: the worker already declines to express an unauthorized
   // replacement, and the page still refuses one it cannot justify, so a
   // malformed request cannot overwrite an attachment the user placed.
-  if (existing.length > 0 && !step.replacementConfirmed)
+  if (held && !step.replacementConfirmed)
     return refused(
       "attach_file",
       RUNTIME_EVIDENCE.replacementUnconfirmed,
