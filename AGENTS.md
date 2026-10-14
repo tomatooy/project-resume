@@ -91,6 +91,12 @@ makes it resolve inside the worktree. Confirm the result rather than assuming it
 `require.resolve('@workspace/resume-core/dom-agent')` from the consumer package
 must print a path under the worktree.
 
+One test is red for a reason that has nothing to do with the code under test:
+`apps/web/src/features/resume/preview/pdfjs.test.ts` fails inside a worktree even
+when run alone, because Vite's fs allowlist denies the worker's resolved path once
+`node_modules` is linked to the primary's real files. It passes in the primary
+checkout, so do not chase it.
+
 ## TypeScript and type safety
 
 - Enhance type safety at all times. Never use `any`; avoid `as` and `unknown`

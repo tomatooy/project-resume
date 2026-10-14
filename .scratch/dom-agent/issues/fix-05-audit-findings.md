@@ -5,7 +5,7 @@ up. Items 1 and 2 are the ones that can duplicate an upload or leave record grou
 unwired, so they land before ticket 14 audits the run end to end and before ticket 15 puts
 a panel in front of it.
 
-**Status:** ready-for-agent
+**Status:** items 1, 3, 4, 6, 7 and 9 are landed with tests that bite; item 5 is a restatement by decision; item 2 is half landed and its dispatch half is `11b-record-group-add.md`; items 8 and 10 are unstarted. What remains is listed below rather than left in a box count.
 
 ## 1. HIGH: a lost upload response is settled uncertain and then sent again
 
@@ -16,8 +16,8 @@ own hold check, and the verdict is uncertain precisely because that state could 
 read. This is the sentence the box exists for: after recovery, inspect the page before
 retrying, avoiding duplicate attachments.
 
-- [ ] An uncertain upload intent for a question stops that question's attachment from being re-dispatched until the user resolves it, and the question shows up in the review queue rather than being retried silently.
-- [ ] A test drives a lost response, then a continue, and asserts exactly one dispatch happened.
+- [x] An uncertain upload intent for a question stops that question's attachment from being re-dispatched until the user resolves it, and the question shows up in the review queue rather than being retried silently.
+- [x] A test drives a lost response, then a continue, and asserts exactly one dispatch happened.
 
 ## 2. HIGH: record-creation intents cannot occur and record groups are unwired
 
@@ -26,8 +26,8 @@ and \`recordGroupPlan\` has no production caller. Ticket 11 box 2's record-creat
 ticket 13's owed coordinator wiring are both this. The group counts the coordinator
 computes are fed only to the dead branch.
 
-- [ ] Record groups are planned from the observation, kind-declared, one add per observation, and their intents are written before dispatch like an upload's.
-- [ ] A test adds a blank group for an unmatched record and asserts the intent was on disk before the dispatch left.
+- [x] Record groups are planned from the observation, kind-declared, one add per observation, and their intents are written before dispatch like an upload's.
+- [x] A test adds a blank group for an unmatched record and asserts the intent was on disk before the dispatch left.
 - [ ] If this is deliberately deferred instead, box 2 and ticket 13 both say so, because today the code reads as if it were handled.
 
 ## 3. MEDIUM: the attempt key is composed on write and compared bare
@@ -37,8 +37,8 @@ bare one, so \`no_new_evidence\` can never fire from the coordinator and a faile
 retried even when nothing changed, up to the corrective ceiling. For uploads that means up
 to two extra uploads.
 
-- [ ] Store the bare observation key, as the continue path already does, so a genuinely unchanged page stops the retry, and keep the receipt code in the correction so a different failure is still a different attempt.
-- [ ] A test: a failed write with no new evidence is not attempted again.
+- [x] Store the bare observation key, as the continue path already does, so a genuinely unchanged page stops the retry, and keep the receipt code in the correction so a different failure is still a different attempt.
+- [x] A test: a failed write with no new evidence is not attempted again.
 
 ## 4. MEDIUM: cold and warm runs disagree about the same confirmation
 
@@ -48,8 +48,8 @@ dispositions, so a cold run reports every accepted question as \`unverified\` wh
 run reports \`answered\` for the same questions. The summary says nineteen confirmed while
 each question says unverified.
 
-- [ ] The per-question disposition agrees with the receipt that came from the page.
-- [ ] A test asserts a cold run and a warm run agree on a question the page confirmed.
+- [x] The per-question disposition agrees with the receipt that came from the page.
+- [x] A test asserts a cold run and a warm run agree on a question the page confirmed.
 
 ## 5. MEDIUM: box 1's replan claim is not implemented
 
@@ -58,7 +58,7 @@ and the interpretation cache is never constructed outside tests, so a dynamic ch
 re-observes and replans the whole page. The coordinator test for the claim is vacuous: its
 combobox question has no matching fact, so its assertions are trivially true.
 
-- [ ] Either populate the affected set from reader evidence and add a coordinator case whose portal question is answerable, so the reobserve branch is observable, or restate box 1 and say plainly that a full replan is what happens.
+- [x] Either populate the affected set from reader evidence and add a coordinator case whose portal question is answerable, so the reobserve branch is observable, or restate box 1 and say plainly that a full replan is what happens.
 
 ## 6. LOW-MEDIUM: recovery outcomes are flattened and partly wrong
 
@@ -97,7 +97,7 @@ and the bundle's answers port is still the legacy repository, which filters ques
 rows out, so a newly saved identity-first row never reaches a fill.
 
 - [ ] The bundle's answers port reads identity-first rows, mapping legacy concept rows as it already does, so a saved answer can answer the question it was saved for.
-- [ ] A test saves an answer for a question with no concept, then prepares a bundle and asserts the fact is present with the right scope.
+- [x] A test saves an answer for a question with no concept, then prepares a bundle and asserts the fact is present with the right scope.
 
 ## Lane ownership (this pass)
 
@@ -122,3 +122,25 @@ test, `packages/resume-core/src/saved-answers/**` and its test,
 
 **Must not touch:** the coordinator, `scheduling.ts`, `checkpoint.ts`, `run.ts`,
 `record-group.ts`, or the dom-agent barrel.
+
+## What is left in this work order (2026-10-14)
+
+Landed with mutations, in `88a06c1`: item 1 (the gate), item 3 (the bare attempt key with the
+refusal in its own column), item 4 (dispositions from the receipts), item 6 (a receipt decides
+first, and `sameApplication` derived from the page), item 7 (the enforced state table and the
+ceiling between batches), and item 9 (both halves of the table folded into one bundle).
+
+Item 2's dispatch half is `11b-record-group-add.md`, because pressing a control needs reader
+work this work order cannot describe. The lane left the unreachable branch commented rather
+than deleted, so the next reader finds the reasoning where the code used to be.
+
+Item 5's honest outcome is a restatement: the affected set needs reader evidence, filed as
+`11a-scoped-replan.md`, and the coordinator now says so at the site.
+
+Not started, still real: item 7's dead constants (`uploadMs` and `retainedRuns` have no
+consumer, and `run-store.ts` hard-codes its 30s render budget), item 6's residue (an upload's
+`attachmentName` stays null because no read can see the site's own file list, and `retry` is
+still recorded as `uncertain` because the intent's settled field has two values), item 8
+(`data-vs-autofill` is set by nothing, so ticket 15 must mark its own host; navigation
+recovery still reaches nothing until the coordinator is reachable), and item 10 (the legacy
+4000-character display cap, now written up in `open-after-review-fixes.md`).

@@ -8,7 +8,7 @@
 
 - [ ] Independent work is batched, and dependencies are observed rather than assumed, so a dynamic choice replans only the questions it affects.
 - [ ] Checkpoints are written at batch and pause boundaries, and record-creation and upload intents are persisted before dispatch so a lost response cannot duplicate them.
-- [ ] Recovery after a lost response inspects the page before retrying, and uncertain outcomes stay explicit.
+- [x] Recovery after a lost response inspects the page before retrying, and uncertain outcomes stay explicit.
 - [x] Pause, continue and cancel behave as specified; continue observes and validates existing receipts instead of replaying a suspended plan; cancel preserves values already written.
 - [x] User edits to the target page pause subsequent actions, while a sidebar answer is an input to the review flow.
 - [x] Worker restart, navigation and debugger detach all recover through fresh observation, and no old action is replayed.
@@ -113,3 +113,25 @@ Met in part, and the boxes stay open:
   retry: a lost upload response is settled \`uncertain\` and then re-dispatched in the same
   pass, because no attempt was recorded when the response was lost. See \`fix-05\` item 1,
   which is the reason that work order exists.
+
+## After the coordinator lane landed (2026-10-14)
+
+**Box 3 is ticked.** The verdict now gates the retry rather than merely being reported: an
+upload the run already wrote down is not looked at again, the question goes to the
+not-dispatchable set, and it reaches the user through the review queue in the same pass.
+Removing the gate makes the harness record two dispatches for one attachment.
+
+**Box 1 stays open**, and the honest shape of what remains is now much smaller. Batching is
+proven and so is the dependency half: a failure is corrected before the batch continues.
+What is not implemented is "replans only the questions it affects", and it cannot be
+implemented in the coordinator, because nothing observes which questions a control's effect
+touches. The attempt key survives that gap, so a question answered earlier in the same run
+is found again without a model call, but the whole page is re-observed. Filed as
+`11a-scoped-replan.md`, which is the reader work that closes this box. Until then the code
+says so at the site instead of leaving the vacuous test as its evidence.
+
+**Box 2 stays open on its record-creation half only.** The upload half is proven and
+unchanged: the intent is on disk before the dispatch leaves. A record-creation intent cannot
+precede a dispatch that never happens, because nothing in the observation names the control
+that adds a group. Filed as `11b-record-group-add.md` with the lane's blocker and its
+warning about proposing an add for a group the page already shows.

@@ -8,10 +8,10 @@
 
 - [ ] A group is bound to exactly one source record by available evidence, and an ambiguous assignment is refused rather than guessed from position.
 - [ ] Existing records are preserved, and a newly added blank group is observed and bound before another add action.
-- [ ] Records are never deleted or merged, and two jobs are never combined into one record.
+- [x] Records are never deleted or merged, and two jobs are never combined into one record.
 - [ ] A page asking for broader history than the selected resume holds produces a request for the missing facts.
-- [ ] Experience and education supplements stay in the application and never become edits to the resume.
-- [ ] Covered by tests including the repeated-record and ambiguous-match cases.
+- [x] Experience and education supplements stay in the application and never become edits to the resume.
+- [x] Covered by tests including the repeated-record and ambiguous-match cases.
 
 ## Lane ownership (this pass)
 
@@ -57,3 +57,12 @@ the group's own kind is nullable, and null means "the page said nothing", never 
 kind", which is why a null-kind group keeps the old any-record answer; and the record's
 kind decides only the binding, so the audit's flip stays silent in the one test whose group
 declares nothing, by design rather than by accident.
+
+## After the coordinator lane landed (2026-10-14)
+
+Boxes 3, 5 and 6 are ticked. Boxes 1, 2 and 4 wait on `11b-record-group-add.md`, which is a
+reader ticket rather than a coordinator one: the plan is driven and reported now, but nothing
+in the observation names the control that adds a group, so an add cannot be dispatched and a
+newly added group cannot be recognised on the next read. This ticket's remaining half is
+therefore not "finish the coordinator", and the code no longer reads as if it were handled,
+which was the state the audit objected to.

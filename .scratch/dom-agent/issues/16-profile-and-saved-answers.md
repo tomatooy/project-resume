@@ -62,9 +62,14 @@ Five follow-ups, none of which reopens a box:
   legacy repository, which filters question-shaped rows out. This needs
   \`source-service.ts\`, which this ticket's lane was not allowed to touch, so it wants its
   own work order before anyone calls saved answers done.
-- **G2.** The new path's EEO guard is a wording match against five Profile titles, which
-  the schema comment admits. Fine while nothing reads these rows into a bundle; the bundle
-  route must filter by kind or scope rather than by wording once G1 lands.
+- **G2, closed as part of G1.** The exclusion is structural now: the decision is recorded on
+  the row when the answer is saved and the bundle reads that record rather than testing
+  wording, with absence treated as no permission rather than as consent. The classifier
+  behind the decision also widened from five verbose Profile titles to the subjects pages
+  use, plus the answer categories a page offered. Two limits stay stated on the ticket: the
+  service always writes the decision as false because the same predicate refuses a
+  demographic question at save, and a demographic question worded with none of the Profile's
+  subjects still reads as an ordinary question.
 - **G3.** The work-authorization fact carries the country but drops \`confirmedAt\`, so a
   time-scoped question cannot be compared against it and \`fix-04\`'s scope gate cannot fire
   for that answer. The Profile itself keeps both, so box 6 stands.

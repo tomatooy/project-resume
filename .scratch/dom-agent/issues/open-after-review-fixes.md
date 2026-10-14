@@ -41,3 +41,18 @@ honestly closed yet. Keep this list short and delete entries as they land.
 - **Pre-existing red, unrelated to this feature**: `packages/agent` (`models.test.ts`
   smart-tier thinking) and `apps/web` (`word-diff.test.tsx` expects `bg-primary/14`, the
   component renders `bg-success/10`). Both fail at `911f251`.
+
+## Found by the reuse lane (2026-10-14)
+
+**A long legacy answer makes `prepare` throw.** `factFromStoredAnswer` copies a stored value
+of up to 4000 characters into `FactSchema.display`, which is capped at 500, so one verbose
+legacy row fails the whole bundle. That contradicts the tenant that file states, which is
+that an uninterpretable or unusable row is a review outcome rather than a failed run. The
+fix wants a decision about what the display should say (the legacy reason already exists for
+rows it cannot read) and belongs in `packages/resume-core/src/dom-agent/saved-answer.ts` with
+its own test. Untouched by every lane so far because it would have widened their item.
+
+**A worktree makes one preview test red.** `apps/web/src/features/resume/preview/pdfjs.test.ts`
+fails inside a worktree even when run alone, because the documented bootstrap links
+`node_modules` entries to the primary's real paths and Vite's fs allowlist then denies the
+worker's resolved path. It passes in the primary checkout. Lanes should not chase it.
