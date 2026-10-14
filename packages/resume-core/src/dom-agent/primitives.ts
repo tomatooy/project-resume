@@ -77,6 +77,29 @@ export const ControlKindSchema = z.enum([
   "unknown",
 ])
 
+/**
+ * The kinds that come from a native HTML control, where the browser itself
+ * defines the state and the page authored the wording. `combobox`,
+ * `button_choice` and `unknown` are the kinds this engine arrives at by reading
+ * a role instead, and a role is an inference about a widget built out of
+ * something else. A deterministic match is confined to the native set, so
+ * nothing decided by exact wording can rest on that inference.
+ */
+export const NATIVE_CONTROL_KINDS: ReadonlySet<string> = new Set([
+  "text",
+  "long_text",
+  "email",
+  "tel",
+  "url",
+  "number",
+  "date",
+  "month",
+  "select",
+  "radio_group",
+  "checkbox_group",
+  "checkbox",
+  "file",
+])
 /** What the page is asking. Derived from meaning, not from the control kind. */
 export const QuestionKindSchema = z.enum([
   "short_text",

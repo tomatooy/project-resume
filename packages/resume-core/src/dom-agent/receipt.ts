@@ -67,7 +67,12 @@ export function revertedReceipts(
   receipts: readonly Receipt[],
   observedByQuestion: Record<
     string,
-    { value?: string | null; checked?: boolean | null } | undefined
+    | {
+        value?: string | null
+        checked?: boolean | null
+        optionRef?: string | null
+      }
+    | undefined
   >
 ): Receipt[] {
   const reverted: Receipt[] = []
@@ -75,7 +80,16 @@ export function revertedReceipts(
     if (receipt.state !== "accepted") continue
     const observed = observedByQuestion[receipt.questionRef]
     if (!observed) continue
+    // A selection is named by its option, not by the control's value: a radio
+    // anchor's own value attribute never changes, so comparing values alone
+    // would never notice the page moving the selection back.
     if (
+      receipt.observed.optionRef !== null &&
+      observed.optionRef !== undefined &&
+      observed.optionRef !== receipt.observed.optionRef
+    )
+      reverted.push(receipt)
+    else if (
       receipt.observed.value !== null &&
       observed.value !== undefined &&
       observed.value !== receipt.observed.value

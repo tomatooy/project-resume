@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { byCodeUnit, canonical, fingerprint } from "./fingerprint"
 import {
+  ControlKindSchema,
   NodeRefSchema,
   ObservedOptionSchema,
   QuestionKindSchema,
@@ -10,6 +11,21 @@ import {
   type ScopeEntry,
   ScopeEntrySchema,
 } from "./primitives"
+
+/**
+ * What the page states about an acceptable answer, read before anyone fills it.
+ * `min` and `max` stay as authored, because a number input means a number and a
+ * date input means an ISO string, and parsing them here would be our reading
+ * rather than the page's statement.
+ */
+export const ConstraintsSchema = z.strictObject({
+  maxLength: z.number().int().positive().nullable(),
+  pattern: z.string().max(500).nullable(),
+  min: z.string().max(100).nullable(),
+  max: z.string().max(100).nullable(),
+  inputMode: z.string().max(40).nullable(),
+})
+export type Constraints = z.infer<typeof ConstraintsSchema>
 
 /**
  * A question as the page presents it, enumerated by the driver before any
@@ -28,6 +44,13 @@ export const CandidateQuestionSchema = z.strictObject({
   description: z.string().max(4000).nullable(),
   options: z.array(ObservedOptionSchema).max(200),
   requiredness: RequirednessSchema,
+  /**
+   * The control this was read from. Carried so a deterministic decision can be
+   * confined to native controls instead of trusting a role this engine guessed.
+   */
+  controlKind: ControlKindSchema.optional(),
+  /** What the page states about the shape of an answer. */
+  constraints: ConstraintsSchema.optional(),
   /** Conditions the page itself states, such as the country a form names. */
   scope: z.array(ScopeEntrySchema).max(10),
 })
@@ -136,4 +159,40 @@ export function canonicalQuestion(input: QuestionKeyInput): string {
 
 export function questionKey(input: QuestionKeyInput): string {
   return fingerprint(canonicalQuestion(input))
+}
+
+const UNLABELLED_OPEN = "[unlabelled "
+
+/**
+ * The wording a question carries when the page authored none. It exists so the
+ * question is still visible and countable, not so it can be identified.
+ */
+export function unlabelledWording(kind: CandidateQuestion["kind"]): string {
+  return `${UNLABELLED_OPEN}${kind}]`
+}
+
+export function isUnlabelledWording(text: string): boolean {
+  return text.startsWith(UNLABELLED_OPEN) && text.endsWith("]")
+}
+
+/**
+ * The identity a saved answer may attach to, or null when the page authored no
+ * wording for this question.
+ *
+ * Such a question is still enumerated, still counted and still fillable in this
+ * run. It gets no reusable identity, because two unlabelled fields of one kind
+ * would otherwise share a key and one saved answer could attach to the wrong
+ * field. Explicit page-stated scope reaches the key through `question.scope`,
+ * which only the driver sets: never the model, never the accessibility tree.
+ */
+export function reusableQuestionKey(
+  question: CandidateQuestion
+): string | null {
+  if (isUnlabelledWording(question.text)) return null
+  return questionKey({
+    text: question.text,
+    kind: question.kind,
+    scope: question.scope,
+    options: question.options,
+  })
 }

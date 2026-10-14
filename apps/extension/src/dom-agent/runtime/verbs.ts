@@ -231,17 +231,25 @@ export async function selectOption(
       options
     )
   const settled = await settle(
-    () => optionEntries(control).find((entry) => entry.selected) ?? null,
-    (entry) =>
-      normalizeLabel(entry?.label ?? "") === normalizeLabel(target.label),
+    // Read the target itself. Reading "the first selected entry" compared the
+    // wrong element whenever the user's own earlier choice came first in
+    // document order, which reported a filled control as unresolved.
+    () =>
+      optionEntries(control).find(
+        (entry) => normalizeLabel(entry.label) === normalizeLabel(target.label)
+      ) ?? null,
+    (entry) => entry?.selected === true,
     expect.settleMs
   )
   const observed = {
     ...emptyObserved(),
     value: readValue(control),
-    selectedOptionLabel: settled?.label ?? null,
+    selectedOptionLabel: settled?.selected === true ? settled.label : null,
   }
-  if (normalizeLabel(settled?.label ?? "") === normalizeLabel(target.label))
+  // Acceptance is the target entry's own selected state. Comparing labels would
+  // accept a page that changed nothing, because the entry is found by label
+  // whether or not it is selected, and settle returns its last read on timeout.
+  if (settled?.selected === true)
     return outcome(
       "select_option",
       "accepted",
@@ -279,8 +287,10 @@ function applySelection(
 }
 
 /**
- * A single checkbox or switch. `expectedChecked` of null means the action does
- * not assert the current state, unlike text, where the action always states it.
+ * A single checkbox or switch. A toggle must state the state it expects: with
+ * no expectation there is nothing to check the write against, so a change the
+ * user made after the observation would be overwritten by a write that cannot
+ * tell. A toggle that states nothing therefore writes nothing.
  */
 export async function toggle(
   control: Element,
@@ -289,10 +299,14 @@ export async function toggle(
 ): Promise<RuntimeOutcome> {
   const block = blocked(control, "toggle")
   if (block) return block
+  // An empty selection is not a state to compare against: a toggle that states
+  // nothing would overwrite a change the user made after the observation.
+  if (expect.expectedChecked === null)
+    return refused("toggle", RUNTIME_EVIDENCE.expectedCheckedMissing)
   const before = readChecked(control)
   if (before === null)
     return refused("toggle", RUNTIME_EVIDENCE.unsupportedControl)
-  if (expect.expectedChecked !== null && before !== expect.expectedChecked)
+  if (before !== expect.expectedChecked)
     return refused("toggle", RUNTIME_EVIDENCE.expectedCheckedMismatch, {
       ...emptyObserved(),
       checked: before,
@@ -357,6 +371,15 @@ export function attachFile(
     return refused(
       "attach_file",
       RUNTIME_EVIDENCE.existingAttachmentPreserved,
+      observed
+    )
+  // Belt and braces: the worker already declines to express an unauthorized
+  // replacement, and the page still refuses one it cannot justify, so a
+  // malformed request cannot overwrite an attachment the user placed.
+  if (existing.length > 0 && !step.replacementConfirmed)
+    return refused(
+      "attach_file",
+      RUNTIME_EVIDENCE.replacementUnconfirmed,
       observed
     )
   const file = buildFile(control, step.file)

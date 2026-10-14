@@ -145,7 +145,7 @@ function meaningPhrase(concept: string, scope: ScopeEntry[]): string {
  * Where a confirmed answer is kept. The default is this application only, and
  * every other destination is a choice the user has to make explicitly.
  */
-export const ProfileTargetSchema = z.discriminatedUnion("kind", [
+const ProfileTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("field"),
     section: ProfileSectionSchema,
@@ -159,7 +159,7 @@ export const ProfileTargetSchema = z.discriminatedUnion("kind", [
 ])
 export type ProfileTarget = z.infer<typeof ProfileTargetSchema>
 
-export const AnswerDestinationSchema = z.discriminatedUnion("kind", [
+const AnswerDestinationSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("application") }),
   z.strictObject({
     kind: z.literal("reusable"),
@@ -216,22 +216,19 @@ export function answerDestination(
 /** Sections whose shape is a set of named fields rather than a list. */
 const FIELD_SECTIONS = ["identity", "links", "address", "preferences"] as const
 
-export function isFieldSection(
+function isFieldSection(
   section: ProfileSection
 ): section is (typeof FIELD_SECTIONS)[number] {
   return (FIELD_SECTIONS as readonly string[]).includes(section)
 }
 
 /** A Profile field the schema actually declares, which is what "matching" means. */
-export function profileFieldNames(section: ProfileSection): readonly string[] {
+function profileFieldNames(section: ProfileSection): readonly string[] {
   if (!isFieldSection(section)) return []
   return Object.keys(ProfileSections[section].shape)
 }
 
-export function profileFieldExists(
-  section: ProfileSection,
-  field: string
-): boolean {
+function profileFieldExists(section: ProfileSection, field: string): boolean {
   return profileFieldNames(section).includes(field)
 }
 

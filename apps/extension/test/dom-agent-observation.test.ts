@@ -3,6 +3,7 @@ import {
   observePage,
   readFragment,
   readOptions,
+  readRegion,
 } from "../src/dom-agent/observation"
 import type { DomNode } from "../src/dom-agent/observation-payload"
 import {
@@ -475,6 +476,47 @@ describe("budgets", () => {
     await read.session.detach()
   })
 
+  it("asks the browser for a bounded document, not the whole tree", async () => {
+    const page = createPageTransport()
+    page.setDocument(null, buildPage(`<input name="a" aria-label="A">`))
+    const { session } = await attachPage({ transport: page })
+    const read = await observePage({ session })
+
+    // The first read is bounded by the same depth the plan uses, so a deeply
+    // nested page cannot cost an unbounded fetch. The session's own probe also
+    // reads the document, which is why this is about every request rather than
+    // about one of them.
+    const requested = page.commands.filter(
+      (command) => command.method === "DOM.getDocument"
+    )
+    expect(requested.some((command) => command.params.depth === 40)).toBe(true)
+    for (const command of requested) expect(command.params.depth).not.toBe(-1)
+    // Nothing was cut on a page this shallow, so it is still complete.
+    expect(read.observation.coverage.complete).toBe(true)
+    await session.detach()
+  })
+
+  it("records a subtree cut at the depth ceiling instead of calling the page complete", async () => {
+    const deep =
+      "<div>".repeat(45) +
+      `<input name="deep" aria-label="Deep">` +
+      "</div>".repeat(45)
+    const read = await readPage(deep)
+
+    // The control really is missing from the read, so the gap is about a loss
+    // rather than a log line.
+    expect(controls(read).some((control) => control.name === "Deep")).toBe(
+      false
+    )
+    // And the observation says the page was not fully read.
+    expect(read.observation.coverage.complete).toBe(false)
+    const gap = read.observation.coverage.gaps.find((candidate) =>
+      candidate.detail.includes("deeper than 40")
+    )
+    expect(gap?.reason).toBe("truncated")
+    await read.session.detach()
+  })
+
   it("reads the same page the same way twice", async () => {
     const html = `<form><label for="a">Name</label><input id="a" name="a">
       <label for="b">Email</label><input id="b" name="b"></form>`
@@ -494,6 +536,44 @@ describe("budgets", () => {
 })
 
 describe("reads on request", () => {
+  it("reads a region by its own reference, and says when it cannot", async () => {
+    const page = createPageTransport()
+    page.setDocument(
+      null,
+      buildPage(
+        `<form><fieldset><legend>Contact</legend><label for="a">Name</label><input id="a" name="a"></fieldset></form>`
+      )
+    )
+    const { session } = await attachPage({ transport: page })
+    const read = await observePage({ session })
+
+    const region = read.observation.regions.find(
+      (candidate) => candidate.nodeRefs.length > 0
+    )
+    if (!region) throw new Error("fixture missing region")
+    const anchor = region.nodeRefs[0]
+    if (!anchor) throw new Error("fixture missing region anchor")
+    const identity = read.index.resolve(anchor)
+    if (!identity) throw new Error("fixture missing region identity")
+
+    const inner = buildPage(`<div><input name="deep" aria-label="Deep"></div>`)
+    page.setDescribe(identity.backendNodeId, inner.dom)
+    const fragment = await readRegion({ session, read, regionRef: region.ref })
+
+    // A region read is a fragment of its own: bounded, with its own coverage,
+    // and never pretending to be the page it came from.
+    expect(fragment.nodes.length).toBeGreaterThan(0)
+    expect(fragment.nodes.map((node) => node.ref)).not.toContain(anchor)
+    expect(fragment.coverage.complete).toBe(true)
+
+    // A region that is no longer part of this observation is refused, not read
+    // from a guess about where it went.
+    const missing = await readRegion({ session, read, regionRef: "n999" })
+    expect(missing.nodes).toHaveLength(0)
+    expect(missing.coverage.complete).toBe(false)
+    await session.detach()
+  })
+
   it("reads a bounded fragment by browser identity", async () => {
     const page = createPageTransport()
     page.setDocument(

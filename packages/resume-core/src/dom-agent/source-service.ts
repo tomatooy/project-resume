@@ -352,8 +352,12 @@ function answer(value: string): FactValue | null {
   return null
 }
 
-/** Facts from the selected resume or version. Reading it authorizes no edit. */
-export function resumeFacts(
+/**
+ * The resume's own text as facts. Reading it authorizes no edit. Module-private:
+ * the service composes facts, and nothing outside this file consumes them
+ * separately.
+ */
+function resumeFacts(
   doc: Resume,
   resumeId: string,
   versionId: string | null
@@ -450,7 +454,7 @@ function linkKind(url: string, label: string): string | null {
  * answer is the user's own, so no EEO question may be answered from the bundle,
  * whether by defaulting or from a stored answer.
  */
-export function profileFacts(profile: AutofillProfile): Fact[] {
+function profileFacts(profile: AutofillProfile): Fact[] {
   const facts: Fact[] = []
   const data = profile.data
   const add = (

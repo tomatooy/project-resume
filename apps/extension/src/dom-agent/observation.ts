@@ -1,4 +1,5 @@
 import {
+  type Constraints,
   type CoverageGap,
   DOM_AGENT_LIMITS,
   type Observation,
@@ -72,6 +73,10 @@ const MAX_TEXT = 2000
 const MAX_LABEL = 400
 const MAX_OPTIONS = 200
 const MAX_PLAN_DEPTH = 40
+/** How deep a frame or open shadow root is followed before it is reported. */
+const MAX_ROOT_DEPTH = 10
+/** How deep an option list is walked before the rest is reported unread. */
+const MAX_OPTION_DEPTH = 6
 
 /** Derived, so the evidence vocabulary stays owned by the shared schema. */
 type RequirednessEvidence = Requiredness["evidence"][number]
@@ -114,6 +119,8 @@ export type ControlEvidence = {
   /** Original wording as authored, before any computed name. */
   labelText: string
   description: string | null
+  /** What the page states about the shape of an answer to this control. */
+  constraints: Constraints
   /** The option list lives outside this subtree and must be read on request. */
   portal: boolean
 }
@@ -184,6 +191,13 @@ type Plan = {
   name: string | null
   text: string | null
   control: ObservedControl | null
+  /**
+   * The DOM node behind each of `control.options`, in the same order. Carried
+   * so the second pass can give every option a reference: an option with no
+   * reference could never be chosen, and the staleness check would have nothing
+   * to compare.
+   */
+  optionNodes: DomNode[]
   evidence: ControlEvidence | null
   region: boolean
   regionLabel: string | null
@@ -201,6 +215,10 @@ type PlanFlags = {
   groupRequired: boolean
   /** Counted, because an excluded field is a fact the user should see. */
   excludedCredentials: { count: number }
+  /** Counted, because a subtree dropped at the depth ceiling is a gap. */
+  depthCapped: { count: number }
+  /** Counted, because an option nobody can choose is a gap in the list. */
+  optionIdentity: { count: number }
 }
 
 type BuildState = {
@@ -412,7 +430,15 @@ function labelTextFor(
     const text = clamp(textOf(wrapped), MAX_LABEL)
     if (text) return text
   }
-  return ""
+  // A placeholder and a title are wording the page authored, so this reader may
+  // use them. They come after the label sources, because a real label is what a
+  // person reads for the field; both are page text, unlike the computed name.
+  const placeholder = clamp(
+    attributeOrNull(attributes, "placeholder"),
+    MAX_LABEL
+  )
+  if (placeholder) return placeholder
+  return clamp(attributeOrNull(attributes, "title"), MAX_LABEL) ?? ""
 }
 
 /** A label that wraps the control is the other native way to author one. */
@@ -443,6 +469,23 @@ function describedText(
     if (text) return text
   }
   return clamp(axText(ax?.description), MAX_LABEL)
+}
+
+/**
+ * What the page states about an acceptable answer. Read from the control's own
+ * attributes, so a value the page would refuse is knowable before a write
+ * rather than discovered by the page rejecting it.
+ */
+function constraintsOf(attributes: Map<string, string>): Constraints {
+  const declared = Number.parseInt(attributes.get("maxlength") ?? "", 10)
+  return {
+    maxLength: Number.isFinite(declared) && declared > 0 ? declared : null,
+    pattern: clamp(attributeOrNull(attributes, "pattern"), 500),
+    // As authored: numeric for a number input, ISO for a date or month input.
+    min: clamp(attributeOrNull(attributes, "min"), 100),
+    max: clamp(attributeOrNull(attributes, "max"), 100),
+    inputMode: clamp(attributeOrNull(attributes, "inputmode"), 40),
+  }
 }
 
 /**
@@ -664,13 +707,23 @@ function groupLabelText(group: Grouped, source: Source): string {
 }
 
 /** Options of a select or listbox, taken from its own subtree. */
-function optionsFromSubtree(node: DomNode, source: Source): ObservedOption[] {
+function optionsFromSubtree(
+  node: DomNode,
+  source: Source,
+  optionIdentity: { count: number }
+): { options: ObservedOption[]; optionNodes: DomNode[] } {
   const options: ObservedOption[] = []
+  const optionNodes: DomNode[] = []
   for (const option of node.children ?? []) {
     if (!isElement(option)) continue
     const role = attributeMap(option).get("role")
     if (tagOf(option) !== "option" && role !== "option") continue
-    if (option.backendNodeId === undefined) continue
+    // An option with no browser identity can never be chosen, so offering it
+    // would be offering something this engine cannot do.
+    if (option.backendNodeId === undefined) {
+      optionIdentity.count += 1
+      continue
+    }
     options.push({
       ref: "",
       label: (clamp(textOf(option), 500) ?? "").slice(0, 500),
@@ -683,8 +736,10 @@ function optionsFromSubtree(node: DomNode, source: Source): ObservedOption[] {
         attributeMap(option).has("disabled") ||
         attributeMap(option).get("aria-disabled") === "true",
     })
+    optionNodes.push(option)
   }
-  return options.slice(0, MAX_OPTIONS)
+  const bounded = options.slice(0, MAX_OPTIONS)
+  return { options: bounded, optionNodes: optionNodes.slice(0, MAX_OPTIONS) }
 }
 
 type ControlInput = {
@@ -697,15 +752,18 @@ type ControlInput = {
   group: Grouped | undefined
   groupText: string
   markers: string
+  optionIdentity: { count: number }
 }
 
 function describeControl(input: ControlInput): {
   control: ObservedControl
   evidence: ControlEvidence
+  optionNodes: DomNode[]
 } {
   const { node, tag, attributes, ax, role, source, group } = input
   const kind = group ? group.kind : controlKindFor(tag, attributes, role)
   const options: ObservedOption[] = []
+  const optionNodes: DomNode[] = []
   let portal = false
 
   if (group) {
@@ -715,6 +773,11 @@ function describeControl(input: ControlInput): {
         member.backendNodeId === undefined
           ? undefined
           : source.ax.get(member.backendNodeId)
+      // A member with no browser identity is an option nothing could choose.
+      if (member.backendNodeId === undefined) {
+        input.optionIdentity.count += 1
+        continue
+      }
       const label =
         labelTextFor(member, source, memberAttributes) ||
         clamp(axText(memberAx?.name), MAX_LABEL) ||
@@ -728,9 +791,12 @@ function describeControl(input: ControlInput): {
           memberAttributes.has("disabled") ||
           memberAttributes.get("aria-disabled") === "true",
       })
+      optionNodes.push(member)
     }
   } else if (kind === "select" || role === "listbox") {
-    options.push(...optionsFromSubtree(node, source))
+    const subtree = optionsFromSubtree(node, source, input.optionIdentity)
+    options.push(...subtree.options)
+    optionNodes.push(...subtree.optionNodes)
   } else {
     portal =
       options.length === 0 &&
@@ -788,7 +854,14 @@ function describeControl(input: ControlInput): {
       options,
       accepts: clamp(attributeOrNull(attributes, "accept"), 200),
     },
-    evidence: { requiredness, labelText, description, portal },
+    evidence: {
+      requiredness,
+      labelText,
+      description,
+      constraints: constraintsOf(attributes),
+      portal,
+    },
+    optionNodes,
   }
 }
 
@@ -804,7 +877,10 @@ function planNode(
   depth: number,
   parentGroupText: string
 ): Plan | null {
-  if (depth > MAX_PLAN_DEPTH) return null
+  if (depth > MAX_PLAN_DEPTH) {
+    flags.depthCapped.count += 1
+    return null
+  }
 
   if (isTextNode(node)) {
     if (node.backendNodeId === undefined) return null
@@ -820,6 +896,7 @@ function planNode(
       name: null,
       text,
       control: null,
+      optionNodes: [],
       evidence: null,
       region: false,
       regionLabel: null,
@@ -857,6 +934,7 @@ function planNode(
       name: null,
       text: null,
       control: null,
+      optionNodes: [],
       evidence: null,
       region: false,
       regionLabel: null,
@@ -904,6 +982,7 @@ function planNode(
           group: isGroupAnchor ? group : undefined,
           groupText: parentGroupText,
           markers,
+          optionIdentity: flags.optionIdentity,
         })
       : null
 
@@ -961,6 +1040,7 @@ function planNode(
       ? control.evidence.labelText || clamp(textOf(node), MAX_LABEL)
       : clamp(textOf(node), MAX_TEXT),
     control: control?.control ?? null,
+    optionNodes: control?.optionNodes ?? [],
     evidence: control?.evidence ?? null,
     region,
     regionLabel: region ? (clamp(axText(ax?.name), MAX_LABEL) ?? tag) : null,
@@ -1017,6 +1097,26 @@ function emit(
     frameId: plan.context.frameId,
   })
 
+  // Every option gets a reference of its own, so a later action can address the
+  // option it chose and a replayed one can be checked against live state. They
+  // are resolvable through the index and named in the control's option list, so
+  // they are not pushed into the node list: that would inflate the page the
+  // model reads and the byte budget for no gain.
+  for (const [index, optionNode] of plan.optionNodes.entries()) {
+    const option = plan.control?.options[index]
+    const optionBackendId = optionNode.backendNodeId
+    if (!option || optionBackendId === undefined) continue
+    state.refCounter += 1
+    const optionRef = `n${state.refCounter}`
+    state.index.add(optionRef, {
+      contextId: plan.context.id,
+      sessionId: plan.context.sessionId,
+      backendNodeId: optionBackendId,
+      frameId: plan.context.frameId,
+    })
+    option.ref = optionRef
+  }
+
   let regionRef = input.regionRef
   if (plan.region) {
     regionRef = ref
@@ -1057,30 +1157,46 @@ function emit(
       recordRef,
     })
 
-  // Truncation is reported, never inferred from a node count: a node that
-  // declares children the read did not return is a gap, not an empty element.
+  // Truncation is reported, never inferred from a node count: a node the read
+  // returned without all of its children is a gap, whether a ceiling cut it or
+  // the read itself was bounded before it. Checking while the plan still had
+  // children missed every subtree cut at the depth ceiling.
   const declared = plan.dom.childNodeCount ?? 0
   const present = (plan.dom.children ?? []).length
-  if (plan.children.length === 0 && declared > present)
+  if (declared > present)
     state.gaps.push({
       scope: plan.tag,
       reason: "truncated",
-      detail: `${present} of ${declared} child nodes were returned`,
+      detail: `${present} of ${declared} child nodes were read`,
     })
 
   return ref
 }
 
 /** Every context that has to be read separately, with its own root node. */
-function rootsOf(source: Source, base: Context, root: DomNode): Root[] {
+function rootsOf(
+  source: Source,
+  base: Context,
+  root: DomNode
+): { roots: Root[]; capped: number } {
   const roots: Root[] = [{ context: base, node: root, source }]
   let anonymous = 0
+  let capped = 0
   const nextAnonymousId = (prefix: "frame" | "shadow"): string => {
     anonymous += 1
     return `${prefix}:${anonymous}`
   }
   const visit = (node: DomNode, depth: number): void => {
-    if (depth > 10) return
+    // Past the ceiling the search stops. Only a node that actually holds a frame
+    // or a shadow root is a context nobody read; an ordinary deep subtree is not
+    // a gap, and counting those would call every deep page incomplete. A context
+    // nested below this boundary is still not detected, which is the price of
+    // bounding the walk at all.
+    if (depth > MAX_ROOT_DEPTH) {
+      if (node.contentDocument || (node.shadowRoots ?? []).length > 0)
+        capped += 1
+      return
+    }
     if (node.contentDocument) {
       const frameId = node.contentDocument.frameId ?? null
       roots.push({
@@ -1124,7 +1240,7 @@ function rootsOf(source: Source, base: Context, root: DomNode): Root[] {
     for (const child of node.children ?? []) visit(child, depth + 1)
   }
   visit(root, 0)
-  return roots
+  return { roots, capped }
 }
 
 function containsExtensionFrame(node: DomNode): boolean {
@@ -1221,8 +1337,12 @@ export async function observePage(input: {
 
     let document: unknown
     try {
+      // Bounded on purpose. The plan never reaches past MAX_PLAN_DEPTH, so a
+      // deeper fetch would only pay for content nothing would read; a node the
+      // bound cuts still reports its child count, so the second pass records
+      // what it could not reach instead of assuming it was empty.
       document = await session.send(sessionContext.id, "DOM.getDocument", {
-        depth: -1,
+        depth: MAX_PLAN_DEPTH,
         pierce: true,
       })
     } catch {
@@ -1269,7 +1389,9 @@ export async function observePage(input: {
     const source = indexSource(parsed.data.root, axNodes)
     const roots = rootsOf(source, base, parsed.data.root)
     const excludedCredentials = { count: 0 }
-    for (const root of roots) {
+    const depthCapped = { count: 0 }
+    const optionIdentity = { count: 0 }
+    for (const root of roots.roots) {
       const closedShadow = root.node.shadowRootType === "closed"
       if (closedShadow) {
         state.gaps.push({
@@ -1288,6 +1410,8 @@ export async function observePage(input: {
         groupText: "",
         groupRequired: false,
         excludedCredentials,
+        depthCapped,
+        optionIdentity,
       }
       const planned = planNode(root.node, root.context, flags, 0, "")
       if (!planned) {
@@ -1315,6 +1439,24 @@ export async function observePage(input: {
         scope: "authentication and payment fields",
         reason: "unsupported",
         detail: `${excludedCredentials.count} field(s) excluded by policy: never read and never filled`,
+      })
+    if (depthCapped.count > 0)
+      state.gaps.push({
+        scope: base.url ?? base.id,
+        reason: "truncated",
+        detail: `${depthCapped.count} subtree(s) sit deeper than ${MAX_PLAN_DEPTH} levels and were not planned, so nothing inside them was read`,
+      })
+    if (optionIdentity.count > 0)
+      state.gaps.push({
+        scope: base.url ?? base.id,
+        reason: "unsupported",
+        detail: `${optionIdentity.count} option(s) carried no browser identity and cannot be chosen`,
+      })
+    if (roots.capped > 0)
+      state.gaps.push({
+        scope: base.url ?? base.id,
+        reason: "truncated",
+        detail: `${roots.capped} frame or shadow root(s) sit deeper than ${MAX_ROOT_DEPTH} levels and were not read as their own context`,
       })
   }
 
@@ -1534,8 +1676,8 @@ export async function readFragment(input: {
   if (!parsed.success || !parsed.data.node)
     return emptyFragment("the browser did not return the fragment")
 
-  const axNodes = await readAx(session, contextId)
-  const source = indexSource(parsed.data.node, axNodes)
+  const ax = await readAx(session, contextId)
+  const source = indexSource(parsed.data.node, ax.nodes)
   const context: Context = {
     id: identity.contextId,
     kind: identity.frameId ? "frame" : "document",
@@ -1550,6 +1692,18 @@ export async function readFragment(input: {
     roots: [{ context, node: parsed.data.node, source }],
     id: input.read.observation.id,
     maxBytes: input.maxBytes ?? DOM_AGENT_LIMITS.observationBytes,
+    // A fragment read without accessibility semantics has no requiredness and no
+    // roles, so it says so rather than looking like a page that had none.
+    gaps: ax.failed
+      ? [
+          {
+            scope: identity.contextId,
+            reason: "unsupported" as const,
+            detail:
+              "the accessibility tree could not be read, so this fragment carries no semantics",
+          },
+        ]
+      : [],
   })
 }
 
@@ -1577,7 +1731,7 @@ export async function readOptions(input: {
   let document: unknown
   try {
     document = await session.send(contextId, "DOM.getDocument", {
-      depth: -1,
+      depth: MAX_PLAN_DEPTH,
       pierce: true,
     })
   } catch {
@@ -1593,7 +1747,8 @@ export async function readOptions(input: {
       gap: staleGap(input.controlRef, "the document shape was not recognised"),
     }
 
-  const source = indexSource(parsed.data.root, await readAx(session, contextId))
+  const ax = await readAx(session, contextId)
+  const source = indexSource(parsed.data.root, ax.nodes)
   const control = source.byBackendId.get(identity.backendNodeId)
   if (!control)
     return {
@@ -1618,10 +1773,13 @@ export async function readOptions(input: {
     }
 
   const options: ObservedOption[] = []
+  let optionDepthCapped = 0
   for (const id of portalIds) {
     const portal = source.ids.get(id)
     if (!portal) continue
-    for (const option of optionNodes(portal)) {
+    const listed = optionNodes(portal)
+    optionDepthCapped += listed.capped
+    for (const option of listed.found) {
       const optionAttributes = attributeMap(option)
       if (option.backendNodeId === undefined) continue
       options.push({
@@ -1643,7 +1801,25 @@ export async function readOptions(input: {
       options: [],
       gap: staleGap(input.controlRef, "the option list is not mounted yet"),
     }
-  return { options: options.slice(0, MAX_OPTIONS), gap: null }
+  // One gap is returned, so the most consequential reason wins: a truncated
+  // list means options this run cannot offer, which outranks semantics this run
+  // could not confirm.
+  const gaps: CoverageGap[] = []
+  if (optionDepthCapped > 0)
+    gaps.push(
+      staleGap(
+        input.controlRef,
+        `${optionDepthCapped} option(s) sit deeper than ${MAX_OPTION_DEPTH} levels and were not read`
+      )
+    )
+  if (ax.failed)
+    gaps.push(
+      staleGap(
+        input.controlRef,
+        "the accessibility tree could not be read, so the selected state is unconfirmed"
+      )
+    )
+  return { options: options.slice(0, MAX_OPTIONS), gap: gaps[0] ?? null }
 }
 
 function walkOne(input: {
@@ -1652,12 +1828,14 @@ function walkOne(input: {
   roots: Root[]
   id: string
   maxBytes: number
+  /** Gaps the read already knows about, before it walks anything. */
+  gaps?: CoverageGap[]
 }): PageFragment {
   const state: BuildState = {
     nodes: [],
     evidence: new Map(),
     index: new NodeIndex(),
-    gaps: [],
+    gaps: input.gaps ? [...input.gaps] : [],
     records: new Map(),
     regions: new Map(),
     regionLabels: new Map(),
@@ -1666,6 +1844,8 @@ function walkOne(input: {
     recordCounter: 0,
   }
   const excludedCredentials = { count: 0 }
+  const depthCapped = { count: 0 }
+  const optionIdentity = { count: 0 }
   for (const root of input.roots) {
     const groups = findGroups(root.node)
     const planned = planNode(
@@ -1678,6 +1858,8 @@ function walkOne(input: {
         groupText: "",
         groupRequired: false,
         excludedCredentials,
+        depthCapped,
+        optionIdentity,
       },
       0,
       ""
@@ -1685,6 +1867,20 @@ function walkOne(input: {
     if (!planned) continue
     emit(planned, state, { parentRef: null, regionRef: null, recordRef: null })
   }
+  // Whatever this read could not reach is reported, so a fragment never claims
+  // to be complete while a ceiling cut it.
+  if (depthCapped.count > 0)
+    state.gaps.push({
+      scope: input.id,
+      reason: "truncated",
+      detail: `${depthCapped.count} subtree(s) sit deeper than ${MAX_PLAN_DEPTH} levels and were not read`,
+    })
+  if (optionIdentity.count > 0)
+    state.gaps.push({
+      scope: input.id,
+      reason: "unsupported",
+      detail: `${optionIdentity.count} option(s) carried no browser identity and cannot be chosen`,
+    })
   if (excludedCredentials.count > 0)
     state.gaps.push({
       scope: "authentication and payment fields",
@@ -1708,10 +1904,14 @@ function walkOne(input: {
   }
 }
 
-function optionNodes(portal: DomNode): DomNode[] {
+function optionNodes(portal: DomNode): { found: DomNode[]; capped: number } {
   const found: DomNode[] = []
+  let capped = 0
   const visit = (node: DomNode, depth: number): void => {
-    if (depth > 6) return
+    if (depth > MAX_OPTION_DEPTH) {
+      capped += 1
+      return
+    }
     if (isElement(node)) {
       const role = attributeMap(node).get("role")
       if (role === "option" || tagOf(node) === "option") found.push(node)
@@ -1719,13 +1919,13 @@ function optionNodes(portal: DomNode): DomNode[] {
     for (const child of node.children ?? []) visit(child, depth + 1)
   }
   visit(portal, 0)
-  return found
+  return { found, capped }
 }
 
 async function readAx(
   session: DriverSession,
   contextId: string
-): Promise<AxNode[]> {
+): Promise<{ nodes: AxNode[]; failed: boolean }> {
   try {
     const payload = await session.send(
       contextId,
@@ -1733,9 +1933,11 @@ async function readAx(
       {}
     )
     const parsed = AxTreeSchema.safeParse(payload)
-    return parsed.success ? parsed.data.nodes : []
+    return parsed.success
+      ? { nodes: parsed.data.nodes, failed: false }
+      : { nodes: [], failed: true }
   } catch {
-    return []
+    return { nodes: [], failed: true }
   }
 }
 

@@ -485,7 +485,49 @@ describe("translating an action", () => {
         base64: "JVBERi0xLjQK",
       },
       replaceExisting: false,
+      replacementConfirmed: true,
     })
+  })
+
+  it("refuses to express a replacement no reviewed choice authorized", () => {
+    // Finding a conflict is not a review. The gate lives in the shared
+    // vocabulary and this is the path that has to consult it: when
+    // authorization cannot be established, nothing is expressed at all rather
+    // than asking the page to keep whatever it finds.
+    const attachment = {
+      identity: "0123456789abcdef",
+      name: "ada-resume.pdf",
+      type: "application/pdf",
+      sizeBytes: 12,
+      base64: "JVBERi0xLjQK",
+    }
+    const unconfirmed = ActionSchema.parse({
+      type: "attach_file",
+      ref: "a1",
+      questionRef: "q1",
+      pdfIdentity: "0123456789abcdef",
+      replaceExisting: true,
+      replacementConfirmedAt: null,
+    })
+    expect(
+      runtimeCall({ action: unconfirmed, precondition, options, attachment })
+    ).toBeNull()
+
+    // The same replacement is expressible once a reviewed choice confirmed it.
+    const confirmed = ActionSchema.parse({
+      type: "attach_file",
+      ref: "a1",
+      questionRef: "q1",
+      pdfIdentity: "0123456789abcdef",
+      replaceExisting: true,
+      replacementConfirmedAt: 1,
+    })
+    expect(
+      runtimeCall({ action: confirmed, precondition, options, attachment })
+        ?.step
+    ).toEqual(
+      expect.objectContaining({ kind: "attach_file", replaceExisting: true })
+    )
   })
 
   it("does not assert a checkbox state the action left open", () => {

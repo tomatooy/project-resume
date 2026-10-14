@@ -1,5 +1,6 @@
 import {
   DOM_AGENT_LIMITS,
+  attachmentIsAuthorized,
   type Action,
   type Precondition,
 } from "@workspace/resume-core/dom-agent"
@@ -13,7 +14,8 @@ import type { RuntimeExpectation, RuntimeStep } from "./runtime/protocol"
  * - `expectedValue: null` means the control should be empty, not that the
  *   worker does not know.
  * - `expectedChecked: null` means the action does not assert the current state,
- *   which is the difference between a checkbox and a text field.
+ *   which is the difference between a checkbox and a text field. The page
+ *   refuses to toggle one on those terms, so only a read may carry it.
  * - `expectedOptionRef: null` means nothing should be selected, following the
  *   same convention as an empty value.
  */
@@ -80,6 +82,12 @@ export function runtimeCall(input: {
       }
     }
     case "attach_file": {
+      // Replacing an attachment the user put there requires a specific reviewed
+      // choice. Finding a conflict is not one, so an action that replaces
+      // without a confirmation is expressed as nothing at all rather than
+      // resolved into a guess about which file the user meant to keep.
+      const authorized = attachmentIsAuthorized(action)
+      if (!authorized) return null
       const attachment = input.attachment
       if (!attachment) return null
       // Cached bytes belong to the configuration that rendered them, and an
@@ -95,6 +103,7 @@ export function runtimeCall(input: {
             base64: attachment.base64,
           },
           replaceExisting: action.replaceExisting,
+          replacementConfirmed: authorized,
         },
         expect,
       }

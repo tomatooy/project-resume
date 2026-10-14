@@ -64,6 +64,11 @@ export type RuntimeStep =
       kind: "attach_file"
       file: { name: string; type: string; sizeBytes: number; base64: string }
       replaceExisting: boolean
+      /**
+       * Set from a reviewed authorization only. The page refuses a replacement
+       * it cannot justify on its own, so a request claiming one is not enough.
+       */
+      replacementConfirmed: boolean
     }
   | { kind: "add_record_group" }
 
@@ -98,6 +103,7 @@ export const RUNTIME_EVIDENCE = {
   versionMismatch: "runtime_version_mismatch",
   expectedValueMismatch: "expected_value_mismatch",
   expectedCheckedMismatch: "expected_checked_mismatch",
+  expectedCheckedMissing: "expected_checked_missing",
   expectedOptionMismatch: "expected_option_mismatch",
   unsupportedControl: "unsupported_control",
   valueSet: "value_set",
@@ -111,6 +117,7 @@ export const RUNTIME_EVIDENCE = {
   optionSelected: "option_selected",
   optionNotSelected: "option_not_selected",
   existingAttachmentPreserved: "existing_attachment_preserved",
+  replacementUnconfirmed: "attachment_replacement_unconfirmed",
   fileListAssigned: "file_list_assigned",
   fileMalformed: "attachment_bytes_rejected",
   fileAssignmentFailed: "file_assignment_failed",
@@ -227,6 +234,7 @@ export function readStep(value: unknown): RuntimeStep | null {
           base64: file.base64,
         },
         replaceExisting: value.replaceExisting === true,
+        replacementConfirmed: value.replacementConfirmed === true,
       }
     }
     default:

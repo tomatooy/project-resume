@@ -18,6 +18,7 @@ import {
   questionIsSettled,
   questionKey,
   readiness,
+  revertedReceipts,
   sameApplication,
   sourceBundleId,
   SourceBundleSchema,
@@ -334,6 +335,73 @@ describe("readiness", () => {
       unresolved: 1,
       failed: 0,
     })
+  })
+})
+
+describe("receipts and reversion", () => {
+  function accepted(over: Partial<Receipt["observed"]> = {}): Receipt {
+    return {
+      actionRef: "a1",
+      questionRef: "q1",
+      state: "accepted",
+      observed: {
+        value: null,
+        checked: null,
+        optionRef: "n13",
+        attachmentLabel: null,
+        ...over,
+      },
+      evidence: [],
+      at: 1,
+    }
+  }
+
+  it("treats a selection the page moved back as reverted", () => {
+    // A radio anchor's own value attribute never changes, so the option it
+    // resolved to is the only evidence that the page chose differently.
+    const reverted = revertedReceipts([accepted()], {
+      q1: { value: null, checked: null, optionRef: "n14" },
+    })
+    expect(reverted.map((receipt) => receipt.actionRef)).toEqual(["a1"])
+  })
+
+  it("leaves a selection that still holds alone", () => {
+    expect(
+      revertedReceipts([accepted()], {
+        q1: { value: null, checked: null, optionRef: "n13" },
+      })
+    ).toEqual([])
+  })
+
+  it("does not call a receipt reverted when the observation names no option", () => {
+    // An observation that cannot name the option is not evidence against the
+    // receipt, so it must not be read as one.
+    expect(
+      revertedReceipts([accepted()], { q1: { value: null, checked: null } })
+    ).toEqual([])
+  })
+
+  it("still catches a reverted text write", () => {
+    const written = accepted({ optionRef: null, value: "Ada" })
+    expect(
+      revertedReceipts([written], { q1: { value: "Ada Lovelace" } })
+    ).toHaveLength(1)
+  })
+
+  it("still catches a checkbox the page flipped back", () => {
+    const toggled = accepted({ optionRef: null, checked: true })
+    expect(
+      revertedReceipts([toggled], { q1: { checked: false } })
+    ).toHaveLength(1)
+  })
+
+  it("never reopens a receipt that was not accepted", () => {
+    const dispatched: Receipt = { ...accepted(), state: "dispatched" }
+    expect(
+      revertedReceipts([dispatched], {
+        q1: { value: null, checked: null, optionRef: "n14" },
+      })
+    ).toEqual([])
   })
 })
 

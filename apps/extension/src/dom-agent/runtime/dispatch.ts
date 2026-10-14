@@ -8,6 +8,7 @@ import {
   type RuntimeEvidenceCode,
   type RuntimeOutcome,
   type RuntimeReply,
+  type RuntimeVerb,
 } from "./protocol"
 import {
   addRecordGroup,
@@ -28,13 +29,37 @@ import {
 export type RuntimeState = {
   /** The bundle id fixed for this application, established by the first call. */
   bundleId: string | null
-  /** Highest revision handled per question, so a replayed call is refused. */
+  /** Highest revision handled per question, so a stale call is refused. */
   revisions: Map<string, number>
+  /**
+   * Highest revision already written per question. Kept apart from `revisions`
+   * because reading and writing are not the same claim: a read may repeat at
+   * one revision, since verifying a write means reading the same question
+   * again, while a write may not, because a replayed write is a second write.
+   */
+  writes: Map<string, number>
 }
 
 export function createRuntimeState(): RuntimeState {
-  return { bundleId: null, revisions: new Map<string, number>() }
+  return {
+    bundleId: null,
+    revisions: new Map<string, number>(),
+    writes: new Map<string, number>(),
+  }
 }
+
+/**
+ * Verbs that change the page. `add_record_group` has no idempotence check of
+ * its own, so a lost response that the worker retries would add a second record
+ * group unless the replay is refused here.
+ */
+const MUTATING_VERBS: ReadonlySet<RuntimeVerb> = new Set([
+  "write_text",
+  "select_option",
+  "toggle",
+  "attach_file",
+  "add_record_group",
+])
 
 /**
  * The single entry point installed in the page. It is reached with `this` bound
@@ -72,6 +97,16 @@ export async function handleDispatch(
       ok: true,
       outcome: refused(verb, RUNTIME_EVIDENCE.staleRevision),
     }
+  const written = runtime.writes.get(questionRef)
+  if (
+    MUTATING_VERBS.has(verb) &&
+    written !== undefined &&
+    parsedExpect.questionRevision <= written
+  )
+    return {
+      ok: true,
+      outcome: refused(verb, RUNTIME_EVIDENCE.staleRevision),
+    }
   if (
     runtime.bundleId !== null &&
     runtime.bundleId !== parsedExpect.sourceBundleId
@@ -82,6 +117,8 @@ export async function handleDispatch(
     }
   runtime.bundleId = parsedExpect.sourceBundleId
   runtime.revisions.set(questionRef, parsedExpect.questionRevision)
+  if (MUTATING_VERBS.has(verb))
+    runtime.writes.set(questionRef, parsedExpect.questionRevision)
   try {
     switch (parsedStep.kind) {
       case "read_control":

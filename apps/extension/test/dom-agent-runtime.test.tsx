@@ -259,10 +259,25 @@ describe("toggling", () => {
     const result = await toggle(
       control,
       { kind: "toggle", checked: true },
-      expectation()
+      expectation({ expectedChecked: false })
     )
     expect(result.state).toBe("rejected")
     expect(result.evidence).toEqual([RUNTIME_EVIDENCE.checkedReverted])
+  })
+
+  it("refuses a toggle that states nothing about the current state", async () => {
+    // A toggle with no expectation cannot tell an unchanged box from one the
+    // user set after the observation, so it is not a write this page performs.
+    mount('<input id="a" type="checkbox">')
+    const control = query("#a", HTMLInputElement)
+    const result = await toggle(
+      control,
+      { kind: "toggle", checked: true },
+      expectation()
+    )
+    expect(result.state).toBe("rejected")
+    expect(result.evidence).toEqual([RUNTIME_EVIDENCE.expectedCheckedMissing])
+    expect(control.checked).toBe(false)
   })
 })
 
@@ -362,6 +377,7 @@ describe("attaching a file", () => {
         base64: bytes.base64,
       },
       replaceExisting: false,
+      replacementConfirmed: false,
     })
     // The FileList is a local handoff. The site accepting it is a separate
     // question, so this is never reported as accepted.
@@ -392,11 +408,40 @@ describe("attaching a file", () => {
         base64: bytes.base64,
       },
       replaceExisting: false,
+      replacementConfirmed: false,
     })
     expect(result.state).toBe("rejected")
     expect(result.evidence).toEqual([
       RUNTIME_EVIDENCE.existingAttachmentPreserved,
     ])
+  })
+
+  it("refuses a replacement the page cannot see a review for", () => {
+    // Belt and braces: the worker declines to express an unauthorized
+    // replacement, and the page refuses one no authorization can justify, so a
+    // malformed request cannot overwrite the file the user attached.
+    mount('<input id="a" type="file">')
+    const control = query("#a", HTMLInputElement)
+    Object.defineProperty(control, "files", {
+      value: {
+        length: 1,
+        item: () => new File(["old"], "old.pdf", { type: "application/pdf" }),
+      },
+      configurable: true,
+    })
+    const result = attachFile(control, {
+      kind: "attach_file",
+      file: {
+        name: "ada-resume.pdf",
+        type: "application/pdf",
+        sizeBytes: bytes.sizeBytes,
+        base64: bytes.base64,
+      },
+      replaceExisting: true,
+      replacementConfirmed: false,
+    })
+    expect(result.state).toBe("rejected")
+    expect(result.evidence).toEqual([RUNTIME_EVIDENCE.replacementUnconfirmed])
   })
 
   it("refuses bytes that are not the rendered PDF", () => {
@@ -406,10 +451,14 @@ describe("attaching a file", () => {
       file: {
         name: "notes.pdf",
         type: "application/pdf",
-        sizeBytes: 8,
+        // The right length on purpose: a length the bytes do not have is
+        // refused before the magic number is ever read, which would leave the
+        // magic check untested.
+        sizeBytes: 9,
         base64: btoa("not a pdf"),
       },
       replaceExisting: true,
+      replacementConfirmed: true,
     })
     expect(result.state).toBe("rejected")
     expect(result.evidence).toEqual([RUNTIME_EVIDENCE.fileMalformed])
@@ -426,6 +475,7 @@ describe("attaching a file", () => {
         base64: bytes.base64,
       },
       replaceExisting: true,
+      replacementConfirmed: true,
     })
     expect(result.evidence).toEqual([RUNTIME_EVIDENCE.unsupportedControl])
   })
@@ -444,6 +494,30 @@ describe("adding a record group", () => {
   it("refuses a submit button", async () => {
     mount('<form><button id="a" type="submit">Add another</button></form>')
     const result = await addRecordGroup(query("#a", HTMLButtonElement))
+    expect(result.evidence).toEqual([RUNTIME_EVIDENCE.submitAffordanceRefused])
+  })
+
+  it("refuses a button input whose wording ends the application", async () => {
+    // A button input does not submit by default, but "Continue" makes the same
+    // promise a button's wording does, and activating it is what navigates.
+    mount('<input id="a" type="button" value="Continue">')
+    const result = await addRecordGroup(query("#a", HTMLInputElement))
+    expect(result.state).toBe("rejected")
+    expect(result.evidence).toEqual([RUNTIME_EVIDENCE.submitAffordanceRefused])
+  })
+
+  it("refuses an element that carries an address", async () => {
+    // A link goes somewhere. A record container does not navigate, whatever its
+    // wording says, and where it goes is not the extension's to decide.
+    mount('<a id="a" href="/apply/step-2">Add another role</a>')
+    const result = await addRecordGroup(query("#a", HTMLAnchorElement))
+    expect(result.state).toBe("rejected")
+    expect(result.evidence).toEqual([RUNTIME_EVIDENCE.submitAffordanceRefused])
+  })
+
+  it("refuses a role=link element with no address of its own", async () => {
+    mount('<span id="a" role="link">Add another role</span>')
+    const result = await addRecordGroup(query("#a", HTMLSpanElement))
     expect(result.evidence).toEqual([RUNTIME_EVIDENCE.submitAffordanceRefused])
   })
 
@@ -554,6 +628,52 @@ describe("dispatch", () => {
         evidence: [RUNTIME_EVIDENCE.staleRevision],
       }),
     })
+  })
+
+  it("refuses a record group replayed at the revision it already grew", async () => {
+    // A lost response makes the worker send the same write again. A read may
+    // repeat at one revision, because verifying a write means reading the same
+    // question again; a write may not, because a replayed write is a second
+    // write, and this verb has no idempotence check of its own.
+    mount(`
+      <button id="add" type="button" aria-controls="roles">Add another role</button>
+      <div id="roles"><div>Role 1</div></div>`)
+    const control = query("#add", HTMLButtonElement)
+    control.addEventListener("click", () => {
+      document
+        .querySelector("#roles")
+        ?.appendChild(document.createElement("div"))
+    })
+    const state = createRuntimeState()
+    const step = { kind: "add_record_group" }
+    const first = await call(
+      {
+        verb: "add_record_group",
+        step,
+        expect: expectation({ questionRevision: 6 }),
+      },
+      control,
+      state
+    )
+    expect(first.ok && first.outcome.state).toBe("accepted")
+    const replayed = await call(
+      {
+        verb: "add_record_group",
+        step,
+        expect: expectation({ questionRevision: 6 }),
+      },
+      control,
+      state
+    )
+    expect(replayed).toEqual({
+      ok: true,
+      outcome: expect.objectContaining({
+        state: "rejected",
+        evidence: [RUNTIME_EVIDENCE.staleRevision],
+      }),
+    })
+    // The proof that nothing happened twice is the container, not the receipt.
+    expect(document.querySelectorAll("#roles > div")).toHaveLength(2)
   })
 
   it("refuses a source bundle that changed mid-application", async () => {

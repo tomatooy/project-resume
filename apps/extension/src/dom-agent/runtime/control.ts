@@ -179,25 +179,49 @@ export function optionEntries(control: Element): OptionEntry[] {
 /**
  * A control that submits the form is never one this engine clicks. An untyped
  * button defaults to submit, so it is refused too: the missing attribute is not
- * evidence that it is safe.
+ * evidence that it is safe. So is anything that navigates, because changing the
+ * page is the user's to do, and so is a button whose own wording is one of the
+ * words that ends an application.
  */
 const BLOCKED_WORDING =
   /^(submit|submit application|apply|apply now|send|send application|continue|next|next step|finish|save and continue|review and submit|log in|sign in|create account)$/i
 
+/** Roles that act when they are activated, whatever tag carries them. */
+const ACTIVATABLE_ROLES = new Set([
+  "button",
+  "link",
+  "menuitem",
+  "menuitemradio",
+  "tab",
+])
+
+/** Tags that act when they are activated, whatever role they claim. */
+const ACTIVATABLE_TAGS = new Set(["a", "button", "input", "summary"])
+
 export function looksLikeSubmit(element: Element): boolean {
   const tag = element.tagName.toLowerCase()
+  const role = element.getAttribute("role")
+  // An address means the element goes somewhere, and a link role is the same
+  // claim in another tag. A record container does not navigate.
+  if (element.hasAttribute("href") || role === "link") return true
   if (tag === "input") {
     const type = (element as HTMLInputElement).type
-    return type === "submit" || type === "image"
+    if (type === "submit" || type === "image") return true
+    // A button input does not submit by default, but its wording is the same
+    // promise as a button's, so it is read the same way.
+    if (type === "button") return BLOCKED_WORDING.test(accessibleName(element))
+    return false
   }
   if (tag === "button") {
     const type = element.getAttribute("type")
     if (type !== "button") return true
     return BLOCKED_WORDING.test(accessibleName(element))
   }
-  if (element.getAttribute("role") === "button") {
+  if (
+    ACTIVATABLE_TAGS.has(tag) ||
+    (role !== null && ACTIVATABLE_ROLES.has(role))
+  )
     return BLOCKED_WORDING.test(accessibleName(element))
-  }
   return false
 }
 
