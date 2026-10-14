@@ -18,5 +18,5 @@
       "@workspace/resume-core/*": ["../../packages/resume-core/src/*"]
     }
   },
-  "include": ["src", "test", "*.ts"]
+  "include": ["src", "test", "tools", "*.ts"]
 }

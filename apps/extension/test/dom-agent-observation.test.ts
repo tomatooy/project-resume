@@ -12,10 +12,11 @@ import {
   buildPageFrom,
   createPageTransport,
 } from "./helpers/cdp-page"
+import { pageFromMarkup } from "./helpers/fixture-loader"
 
 afterEach(() => vi.unstubAllGlobals())
 
-/** Read a page the way a run does, from markup. */
+/** Read a page the way a run does, from markup, through the fixture load path. */
 async function readPage(
   html: string,
   options?: { maxBytes?: number }
@@ -24,8 +25,10 @@ async function readPage(
     session: Awaited<ReturnType<typeof attachPage>>["session"]
   }
 > {
-  const page = createPageTransport()
-  page.setDocument(null, buildPage(html))
+  // Markup goes through the recorder and the loader rather than straight into
+  // the transport, so every test below proves the reader on a recorded page:
+  // if the prune ever drops something the reader reads, this suite fails.
+  const page = pageFromMarkup(html)
   const { session } = await attachPage({ transport: page })
   const result = await observePage({ session, ...options })
   return { ...result, session }
@@ -501,7 +504,15 @@ describe("budgets", () => {
       "<div>".repeat(45) +
       `<input name="deep" aria-label="Deep">` +
       "</div>".repeat(45)
-    const read = await readPage(deep)
+    // This one test reads a payload the browser did not cut, because the reader's
+    // own ceiling is only reachable while the tree still has levels past it. A
+    // recording is cut the way the browser cuts it, which is a different
+    // question about a different path, and `dom-agent-fixtures.test.ts` records
+    // what a cut recording reports today.
+    const page = createPageTransport()
+    page.setDocument(null, buildPage(deep))
+    const { session } = await attachPage({ transport: page })
+    const read = await observePage({ session })
 
     // The control really is missing from the read, so the gap is about a loss
     // rather than a log line.
@@ -514,7 +525,7 @@ describe("budgets", () => {
       candidate.detail.includes("deeper than 40")
     )
     expect(gap?.reason).toBe("truncated")
-    await read.session.detach()
+    await session.detach()
   })
 
   it("reads the same page the same way twice", async () => {

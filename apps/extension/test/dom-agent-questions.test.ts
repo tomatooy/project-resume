@@ -13,7 +13,8 @@ import {
   questionKindFor,
   unsupportedQuestions,
 } from "../src/dom-agent/questions"
-import { attachPage, buildPage, createPageTransport } from "./helpers/cdp-page"
+import { attachPage } from "./helpers/cdp-page"
+import { pageFromMarkup } from "./helpers/fixture-loader"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -22,8 +23,9 @@ afterEach(() => vi.unstubAllGlobals())
  * the question list is only ever derived from what was actually read.
  */
 async function enumerate(html: string) {
-  const page = createPageTransport()
-  page.setDocument(null, buildPage(html))
+  // A page goes through the recorder and the loader, so this suite enumerates a
+  // recorded page rather than a payload handed straight to the transport.
+  const page = pageFromMarkup(html)
   const { session } = await attachPage({ transport: page })
   const read = await observePage({ session })
   const enumeration = candidateQuestions({
