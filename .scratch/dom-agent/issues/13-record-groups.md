@@ -27,3 +27,15 @@ render pipeline needs it, a new record-rule module in
 `packages/resume-core/src/index.ts` (lane 10 owns both barrels: report the export line you
 need and the parent adds it at merge), `packages/agent/**`, or
 `packages/resume-core/test/dom-agent.test.ts`.
+
+## Verdicts from the audit (2026-10-14)
+
+Boxes 3, 5 and 6 are met with named tests. Boxes 1, 2 and 4 are met in part, and the
+missing parts are the coordinator, not the rule module: nothing calls `recordGroupPlan`,
+so re-observing an added group before another add, and turning `missing` and refusals
+into a user-visible request, are ticket 11's work.
+
+Box 1 also has a real defect, filed as `fix-04` item 1 and worth reading before wiring
+anything: `SourceRecord.kind` is written and never read, and a page group declares no
+kind, so a blank education group binds to a leftover experience record. Flipping the kind
+in the existing test leaves every assertion passing.

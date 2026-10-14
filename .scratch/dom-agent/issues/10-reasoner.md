@@ -24,3 +24,13 @@ that exactly one writer ever edits them. New core tests go in
 
 **Must not touch:** anything under `apps/extension/`, or
 `packages/resume-core/test/dom-agent.test.ts`.
+
+## Verdicts from the audit (2026-10-14)
+
+Boxes 1 to 5 and 7 are met, each with the test that fails when the implementing line is
+deleted. Box 6 is met in part: the visible half is proven, and the "deterministic fields
+still filled" half is untestable until ticket 09 exists, since the engine refuses to
+start by design. Box 7's live half is written and skipped, so treat the measurement as
+opt-in rather than passing; the CI-visible tests in that file inspect the case table and
+would pass with the reasoner deleted. See `fix-04-verifier-findings.md` item 4 for the one
+gate gap found (scope is never compared) and item 6 for the eval note.
