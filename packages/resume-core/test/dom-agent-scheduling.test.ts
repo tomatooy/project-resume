@@ -224,49 +224,6 @@ describe("recovering an action whose answer was lost", () => {
     expect(elsewhere.kind).toBe("uncertain")
   })
 
-  it("confirms an upload only from the field's own state", () => {
-    const upload: RunIntent = {
-      ...intent,
-      kind: "upload",
-      groupCount: null,
-      attachmentName: null,
-    }
-    expect(
-      recoveryFor({
-        intent: upload,
-        evidence: {
-          sameApplication: true,
-          covered: true,
-          groupCount: null,
-          attachmentName: "ada-resume.pdf",
-        },
-      }).kind
-    ).toBe("confirmed")
-    expect(
-      recoveryFor({
-        intent: upload,
-        evidence: {
-          sameApplication: true,
-          covered: true,
-          groupCount: null,
-          attachmentName: null,
-        },
-      }).kind
-    ).toBe("retry")
-    // The field shows what it showed before the action, so nothing landed.
-    expect(
-      recoveryFor({
-        intent: { ...upload, attachmentName: "old.pdf" },
-        evidence: {
-          sameApplication: true,
-          covered: true,
-          groupCount: null,
-          attachmentName: "old.pdf",
-        },
-      }).kind
-    ).toBe("retry")
-  })
-
   it("never reopens an intent an observation already settled", () => {
     expect(
       recoveryFor({

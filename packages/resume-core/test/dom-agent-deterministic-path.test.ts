@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
+  type AnswerProposal,
   type CandidateQuestion,
   CandidateQuestionSchema,
   type Fact,
   FactSchema,
+  type InterpretedPage,
   InterpretationCache,
   type QuestionPlan,
   actionFor,
@@ -54,10 +56,11 @@ function question(input: {
 
 function option(
   label: string,
-  selected = false
+  selected = false,
+  ref = `o_${label.toLowerCase()}`
 ): CandidateQuestion["options"][number] {
   return {
-    ref: `o_${label.toLowerCase()}`,
+    ref,
     label,
     value: null,
     selected,
@@ -211,6 +214,119 @@ describe("reusing a reading", () => {
     const cache = new InterpretationCache()
     interpretPage({ questions: [unlabelled], facts: [], cache })
     expect(cache.size).toBe(0)
+  })
+
+  /** Plan against a page's readings, so what is under test is the reading. */
+  function planRead(
+    questions: CandidateQuestion[],
+    facts: Fact[],
+    readings: InterpretedPage
+  ): ReturnType<typeof planAnswers> {
+    return planAnswers({
+      questions,
+      facts,
+      seeds: {},
+      interpretations: readings.byRef,
+    })
+  }
+
+  /** What a proposal would select, read by label rather than by reference. */
+  function selectedLabels(
+    target: CandidateQuestion,
+    proposal: AnswerProposal | undefined
+  ): string[] {
+    const value = proposal?.value
+    if (value?.type !== "choice") return []
+    return value.optionRefs.map(
+      (ref) =>
+        target.options.find((entry) => entry.ref === ref)?.label ??
+        `(no option is at ${ref})`
+    )
+  }
+
+  it("selects what the fact names, not the position the reading remembered", () => {
+    // The wrong-write case. The reading is reused, and the page has since put a
+    // different country at the reference it was read with, so a remembered
+    // reference would answer a fact that says Canada with Portugal.
+    const cache = new InterpretationCache()
+    const facts = [
+      fact({
+        meaning: "country of residence",
+        display: "Canada",
+        value: { type: "choice", optionIds: ["ca"] },
+      }),
+    ]
+    const asRead = question({
+      text: "Country of residence",
+      kind: "single_choice",
+      controlKind: "select",
+      options: [
+        option("Portugal", false, "o11"),
+        option("Canada", false, "o12"),
+      ],
+    })
+    const first = interpretPage({ questions: [asRead], facts, cache })
+    expect(
+      selectedLabels(asRead, planRead([asRead], facts, first).proposals.q1)
+    ).toEqual(["Canada"])
+
+    // The page re-rendered. The same wording and the same labels keep the
+    // reading reusable, and every reference has moved up by one, so the one the
+    // reading was made with now holds the other country.
+    const renumbered = question({
+      ref: "q4",
+      text: "Country of residence",
+      kind: "single_choice",
+      controlKind: "select",
+      options: [
+        option("Portugal", false, "o12"),
+        option("Canada", false, "o13"),
+      ],
+    })
+    const second = interpretPage({ questions: [renumbered], facts, cache })
+    expect(second.reused).toEqual(["q4"])
+    expect(
+      selectedLabels(
+        renumbered,
+        planRead([renumbered], facts, second).proposals.q4
+      )
+    ).toEqual(["Canada"])
+  })
+
+  it("does not send an option the page has since disabled", () => {
+    // The same labels keep the reading reusable while the option the fact names
+    // is no longer offered. A remembered reference would be sent to the page,
+    // where the gate refuses it, and the plan would report the run as refused
+    // rather than reporting that the page offers nothing that means it.
+    const cache = new InterpretationCache()
+    const facts = [
+      fact({
+        meaning: "country of residence",
+        display: "Canada",
+        value: { type: "choice", optionIds: ["ca"] },
+      }),
+    ]
+    const offered = question({
+      text: "Country of residence",
+      kind: "single_choice",
+      controlKind: "select",
+      options: [option("Portugal"), option("Canada")],
+    })
+    const first = interpretPage({ questions: [offered], facts, cache })
+    expect(planRead([offered], facts, first).plans[0]?.reason).toBe("matched")
+
+    const closed = question({
+      ref: "q2",
+      text: "Country of residence",
+      kind: "single_choice",
+      controlKind: "select",
+      options: [option("Portugal"), { ...option("Canada"), disabled: true }],
+    })
+    const second = interpretPage({ questions: [closed], facts, cache })
+    expect(second.reused).toEqual(["q2"])
+    const planned = planRead([closed], facts, second)
+    expect(planned.proposals.q2).toBeUndefined()
+    expect(planned.plans[0]?.reason).toBe("no_matching_option")
   })
 })
 

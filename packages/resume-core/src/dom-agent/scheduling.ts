@@ -211,20 +211,14 @@ export function recoveryFor(input: {
       detail: "The page holds no more groups than before the action",
     }
   }
-  const before = input.intent.attachmentName
-  const now = input.evidence.attachmentName
-  if (now !== null && now !== before)
-    return {
-      kind: "confirmed",
-      detail: "The field now shows an attachment it did not show before",
-    }
-  if (now === null)
-    return {
-      kind: "retry",
-      detail: "The field shows no attachment, so the upload did not land",
-    }
+  // Nothing else can be decided by looking at the page. An upload is settled by
+  // the receipt the page sent, and this point is unreachable from a run anyway:
+  // the coordinator passes `covered: false` for every upload, because no
+  // observation states what a file field holds. This reader reads attributes,
+  // and a file input's selection is not an attribute, so there is nothing here
+  // to compare and no retry the page could justify.
   return {
-    kind: "retry",
-    detail: "The field shows what it showed before the upload",
+    kind: "uncertain",
+    detail: "An upload cannot be judged from the page's own state",
   }
 }

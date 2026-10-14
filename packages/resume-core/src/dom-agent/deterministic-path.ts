@@ -37,12 +37,18 @@ import type { Fact } from "./source"
  * cannot copy or losslessly convert. Both remain unresolved and visible.
  */
 
-/** What the deterministic tier read from one question. */
+/**
+ * What the deterministic tier read from one question.
+ *
+ * It holds the fact and nothing positional. The option a choice-shaped fact
+ * selects is a reference into one observation, and this value is reused across
+ * observations by design, so a reference kept here would let a reused reading
+ * select whatever the page has since moved into that position. The option is
+ * therefore derived from the fact and the question in front of us, every time.
+ */
 export const QuestionInterpretationSchema = z.strictObject({
   /** The fact whose meaning the question's wording matches, or null. */
   factId: z.string().min(1).max(80).nullable(),
-  /** The observed option a choice-shaped fact selects, or null. */
-  optionRef: z.string().min(1).max(64).nullable(),
   basis: z.enum(["exact_wording", "none"]),
 })
 
@@ -52,7 +58,6 @@ export type QuestionInterpretation = z.infer<
 
 const NO_INTERPRETATION: QuestionInterpretation = {
   factId: null,
-  optionRef: null,
   basis: "none",
 }
 
@@ -185,11 +190,7 @@ function readQuestion(
 ): QuestionInterpretation {
   const fact = exactFactMatch(question, facts)
   if (!fact) return NO_INTERPRETATION
-  return {
-    factId: fact.id,
-    optionRef: optionForFact(question, fact)?.ref ?? null,
-    basis: "exact_wording",
-  }
+  return { factId: fact.id, basis: "exact_wording" }
 }
 
 /** Read every question once, reusing what the cache already holds. */
@@ -291,7 +292,7 @@ export function planAnswers(input: {
       (candidate) => candidate.id === interpretation?.factId
     )
     if (!interpretation || !fact) continue
-    const candidate = answerFor(question, fact, interpretation)
+    const candidate = answerFor(question, fact)
     if (candidate) candidates.push(candidate)
   }
 
@@ -325,11 +326,18 @@ export function planAnswers(input: {
     }
     const rejection = refused.get(question.ref) ?? null
     const matched = interpretation?.factId != null
+    // Derived here rather than remembered, for the same reason the answer is:
+    // a reused reading must not carry a position from another observation.
+    const fact = input.facts.find(
+      (entry) => entry.id === interpretation?.factId
+    )
     const reason = rejection
       ? "rejected"
       : !matched
         ? "no_matching_fact"
-        : interpretation?.optionRef === null && needsOption(question)
+        : fact !== undefined &&
+            needsOption(question) &&
+            optionForFact(question, fact) === null
           ? "no_matching_option"
           : "unsupported_value"
     plans.push({
@@ -374,8 +382,7 @@ function unanswered(
  */
 function answerFor(
   question: CandidateQuestion,
-  fact: Fact,
-  interpretation: QuestionInterpretation
+  fact: Fact
 ): ReasonerAnswer | null {
   const value = fact.value
   const base = {
@@ -423,7 +430,9 @@ function answerFor(
     }
   }
   if (value.type === "boolean" || value.type === "choice") {
-    const optionRef = interpretation.optionRef
+    // Read from the question in front of us, never remembered: a reference
+    // belongs to one observation, and this reading may have been reused.
+    const optionRef = optionForFact(question, fact)?.ref ?? null
     if (optionRef === null) return null
     return {
       ...base,
