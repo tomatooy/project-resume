@@ -18,9 +18,16 @@ import {
   useServerUpdates,
 } from "./queries"
 import { ExtensionError, type Message } from "../lib/messages"
+import { AtsVendorSchema, atsName, categoryOf } from "../lib/pages"
+
+const vendors = new Intl.ListFormat("en", { type: "disjunction" }).format(
+  AtsVendorSchema.options.map(atsName)
+)
+const control = (type: "panel-minimize" | "panel-close") => {
+  void chrome.runtime.sendMessage({ type }).catch(() => {})
+}
 
 export function App() {
-  useRoutingRefresh()
   const state = useQuery(currentQuery())
   const action = useAction()
   const [selection, setSelection] = useState<{
@@ -28,6 +35,7 @@ export function App() {
     id: string
   } | null>(null)
   const data = state.data
+  useRoutingRefresh(data?.tabId)
   const resumes = useBaseResumes(data)
   useOperationRecovery(data)
   useServerUpdates(
@@ -52,43 +60,77 @@ export function App() {
     ""
   const message = action.error?.message ?? state.error?.message
   const pending = action.isPending
+  // A failed refresh still says which page the tab is on.
+  const known =
+    (state.error instanceof ExtensionError ? state.error.page : undefined) ??
+    page
+  const category = known ? categoryOf(known) : undefined
+  const openApp = (
+    <Button disabled={pending} onClick={() => act({ type: "open-app" })}>
+      Open VS:Résumé
+    </Button>
+  )
   let content: ReactNode
   if (state.isPending)
     content = (
       <p className="flex items-center gap-2">
         <Spinner />
-        Checking this job…
+        Checking this page…
       </p>
     )
-  else if (state.isError)
+  else if (state.isError) {
+    const auth =
+      state.error instanceof ExtensionError && state.error.code === "auth"
     content = (
       <>
-        <h1>Could not check this job</h1>
-        <p>Your saved resume may still be processing.</p>
+        <h1>
+          {category === "job"
+            ? "Could not check this job"
+            : "Could not reach VS:Résumé"}
+        </h1>
+        <p>
+          {category === "job"
+            ? "Your saved resume may still be processing."
+            : "Check your connection and try again."}
+        </p>
         <Button
           disabled={pending}
           onClick={() => {
-            if (
-              state.error instanceof ExtensionError &&
-              state.error.code === "auth"
-            )
-              act({ type: "connect" })
+            if (auth) act({ type: "connect" })
             else void state.refetch()
           }}
         >
-          {state.error instanceof ExtensionError && state.error.code === "auth"
-            ? "Connect account"
-            : "Try again"}
+          {auth ? "Connect account" : "Try again"}
         </Button>
+      </>
+    )
+  } else if (!data?.account)
+    content = (
+      <>
+        <h1>Connect your account</h1>
+        <p>Connect your existing VS:Résumé account to get started.</p>
+        <Button disabled={pending} onClick={() => act({ type: "connect" })}>
+          Connect account
+        </Button>
+      </>
+    )
+  else if (page?.kind === "ats")
+    content = (
+      <>
+        <h1>Autofill is coming soon</h1>
+        <p>
+          We recognized this {atsName(page.vendor)} application. Soon VS:Résumé
+          will fill it in from your resume.
+        </p>
+        {openApp}
       </>
     )
   else if (page?.kind === "unsupported")
     content = (
       <>
-        <h1>Find your next role</h1>
-        <p>
-          Open a LinkedIn job view or search-results page to tailor a resume.
-        </p>
+        <h1>No job or application detected</h1>
+        <p>Open a LinkedIn job, or an application on {vendors}.</p>
+        {openApp}
       </>
     )
   else if (page?.kind === "select-job")
@@ -96,16 +138,6 @@ export function App() {
       <>
         <h1>Select a job on LinkedIn</h1>
         <p>Choose a posting to see your resume for that role.</p>
-      </>
-    )
-  else if (!data?.account)
-    content = (
-      <>
-        <h1>A resume for this role</h1>
-        <p>Connect your existing VS:Résumé account to get started.</p>
-        <Button disabled={pending} onClick={() => act({ type: "connect" })}>
-          Connect account
-        </Button>
       </>
     )
   else if (page?.kind === "job" && lookup?.kind === "bound") {
@@ -199,9 +231,7 @@ export function App() {
           Create a resume in VS:Résumé, then come back to tailor it for this
           job.
         </p>
-        <Button onClick={() => act({ type: "open-app" })}>
-          Open VS:Résumé
-        </Button>
+        {openApp}
       </>
     )
   else
@@ -289,39 +319,59 @@ export function App() {
             />
             VS:Résumé
           </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Back to floating widget"
-            title="Back to floating widget"
-            className="text-foreground"
-            onClick={() =>
-              window.parent.postMessage(
-                { type: "panel-collapse" },
-                "https://www.linkedin.com"
-              )
-            }
-          >
-            <svg
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          <div className="flex items-center gap-1">
+            {category && category !== "unsupported" && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Minimize to widget"
+                title="Minimize to widget"
+                className="text-foreground"
+                onClick={() => control("panel-minimize")}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="3" />
+                  <path d="M15 3v18M7 9l3 3-3 3" />
+                </svg>
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Close for this tab"
+              title="Close for this tab"
+              className="text-foreground"
+              onClick={() => control("panel-close")}
             >
-              <rect x="3" y="3" width="18" height="18" rx="3" />
-              <path d="M15 3v18M7 9l3 3-3 3" />
-            </svg>
-          </Button>
+              <svg
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              >
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </Button>
+          </div>
         </div>
         <p className="mt-2 text-xs">Your next role, with a resume that fits.</p>
       </header>
       <section className="space-y-5 p-5" aria-live="polite">
-        <div className="text-muted-foreground text-[11px] font-medium uppercase tracking-widest">
-          Resume tailoring
-        </div>
+        {(category === "job" || category === "ats") && (
+          <div className="text-muted-foreground text-[11px] font-medium uppercase tracking-widest">
+            {category === "job" ? "Resume tailoring" : "Autofill"}
+          </div>
+        )}
         {content}
         {message && (
           <p

@@ -11,20 +11,29 @@ import {
   type Snapshot,
 } from "../lib/messages"
 import { activePage } from "./navigation"
+import { locate, readTabState, view } from "./tab-state"
 
-export function trustedPanel(sender: chrome.runtime.MessageSender): boolean {
+function panelSender(sender: chrome.runtime.MessageSender): boolean {
   return (
     sender.id === chrome.runtime.id &&
-    (!sender.tab ||
-      ((sender.frameId ?? 0) > 0 &&
-        sender.tab.url?.startsWith("https://www.linkedin.com/") === true)) &&
     sender.url === chrome.runtime.getURL("panel.html")
   )
+}
+/** An embedded panel is trusted only where its tab currently shows the panel. */
+export async function trustedPanel(
+  sender: chrome.runtime.MessageSender
+): Promise<boolean> {
+  if (!panelSender(sender)) return false
+  if (!sender.tab) return true
+  if ((sender.frameId ?? 0) <= 0 || sender.tab.id === undefined) return false
+  const state = await readTabState(sender.tab.id)
+  return view(state, locate(sender.tab.url)) === "panel"
 }
 export async function snapshot(tabId?: number): Promise<Snapshot> {
   const { page } = await activePage(tabId)
   const user = await account()
   const result: Snapshot = {
+    tabId: tabId ?? null,
     page,
     account: user,
     lookup: null,
@@ -198,27 +207,49 @@ export async function resumePageForAccount(
     throw new Error("Account changed. Try again.")
   return page
 }
+const untrusted = {
+  ok: false,
+  code: "unavailable",
+  message: "Open VS:Résumé from the toolbar to continue.",
+}
+async function pageOf(tabId?: number) {
+  try {
+    return (await activePage(tabId)).page
+  } catch {
+    return undefined
+  }
+}
 export function registerMessages() {
   chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
-    if (!trustedPanel(sender)) return false
+    if (!panelSender(sender)) return false
     const pageRequest = ResumePageMessageSchema.safeParse(raw)
-    if (pageRequest.success) {
-      void resumePageForAccount(pageRequest.data).then(
-        (page) => respond({ ok: true, page }),
-        () =>
+    const parsed = MessageSchema.safeParse(raw)
+    if (!pageRequest.success && !parsed.success) return false
+    const tabId = sender.tab?.id
+    void (async () => {
+      if (!(await trustedPanel(sender).catch(() => false))) {
+        respond(untrusted)
+        return
+      }
+      if (pageRequest.success) {
+        try {
+          respond({
+            ok: true,
+            page: await resumePageForAccount(pageRequest.data),
+          })
+        } catch {
           respond({
             ok: false,
             code: "unavailable",
             message: "Could not load resumes. Try again.",
           })
-      )
-      return true
-    }
-    const parsed = MessageSchema.safeParse(raw)
-    if (!parsed.success) return false
-    handleMessage(parsed.data, sender.tab?.id).then(
-      (value) => respond({ ok: true, snapshot: value }),
-      (error: unknown) => {
+        }
+        return
+      }
+      if (!parsed.success) return
+      try {
+        respond({ ok: true, snapshot: await handleMessage(parsed.data, tabId) })
+      } catch (error) {
         const capture = error instanceof CaptureError
         const auth =
           z.object({ code: z.literal("UNAUTHENTICATED") }).safeParse(error)
@@ -240,9 +271,10 @@ export function registerMessages() {
           retryAfterSeconds: rate.success
             ? rate.data.data.retryAfterSeconds
             : undefined,
+          page: await pageOf(tabId),
         })
       }
-    )
+    })()
     return true
   })
 }

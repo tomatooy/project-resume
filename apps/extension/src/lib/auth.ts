@@ -106,5 +106,4 @@ export async function connect(): Promise<void> {
 }
 export async function disconnect() {
   await auth.auth.signOut({ scope: "local" })
-  await chrome.storage.session.clear()
 }

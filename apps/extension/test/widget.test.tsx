@@ -25,7 +25,7 @@ it("opens the side panel only when the launcher is clicked", async () => {
     expect(sendMessage).toHaveBeenCalledWith({ type: "widget-open" })
   )
 })
-it("supports keyboard movement and hiding without opening the panel", () => {
+it("supports keyboard movement and closing without opening the panel", () => {
   const post = vi
     .spyOn(window.parent, "postMessage")
     .mockImplementation(() => {})
@@ -34,21 +34,10 @@ it("supports keyboard movement and hiding without opening the panel", () => {
     screen.getByRole("button", { name: "Move widget up or down" }),
     { key: "ArrowDown" }
   )
-  expect(post).toHaveBeenCalledWith(
-    { type: "widget-move", delta: 24 },
-    "https://www.linkedin.com"
-  )
-  expect(post).toHaveBeenCalledWith(
-    { type: "widget-save" },
-    "https://www.linkedin.com"
-  )
-  fireEvent.click(
-    screen.getByRole("button", { name: "Hide widget for this tab" })
-  )
-  expect(post).toHaveBeenCalledWith(
-    { type: "widget-dismiss" },
-    "https://www.linkedin.com"
-  )
+  expect(post).toHaveBeenCalledWith({ type: "widget-move", delta: 24 }, "*")
+  expect(post).toHaveBeenCalledWith({ type: "widget-save" }, "*")
+  fireEvent.click(screen.getByRole("button", { name: "Close for this tab" }))
+  expect(post).toHaveBeenCalledWith({ type: "widget-dismiss" }, "*")
 })
 
 it("drags vertically using screen coordinates and saves on release", () => {
@@ -62,12 +51,6 @@ it("drags vertically using screen coordinates and saves on release", () => {
   fireEvent.pointerDown(handle, { button: 0, screenY: 200 })
   fireEvent.pointerMove(handle, { screenY: 245 })
   fireEvent.pointerUp(handle)
-  expect(post).toHaveBeenCalledWith(
-    { type: "widget-move", delta: 45 },
-    "https://www.linkedin.com"
-  )
-  expect(post).toHaveBeenCalledWith(
-    { type: "widget-save" },
-    "https://www.linkedin.com"
-  )
+  expect(post).toHaveBeenCalledWith({ type: "widget-move", delta: 45 }, "*")
+  expect(post).toHaveBeenCalledWith({ type: "widget-save" }, "*")
 })

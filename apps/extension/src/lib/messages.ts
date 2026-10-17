@@ -8,6 +8,7 @@ import {
   JobLookupSchema,
   ResumeSummarySchema,
 } from "@workspace/resume-core/contracts"
+import { AtsVendorSchema } from "./pages"
 
 export const PageSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("unsupported") }),
@@ -17,8 +18,10 @@ export const PageSchema = z.discriminatedUnion("kind", [
     identity: JobIdentitySchema,
     sourceUrl: z.string(),
   }),
+  z.object({ kind: z.literal("ats"), vendor: AtsVendorSchema }),
 ])
 export const SnapshotSchema = z.object({
+  tabId: z.number().nullable().default(null),
   page: PageSchema,
   account: z.object({ id: z.string(), email: z.string() }).nullable(),
   lookup: JobLookupSchema.nullable(),
@@ -61,13 +64,15 @@ export const ReplySchema = z.discriminatedUnion("ok", [
     message: z.string(),
     code: z.enum(["capture", "auth", "unavailable"]),
     retryAfterSeconds: z.number().optional(),
+    page: PageSchema.optional(),
   }),
 ])
 export class ExtensionError extends Error {
   constructor(
     message: string,
     readonly code: "capture" | "auth" | "unavailable",
-    readonly retryAfterSeconds?: number
+    readonly retryAfterSeconds?: number,
+    readonly page?: z.infer<typeof PageSchema>
   ) {
     super(message)
   }
@@ -75,7 +80,12 @@ export class ExtensionError extends Error {
 export async function send(message: Message): Promise<Snapshot> {
   const reply = ReplySchema.parse(await chrome.runtime.sendMessage(message))
   if (!reply.ok)
-    throw new ExtensionError(reply.message, reply.code, reply.retryAfterSeconds)
+    throw new ExtensionError(
+      reply.message,
+      reply.code,
+      reply.retryAfterSeconds,
+      reply.page
+    )
   return reply.snapshot
 }
 

@@ -24,7 +24,11 @@ export function linkedinExtensionPage(input: string): LinkedInPage {
   if (ids.length > 1) return { kind: "unsupported" }
   const queryId = ids[0]
   let id: string | undefined
-  if (url.pathname === "/jobs/search-results/" && url.search.length > 1) {
+  // LinkedIn's in-app links omit the trailing slash.
+  if (
+    /^\/jobs\/search-results\/?$/.test(url.pathname) &&
+    url.search.length > 1
+  ) {
     if (!queryId || !/^\d{6,}$/.test(queryId)) return { kind: "select-job" }
     id = queryId
   } else {

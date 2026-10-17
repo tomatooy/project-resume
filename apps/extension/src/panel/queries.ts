@@ -36,22 +36,18 @@ export function useAction() {
   })
 }
 
-export function useRoutingRefresh() {
+/** Reloads the panel when its own tab moves to another URL. */
+export function useRoutingRefresh(tabId: number | null | undefined) {
   const client = useQueryClient()
   useEffect(() => {
-    const refresh = () => {
-      void client.resetQueries({ queryKey: key })
-    }
-    const changed = (_id: number, change: chrome.tabs.OnUpdatedInfo) => {
-      if (change.url) refresh()
+    if (tabId === null || tabId === undefined) return
+    const changed = (id: number, change: chrome.tabs.OnUpdatedInfo) => {
+      if (id === tabId && change.url)
+        void client.resetQueries({ queryKey: key })
     }
     chrome.tabs.onUpdated.addListener(changed)
-    chrome.tabs.onActivated.addListener(refresh)
-    return () => {
-      chrome.tabs.onUpdated.removeListener(changed)
-      chrome.tabs.onActivated.removeListener(refresh)
-    }
-  }, [client])
+    return () => chrome.tabs.onUpdated.removeListener(changed)
+  }, [client, tabId])
 }
 
 export function useServerUpdates(
@@ -62,7 +58,6 @@ export function useServerUpdates(
   const client = useQueryClient()
   useEffect(() => {
     if (!jobId || !accountId) return
-    const port = chrome.runtime.connect({ name: "job-updates" })
     let connected = false
     let refreshTimer: ReturnType<typeof setTimeout> | undefined
     const refresh = () => {
@@ -72,23 +67,43 @@ export function useServerUpdates(
         void client.invalidateQueries({ queryKey: key })
       }, 150)
     }
+    const open = () => {
+      const next = chrome.runtime.connect({ name: "job-updates" })
+      next.onMessage.addListener((message: { type?: string }) => {
+        if (port !== next) return
+        if (message.type === "ready") {
+          connected = true
+          refresh()
+        } else if (message.type === "changed") refresh()
+        else if (message.type === "unavailable") connected = false
+      })
+      next.onDisconnect.addListener(() => {
+        if (port === next) connected = false
+      })
+      next.postMessage({
+        type: "watch",
+        jobId,
+        operationId: operationId ?? null,
+      })
+      return next
+    }
+    let port = open()
+    // Chrome closes ports when the page enters the back/forward cache.
+    const restore = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      port.disconnect()
+      connected = false
+      port = open()
+      refresh()
+    }
     const fallback = setInterval(() => {
       if (!connected) refresh()
     }, 10_000)
-    port.onMessage.addListener((message: { type?: string }) => {
-      if (message.type === "ready") {
-        connected = true
-        refresh()
-      } else if (message.type === "changed") refresh()
-      else if (message.type === "unavailable") connected = false
-    })
-    port.onDisconnect.addListener(() => {
-      connected = false
-    })
-    port.postMessage({ type: "watch", jobId, operationId: operationId ?? null })
+    window.addEventListener("pageshow", restore)
     return () => {
       clearTimeout(refreshTimer)
       clearInterval(fallback)
+      window.removeEventListener("pageshow", restore)
       port.disconnect()
     }
   }, [client, jobId, accountId, operationId])

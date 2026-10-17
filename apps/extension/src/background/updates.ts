@@ -11,17 +11,19 @@ const WatchSchema = z.object({
 
 export function registerUpdates() {
   chrome.runtime.onConnect.addListener((port) => {
-    if (
-      port.name !== "job-updates" ||
-      !port.sender ||
-      !trustedPanel(port.sender)
-    )
-      return
+    if (port.name !== "job-updates" || !port.sender) return
     const tabId = port.sender.tab?.id
+    // Listeners attach now so no watch request is lost while trust resolves.
+    const trusted = trustedPanel(port.sender).catch(() => false)
 
     let dispose: (() => void) | null = null
     let closed = false
     let generation = 0
+    void trusted.then((ok) => {
+      if (ok || closed) return
+      closed = true
+      port.disconnect()
+    })
     const notify = (type: "ready" | "changed" | "unavailable") => {
       if (closed) return
       try {
@@ -42,6 +44,7 @@ export function registerUpdates() {
       dispose?.()
       dispose = null
       void (async () => {
+        if (!(await trusted) || closed || current !== generation) return
         try {
           const [{ page }, user] = await Promise.all([
             activePage(tabId),

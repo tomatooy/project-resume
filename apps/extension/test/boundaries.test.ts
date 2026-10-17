@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
 import { expect, it } from "vitest"
 import { z } from "zod"
+import { SUPPORTED_MATCHES } from "../src/lib/pages"
 function files(path: string): string[] {
   return readdirSync(path, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory()
@@ -43,23 +44,25 @@ it("declares only required privileges and existing entrypoints", () => {
     })
     .parse(JSON.parse(readFileSync("manifest.json", "utf8")))
   expect(manifest.permissions.sort()).toEqual([
+    "activeTab",
     "identity",
+    "scripting",
     "storage",
     "webNavigation",
   ])
-  expect(manifest.host_permissions).toEqual(["https://www.linkedin.com/*"])
+  expect(manifest.host_permissions).toEqual(SUPPORTED_MATCHES)
   expect(manifest.minimum_chrome_version).toBe("127")
   expect(manifest.action.default_popup).toBeUndefined()
   expect(manifest.side_panel).toBeUndefined()
   expect(readFileSync("panel.html", "utf8")).toContain("src/panel/main.tsx")
   expect(manifest.content_scripts).toEqual([
-    { matches: ["https://www.linkedin.com/*"], js: ["widget-host.js"] },
+    { matches: SUPPORTED_MATCHES, js: ["widget-host.js"] },
   ])
+  // The toolbar can open the panel on any page; the widget stays on
+  // supported pages.
   expect(manifest.web_accessible_resources).toEqual([
-    {
-      matches: ["https://www.linkedin.com/*"],
-      resources: ["widget.html", "panel.html"],
-    },
+    { matches: SUPPORTED_MATCHES, resources: ["widget.html"] },
+    { matches: ["<all_urls>"], resources: ["panel.html"] },
   ])
   expect(readFileSync("src/content/widget-host.ts", "utf8")).not.toMatch(
     /^import /m

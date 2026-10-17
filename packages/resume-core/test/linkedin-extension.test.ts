@@ -13,6 +13,8 @@ describe("extension eligibility", () => {
     "https://www.linkedin.com/jobs/view/engineer-at-acme-123456?tracking=x",
     "https://www.linkedin.com/jobs/search-results/?foo=1&currentJobId=123456",
     "https://www.linkedin.com/jobs/search-results/?currentJobId=123456&foo=2",
+    // LinkedIn's in-app links leave off the trailing slash.
+    "https://www.linkedin.com/jobs/search-results?skipRedirect=true&currentJobId=123456",
   ])("resolves one identity: %s", (url) => {
     expect(linkedinExtensionPage(url)).toMatchObject({
       kind: "job",
@@ -32,19 +34,24 @@ describe("extension eligibility", () => {
     "https://www.linkedin.com/jobs/view/123456?currentJobId=654321",
     "https://www.linkedin.com/jobs/view/123456?currentJobId=123456&currentJobId=123456",
     "https://www.linkedin.com/jobs/search-results/",
+    "https://www.linkedin.com/jobs/search-results",
+    "https://www.linkedin.com/jobs/search-results-x/?currentJobId=123456",
     "https://www.linkedin.com/jobs/view/123456/extra",
     "https://user@www.linkedin.com/jobs/view/123456",
   ])("refuses unsupported URLs: %s", (url) =>
     expect(linkedinExtensionPage(url).kind).toBe("unsupported")
   )
-  it.each(["?keywords=engineer", "?currentJobId=invalid", "?currentJobId="])(
-    "distinguishes no selection: %s",
-    (query) =>
-      expect(
-        linkedinExtensionPage(
-          `https://www.linkedin.com/jobs/search-results/${query}`
-        ).kind
-      ).toBe("select-job")
+  it.each([
+    "/?keywords=engineer",
+    "?keywords=engineer",
+    "/?currentJobId=invalid",
+    "/?currentJobId=",
+  ])("distinguishes no selection: %s", (query) =>
+    expect(
+      linkedinExtensionPage(
+        `https://www.linkedin.com/jobs/search-results${query}`
+      ).kind
+    ).toBe("select-job")
   )
   it("rejects incomplete and unsupported identities", () => {
     expect(

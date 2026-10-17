@@ -34,8 +34,13 @@ vi.mock("../src/lib/api", () => ({
 vi.mock("../src/background/navigation", () => ({
   activePage: mock.activePage,
 }))
-const { handleMessage, trustedPanel, resumePageForAccount, snapshot } =
-  await import("../src/background/messages")
+const {
+  handleMessage,
+  registerMessages,
+  trustedPanel,
+  resumePageForAccount,
+  snapshot,
+} = await import("../src/background/messages")
 const identity = {
   platform: "linkedin",
   externalJobId: "123456",
@@ -75,76 +80,125 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllGlobals())
 
-it("reserves privileged messages for the panel, not the widget or content script", () => {
+const session: Record<string, unknown> = {}
+function stubPanelChrome(
+  onMessage?: typeof chrome.runtime.onMessage.addListener
+) {
+  for (const key of Object.keys(session)) delete session[key]
   vi.stubGlobal("chrome", {
     runtime: {
       id: "extension",
       getURL: (path: string) => `chrome-extension://extension/${path}`,
+      onMessage: { addListener: onMessage },
+    },
+    storage: {
+      local: { get: mock.storageGet, set: vi.fn(), remove: vi.fn() },
+      session: {
+        get: async (key: string) =>
+          key in session ? { [key]: session[key] } : {},
+      },
     },
   })
+}
+const tab: chrome.tabs.Tab = {
+  id: 1,
+  windowId: 1,
+  index: 0,
+  active: true,
+  pinned: false,
+  highlighted: true,
+  incognito: false,
+  selected: true,
+  discarded: false,
+  autoDiscardable: true,
+  groupId: -1,
+  frozen: false,
+  lastAccessed: 0,
+  url: "https://www.linkedin.com/jobs/view/123456/",
+}
+const sender = {
+  id: "extension",
+  url: "chrome-extension://extension/panel.html",
+  frameId: 2,
+  tab,
+}
+
+it("reserves privileged messages for the panel, not the widget or content script", async () => {
+  stubPanelChrome()
   expect(
-    trustedPanel({
+    await trustedPanel({
       id: "extension",
       url: "chrome-extension://extension/panel.html",
     })
   ).toBe(true)
   expect(
-    trustedPanel({
+    await trustedPanel({
       id: "extension",
       url: "chrome-extension://extension/widget.html",
     })
   ).toBe(false)
   expect(
-    trustedPanel({
+    await trustedPanel({
       id: "extension",
       url: "https://www.linkedin.com/jobs/view/123456/",
     })
   ).toBe(false)
   expect(
-    trustedPanel({
+    await trustedPanel({
       id: "other",
       url: "chrome-extension://extension/panel.html",
     })
   ).toBe(false)
 })
 
-it("allows the embedded panel only inside a LinkedIn tab", () => {
-  vi.stubGlobal("chrome", {
-    runtime: {
-      id: "extension",
-      getURL: (path: string) => `chrome-extension://extension/${path}`,
-    },
+it("trusts an embedded panel only where its tab shows the panel", async () => {
+  stubPanelChrome()
+  const other = { ...sender, tab: { ...tab, url: "https://example.test/a" } }
+  expect(await trustedPanel(sender)).toBe(true)
+  expect(await trustedPanel({ ...sender, frameId: 0 })).toBe(false)
+  expect(
+    await trustedPanel({
+      ...sender,
+      url: "chrome-extension://extension/widget.html",
+    })
+  ).toBe(false)
+  expect(await trustedPanel(other)).toBe(false)
+  session["tab:1"] = {
+    job: "widget",
+    ats: "panel",
+    manual: "https://example.test/a",
+    blocked: false,
+  }
+  expect(await trustedPanel(other)).toBe(true)
+  expect(await trustedPanel(sender)).toBe(false)
+})
+
+it("refuses an untrusted panel and tells a trusted one which page failed", async () => {
+  const listen = vi.fn<typeof chrome.runtime.onMessage.addListener>()
+  stubPanelChrome(listen)
+  registerMessages()
+  const ask = (message: object, from: chrome.runtime.MessageSender) =>
+    new Promise<unknown>((resolve) => {
+      if (!listen.mock.calls[0]?.[0](message, from, resolve)) resolve(undefined)
+    })
+  expect(
+    await ask(
+      { type: "state" },
+      { ...sender, tab: { ...tab, url: "https://example.test/" } }
+    )
+  ).toEqual({
+    ok: false,
+    code: "unavailable",
+    message: "Open VS:Résumé from the toolbar to continue.",
   })
-  const tab: chrome.tabs.Tab = {
-    id: 1,
-    windowId: 1,
-    index: 0,
-    active: true,
-    pinned: false,
-    highlighted: true,
-    incognito: false,
-    selected: true,
-    discarded: false,
-    autoDiscardable: true,
-    groupId: -1,
-    frozen: false,
-    lastAccessed: 0,
-    url: "https://www.linkedin.com/jobs/view/123456/",
-  }
-  const sender = {
-    id: "extension",
-    url: "chrome-extension://extension/panel.html",
-    frameId: 2,
-    tab,
-  }
-  expect(trustedPanel(sender)).toBe(true)
-  expect(trustedPanel({ ...sender, frameId: 0 })).toBe(false)
-  expect(
-    trustedPanel({ ...sender, tab: { ...tab, url: "https://example.test/" } })
-  ).toBe(false)
-  expect(
-    trustedPanel({ ...sender, url: "chrome-extension://extension/widget.html" })
-  ).toBe(false)
+  expect(mock.activePage).not.toHaveBeenCalled()
+  expect(await ask({ type: "widget-state" }, sender)).toBeUndefined()
+  mock.account.mockRejectedValue(new Error("Sign in again"))
+  expect(await ask({ type: "state" }, sender)).toMatchObject({
+    ok: false,
+    code: "auth",
+    page: page().page,
+  })
 })
 
 it("fetches through the shared API and submits its canonical URL and text", async () => {
@@ -202,7 +256,7 @@ it("does not fetch when the job already has a resume", async () => {
 })
 
 it("reads status for its own tab even when another tab has focus", async () => {
-  await handleMessage({ type: "state" }, 42)
+  expect((await handleMessage({ type: "state" }, 42)).tabId).toBe(42)
   expect(mock.activePage).toHaveBeenCalledWith(42)
 })
 it("rejects an action from a panel belonging to another tab", async () => {

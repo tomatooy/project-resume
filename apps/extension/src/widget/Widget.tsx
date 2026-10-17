@@ -1,8 +1,10 @@
 import { useRef, useState } from "react"
 import { Button } from "@workspace/ui/components/button"
 
+// The widget runs on several sites. The host checks which frame sent each
+// message, and none of them carry anything private.
 function tellHost(message: object) {
-  window.parent.postMessage(message, "https://www.linkedin.com")
+  window.parent.postMessage(message, "*")
 }
 export function Widget() {
   const drag = useRef<{ id: number; y: number } | null>(null)
@@ -89,8 +91,8 @@ export function Widget() {
       </div>
       <Button
         className="edge-close edge-control"
-        aria-label="Hide widget for this tab"
-        title="Hide for this tab. You can still open the panel from the toolbar."
+        aria-label="Close for this tab"
+        title="Close for this tab. Use the toolbar icon to reopen."
         onClick={() => tellHost({ type: "widget-dismiss" })}
       >
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">

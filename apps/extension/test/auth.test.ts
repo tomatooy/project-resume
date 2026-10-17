@@ -33,7 +33,7 @@ function setup() {
   }
   const launchWebAuthFlow = vi.fn()
   vi.stubGlobal("chrome", {
-    storage: { local, session: { clear: vi.fn() } },
+    storage: { local },
     identity: {
       getRedirectURL: () =>
         "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.chromiumapp.org/auth/callback",
