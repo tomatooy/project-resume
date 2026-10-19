@@ -35,6 +35,7 @@
     "@tanstack/router-plugin": "latest",
     "@tanstack/store": "^0.11.1",
     "@workspace/agent": "workspace:*",
+    "@workspace/autofill": "workspace:*",
     "@workspace/resume-core": "workspace:*",
     "@workspace/resume-render": "workspace:*",
     "@workspace/resume-schema": "workspace:*",

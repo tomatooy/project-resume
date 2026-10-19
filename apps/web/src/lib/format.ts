@@ -27,18 +27,8 @@ export function absoluteTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
-/** Filename-safe slug for downloads. */
-export function slug(value: string): string {
-  return (
-    value
-      .normalize("NFKD")
-      .replace(/[̀-ͯ]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "resume"
-  )
-}
+/** Filename-safe slug for downloads; shared with autofill's resume file name. */
+export { slug } from "@workspace/autofill"
 
 export function pluralize(
   count: number,
