@@ -8,6 +8,14 @@ export type LinkJobTargetInput = {
   isOrigin: boolean
 }
 
+/** A resume and the posting it was made from, when the link was made. */
+export type OriginJob = {
+  resumeId: string
+  company: string
+  title: string
+  linkedAt: string
+}
+
 export interface JobTargetRepository {
   findByIdentity(identity: JobIdentity): Promise<JobTarget[]>
   create(input: NewJobTarget): Promise<JobTarget>
@@ -16,4 +24,11 @@ export interface JobTargetRepository {
   link(input: LinkJobTargetInput): Promise<void>
   /** Newest first. No reader yet; the link exists so the fact is not lost. */
   listForResume(resumeId: string): Promise<JobTarget[]>
+  /**
+   * Origin links of resumes that are not deleted, newest link first, at most
+   * `limit` of them.
+   */
+  listOrigins(limit: number): Promise<OriginJob[]>
+  /** The posting the resume was made from, or null for one not made so. */
+  findOrigin(resumeId: string): Promise<JobTarget | null>
 }

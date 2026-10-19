@@ -148,6 +148,7 @@ export class TailorService {
       jobTargetId: target.id,
       isOrigin: true,
     })
+    const job = { company: target.company, title: target.title }
 
     const conversation = await this.memory.openConversation(created.id)
     const run = await this.runs.startForCreation({
@@ -196,7 +197,7 @@ export class TailorService {
       const subtitle = names.subtitle
 
       return {
-        resume: { ...created, subtitle },
+        resume: { ...created, subtitle, job },
         jobTargetId: target.id,
         tailored: true,
         model,
@@ -219,7 +220,7 @@ export class TailorService {
         })
 
       return {
-        resume: created,
+        resume: { ...created, job },
         jobTargetId: target.id,
         tailored: false,
         model: null,

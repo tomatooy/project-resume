@@ -9,6 +9,7 @@ import {
   type JobTargetRepository,
   type LinkJobTargetInput,
   type NewJobTarget,
+  type OriginJob,
 } from "@workspace/resume-core"
 
 import type { Db } from "../auth/supabase"
@@ -142,5 +143,48 @@ export class SupabaseJobTargetRepository implements JobTargetRepository {
       .map((row) => row.job_targets)
       .filter((row) => row !== null)
       .map(toJobTarget)
+  }
+
+  async listOrigins(limit: number): Promise<OriginJob[]> {
+    const { data, error } = await this.db
+      .from("resume_job_targets")
+      .select(
+        "resume_id, created_at, job_targets(company, title), resumes!inner(deleted_at)"
+      )
+      .eq("is_origin", true)
+      .is("resumes.deleted_at", null)
+      .order("created_at", { ascending: false })
+      // Links made in one transaction share a time; this keeps their order
+      // stable, as the reconciliation function in the migrations does.
+      .order("resume_id", { ascending: false })
+      .limit(limit)
+
+    if (error) throw error
+    return data.flatMap((row) =>
+      row.job_targets
+        ? [
+            {
+              resumeId: row.resume_id,
+              company: row.job_targets.company,
+              title: row.job_targets.title,
+              linkedAt: row.created_at,
+            },
+          ]
+        : []
+    )
+  }
+
+  async findOrigin(resumeId: string): Promise<JobTarget | null> {
+    const { data, error } = await this.db
+      .from("resume_job_targets")
+      .select(`job_targets (${COLUMNS})`)
+      .eq("resume_id", resumeId)
+      .eq("is_origin", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+
+    if (error) throw error
+    const row = data[0]?.job_targets
+    return row ? toJobTarget(row) : null
   }
 }

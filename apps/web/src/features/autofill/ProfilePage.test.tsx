@@ -209,6 +209,7 @@ describe("ProfilePage", () => {
           subtitle: "",
           templateId: "lisbon",
           updatedAt: resume.updatedAt,
+          job: null,
         },
       ],
       nextCursor: null,

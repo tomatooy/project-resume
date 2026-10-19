@@ -6,16 +6,33 @@ import type {
 
 import { z } from "zod"
 import { TemplateIdSchema } from "@workspace/resume-schema"
+/** The posting a resume was tailored for, as a resume list shows it. */
+export const JobBriefSchema = z.object({
+  company: z.string(),
+  title: z.string(),
+})
+export type JobBrief = z.infer<typeof JobBriefSchema>
+
 export const ResumeSummarySchema = z.object({
   id: z.string(),
   title: z.string(),
   subtitle: z.string(),
   templateId: TemplateIdSchema,
   updatedAt: z.string(),
+  /**
+   * The posting linked as the resume's origin, null for a resume not made
+   * from one. Defaults to null so a summary sent before this field existed
+   * still parses.
+   */
+  job: JobBriefSchema.nullable().default(null),
 })
 export type ResumeSummary = z.infer<typeof ResumeSummarySchema>
 
-export type ResumeRecord = ResumeSummary & {
+/**
+ * Without `job`: only the summary queries read the origin link, and a record
+ * from `create` cannot know a posting that is linked after it.
+ */
+export type ResumeRecord = Omit<ResumeSummary, "job"> & {
   data: Resume
   schemaVersion: number
   templateOptions: TemplateOptions
@@ -69,7 +86,9 @@ const ResumeCursorSchema = z.object({
   updatedAt: z.iso.datetime({ offset: true }),
   id: z.uuid(),
 })
-export function resumeCursor(row: ResumeSummary): string {
+export function resumeCursor(
+  row: Pick<ResumeSummary, "updatedAt" | "id">
+): string {
   return `${row.updatedAt}|${row.id}`
 }
 export function parseResumeCursor(cursor: string) {

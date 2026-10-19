@@ -201,6 +201,7 @@ export class InMemoryTailorOperationRepository
           resumeId: resume.id,
           jobTargetId: targetId,
           isOrigin: true,
+          createdAt: this.db.now().toISOString(),
         })
       }
       const version = await new InMemoryVersionRepository(this.db).create({

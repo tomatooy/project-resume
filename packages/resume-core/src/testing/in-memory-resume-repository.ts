@@ -15,6 +15,7 @@ import type {
   UpdateDataResult,
 } from "../ports/resume-repository"
 import { type InMemoryDb, nowIso } from "./db"
+import { originOf } from "./in-memory-job-target-repository"
 
 /**
  * Mirrors the Supabase adapter's observable behaviour, including the parts that
@@ -31,7 +32,7 @@ export class InMemoryResumeRepository implements ResumeRepository {
         (a, b) =>
           b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id)
       )
-      .map(toSummary)
+      .map((row) => toSummary(this.db, row))
   }
 
   async listRecords(): Promise<ResumeRecord[]> {
@@ -167,7 +168,8 @@ export class InMemoryResumeRepository implements ResumeRepository {
 
 type Row = InMemoryDb["resumes"][number]
 
-function toSummary(row: Row): ResumeSummary {
+/** The fields a summary and a record share. */
+function toHead(row: Row): Omit<ResumeSummary, "job"> {
   return {
     id: row.id,
     title: row.title,
@@ -177,9 +179,18 @@ function toSummary(row: Row): ResumeSummary {
   }
 }
 
+/** With the origin job, as the Supabase summary query embeds it. */
+function toSummary(db: InMemoryDb, row: Row): ResumeSummary {
+  const origin = originOf(db, row.id)
+  return {
+    ...toHead(row),
+    job: origin ? { company: origin.company, title: origin.title } : null,
+  }
+}
+
 function toRecord(row: Row): ResumeRecord {
   return {
-    ...toSummary(row),
+    ...toHead(row),
     data: migrateResume(row.data),
     schemaVersion: row.schemaVersion,
     templateOptions: row.templateOptions,

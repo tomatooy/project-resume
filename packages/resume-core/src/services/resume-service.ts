@@ -133,7 +133,7 @@ export class ResumeService {
 
     const data = regenerateIds(input.document ?? source?.data ?? starter)
 
-    return this.resumes.create({
+    const created = await this.resumes.create({
       title: input.title ?? (source ? `${source.title} copy` : UNTITLED),
       subtitle:
         input.subtitle ??
@@ -147,6 +147,9 @@ export class ResumeService {
       templateId: source?.templateId ?? DEFAULT_TEMPLATE_ID,
       templateOptions: source?.templateOptions ?? defaultTemplateOptions,
     })
+    // A copy does not inherit the source's links, and the tailor flow links
+    // its posting only after this returns.
+    return { ...created, job: null }
   }
 
   duplicate(id: string): Promise<ResumeSummary> {
@@ -208,7 +211,7 @@ export class ResumeService {
 }
 
 /** The rail's card fields, off a record the search already holds. */
-function toSummary(record: ResumeRecord): ResumeSummary {
+function toSummary(record: ResumeRecord): ResumeSearchGroup["resume"] {
   const { id, title, subtitle, templateId, updatedAt } = record
   return { id, title, subtitle, templateId, updatedAt }
 }

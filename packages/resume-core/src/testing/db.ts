@@ -89,6 +89,7 @@ export class InMemoryDb {
     resumeId: string
     jobTargetId: string
     isOrigin: boolean
+    createdAt: string
   }[] = []
   userSkills: CustomSkill[] = []
   /** The ids the user switched off, whichever tier they belong to. */

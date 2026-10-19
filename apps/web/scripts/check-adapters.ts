@@ -631,6 +631,124 @@ check(
   !(await b.skills.listOverlay()).disabledIds.includes("bullet_rewrite")
 )
 
+console.log("origin jobs")
+const originPorts = supabasePorts(dbA, USER_A)
+const plainResume = await a.resumes.create({ title: "Origin check base" })
+const olderOrigin = await a.resumes.create({ title: "Origin check older" })
+const newerOrigin = await a.resumes.create({ title: "Origin check newer" })
+const checkPosting = {
+  platform: null,
+  externalJobId: null,
+  sourceUrl: null,
+  rawText: "A posting for the origin check.",
+  title: "Origin Engineer",
+  company: "Origin Co",
+  location: null,
+  requirements: { mustHaves: [], niceToHaves: [], keywords: [] },
+}
+const originTarget = await originPorts.jobTargets.create(checkPosting)
+const olderTarget = await originPorts.jobTargets.create({
+  ...checkPosting,
+  company: "Older Co",
+})
+// Attached after the resume was made, so not where it came from.
+await originPorts.jobTargets.link({
+  resumeId: plainResume.id,
+  jobTargetId: olderTarget.id,
+  isOrigin: false,
+})
+await originPorts.jobTargets.link({
+  resumeId: olderOrigin.id,
+  jobTargetId: olderTarget.id,
+  isOrigin: true,
+})
+await originPorts.jobTargets.link({
+  resumeId: newerOrigin.id,
+  jobTargetId: originTarget.id,
+  isOrigin: true,
+})
+const originBrief = { company: "Origin Co", title: "Origin Engineer" }
+check(
+  "summary carries the origin job",
+  isDeepStrictEqual((await a.resumes.summary(newerOrigin.id)).job, originBrief)
+)
+const originList = await a.resumes.list()
+check(
+  "list carries the origin job",
+  isDeepStrictEqual(
+    originList.find((row) => row.id === newerOrigin.id)?.job,
+    originBrief
+  )
+)
+check(
+  "a resume with only a later link is listed, without a job",
+  originList.find((row) => row.id === plainResume.id)?.job === null
+)
+const originPage = await a.resumes.page()
+check(
+  "page carries the origin job",
+  isDeepStrictEqual(
+    originPage.items.find((row) => row.id === newerOrigin.id)?.job,
+    originBrief
+  )
+)
+check(
+  "the origin filter leaves the page total alone",
+  originPage.total === originList.length,
+  `got ${originPage.total} of ${originList.length}`
+)
+const origins = await originPorts.jobTargets.listOrigins(50)
+check(
+  "listOrigins puts the newest origin link first",
+  isDeepStrictEqual(
+    origins.slice(0, 2).map((row) => [row.resumeId, row.company, row.title]),
+    [
+      [newerOrigin.id, "Origin Co", "Origin Engineer"],
+      [olderOrigin.id, "Older Co", "Origin Engineer"],
+    ]
+  ) && !Number.isNaN(Date.parse(origins[0]?.linkedAt ?? ""))
+)
+check(
+  "listOrigins leaves out links that are not origins",
+  !origins.some((row) => row.resumeId === plainResume.id)
+)
+check(
+  "listOrigins keeps to the limit",
+  isDeepStrictEqual(
+    (await originPorts.jobTargets.listOrigins(1)).map((row) => row.resumeId),
+    [newerOrigin.id]
+  )
+)
+check(
+  "findOrigin returns the origin posting",
+  (await originPorts.jobTargets.findOrigin(newerOrigin.id))?.id ===
+    originTarget.id
+)
+check(
+  "findOrigin is null without an origin link",
+  (await originPorts.jobTargets.findOrigin(plainResume.id)) === null
+)
+const originPortsB = supabasePorts(dbB, USER_B)
+check(
+  "B cannot list A's origin jobs",
+  !(await originPortsB.jobTargets.listOrigins(50)).some(
+    (row) => row.resumeId === newerOrigin.id
+  )
+)
+check(
+  "B cannot find A's origin posting",
+  (await originPortsB.jobTargets.findOrigin(newerOrigin.id)) === null
+)
+await a.resumes.remove(newerOrigin.id)
+check(
+  "listOrigins leaves out deleted resumes",
+  !(await originPorts.jobTargets.listOrigins(50)).some(
+    (row) => row.resumeId === newerOrigin.id
+  )
+)
+await a.resumes.remove(olderOrigin.id)
+await a.resumes.remove(plainResume.id)
+
 console.log("durable tailoring")
 const operationPorts = supabasePorts(dbA, USER_A, {
   jobParser: new StubJobParser(),

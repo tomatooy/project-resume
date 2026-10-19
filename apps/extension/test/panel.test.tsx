@@ -279,6 +279,7 @@ it("loads more bases without rereading job state and retains pages after unchang
         subtitle: "",
         templateId: "lisbon",
         updatedAt: "2026-09-25T00:00:00Z",
+        job: null,
       },
     ],
   }
