@@ -1,4 +1,8 @@
-import { BooksIcon, SignOutIcon } from "@phosphor-icons/react"
+import {
+  BooksIcon,
+  IdentificationCardIcon,
+  SignOutIcon,
+} from "@phosphor-icons/react"
 import { Link } from "@tanstack/react-router"
 import {
   DropdownMenu,
@@ -43,6 +47,10 @@ export function UserMenu({ email }: { email: string }) {
         <DropdownMenuItem render={<Link to="/skills" />}>
           <BooksIcon />
           Skills
+        </DropdownMenuItem>
+        <DropdownMenuItem render={<Link to="/autofill" />}>
+          <IdentificationCardIcon />
+          Autofill profile
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {/*

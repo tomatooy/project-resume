@@ -25,6 +25,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import { useRef, useState } from "react"
 import { toast } from "sonner"
 
+import { AutofillRail } from "@/features/autofill/AutofillRail"
 import { ImportDialog } from "@/features/import/ImportDialog"
 import { absoluteTime, relativeTime } from "@/lib/format"
 import {
@@ -46,19 +47,39 @@ import { SkillsRail } from "./SkillsRail"
 import { LoadMore } from "./LoadMore"
 import { RailSkeleton } from "./RailSkeleton"
 
+type RailMode = "resumes" | "skills" | "autofill"
+
 export function ResumeRail() {
   const matchRoute = useMatchRoute()
+  const onAutofill = Boolean(matchRoute({ to: "/autofill" }))
   // The initial route seeds the rail; browsing it leaves the active tab alone.
-  const [skillsMode, setSkillsMode] = useState(() =>
-    Boolean(matchRoute({ to: "/skills", fuzzy: true }))
-  )
+  const [mode, setMode] = useState<RailMode>(() => {
+    if (onAutofill) return "autofill"
+    return matchRoute({ to: "/skills", fuzzy: true }) ? "skills" : "resumes"
+  })
+  // Except for the profile: arriving there always brings up its sections,
+  // because the rail is how its page is navigated. Set while rendering, not in
+  // an effect, so the previous list never flashes first.
+  const [wasOnAutofill, setWasOnAutofill] = useState(onAutofill)
+  if (onAutofill !== wasOnAutofill) {
+    setWasOnAutofill(onAutofill)
+    if (onAutofill) setMode("autofill")
+  }
 
   return (
     <nav className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      {skillsMode ? <SkillsRail /> : <ResumeList />}
+      {mode === "skills" ? (
+        <SkillsRail />
+      ) : mode === "autofill" ? (
+        <AutofillRail />
+      ) : (
+        <ResumeList />
+      )}
       <RailSwitch
-        skillsMode={skillsMode}
-        onToggle={() => setSkillsMode((current) => !current)}
+        mode={mode}
+        onToggle={() =>
+          setMode((current) => (current === "resumes" ? "skills" : "resumes"))
+        }
       />
     </nav>
   )
@@ -66,12 +87,15 @@ export function ResumeRail() {
 
 /** The foot of the rail: one row, naming what the rail is not showing. */
 function RailSwitch({
-  skillsMode,
+  mode,
   onToggle,
 }: {
-  skillsMode: boolean
+  mode: RailMode
   onToggle: () => void
 }) {
+  // The profile is reached from the user menu, so from there the way back is
+  // the resumes, as it is from the skills.
+  const toResumes = mode !== "resumes"
   return (
     <div className="flex flex-none items-center border-t border-border p-1.5">
       <Button
@@ -80,12 +104,12 @@ function RailSwitch({
         onClick={onToggle}
         className="h-[26px] w-full justify-start gap-1.5 rounded-[6px] px-2 text-[12.5px] font-normal text-foreground/60 hover:bg-accent"
       >
-        {skillsMode ? (
+        {toResumes ? (
           <FileTextIcon className="size-3.5 flex-none opacity-70" />
         ) : (
           <BooksIcon className="size-3.5 flex-none opacity-70" />
         )}
-        <span className="truncate">{skillsMode ? "My resumes" : "Skills"}</span>
+        <span className="truncate">{toResumes ? "My resumes" : "Skills"}</span>
       </Button>
     </div>
   )
