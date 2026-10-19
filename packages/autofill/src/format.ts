@@ -48,6 +48,17 @@ export function formatSalary(
   return `${money(min, currency)}${top} per ${salaryPeriod}`
 }
 
+/** "2028-05-31" to "May 31, 2028". */
+export function formatDate(iso: string): string {
+  // In UTC, so a western time zone does not show the day before.
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
 function isoDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0")
   const day = String(date.getDate()).padStart(2, "0")
@@ -65,12 +76,7 @@ export function formatStart(
 ): string | null {
   if (prefs.startKind === "date") {
     if (prefs.startDate === "") return null
-    if (control === "date") return prefs.startDate
-    // In UTC, so a western time zone does not show the day before.
-    return new Date(`${prefs.startDate}T00:00:00Z`).toLocaleDateString(
-      "en-US",
-      { timeZone: "UTC", month: "long", day: "numeric", year: "numeric" }
-    )
+    return control === "date" ? prefs.startDate : formatDate(prefs.startDate)
   }
   if (prefs.startKind === "notice" && prefs.noticeWeeks !== null) {
     const weeks = prefs.noticeWeeks

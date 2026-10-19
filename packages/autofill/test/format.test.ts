@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  formatDate,
   formatLocation,
   formatPhoneInternational,
   formatPhoneNational,
@@ -67,6 +68,11 @@ describe("formatStart", () => {
     ).toBe("1 week's notice")
     expect(formatStart(twoWeeks, "date", today)).toBe("2026-11-01")
     expect(formatStart(prefs({}), "text", today)).toBeNull()
+  })
+
+  it("writes a date the long way, on the day it names", () => {
+    expect(formatDate("2028-05-31")).toBe("May 31, 2028")
+    expect(formatDate("2027-01-01")).toBe("January 1, 2027")
   })
 })
 

@@ -21,6 +21,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./fields": "./src/fields.ts",
+    "./fixtures": "./src/fixtures/index.ts",
     "./match": "./src/match.ts"
   }
 }
