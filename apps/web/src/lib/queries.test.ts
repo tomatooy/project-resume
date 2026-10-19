@@ -1,12 +1,17 @@
 import { QueryClient } from "@tanstack/react-query"
+import { emptyProfile } from "@workspace/autofill"
 import { defaultTemplateOptions } from "@workspace/resume-schema"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ResumeSession } from "@/features/resume/store"
 import type * as api from "./api"
 import {
+  autofillNotesQuery,
+  autofillProfileQuery,
   invalidateResumes,
   invalidateVersions,
+  noteVersionQuery,
+  noteVersionsQuery,
   resumesQuery,
   cacheWorkspaceMessages,
   cacheWorkspaceResume,
@@ -21,7 +26,11 @@ const server = vi.hoisted(() => ({
   cancelChatRun: vi.fn<typeof api.cancelChatRun>(),
   clearConversation: vi.fn<typeof api.clearConversation>(),
   decideSuggestions: vi.fn<typeof api.decideSuggestions>(),
+  getAutofillNotes: vi.fn<typeof api.getAutofillNotes>(),
+  getAutofillNoteVersion: vi.fn<typeof api.getAutofillNoteVersion>(),
+  getAutofillProfile: vi.fn<typeof api.getAutofillProfile>(),
   getResume: vi.fn<typeof api.getResume>(),
+  listAutofillNoteVersions: vi.fn<typeof api.listAutofillNoteVersions>(),
   listMessages: vi.fn<typeof api.listMessages>(),
   listVersions: vi.fn<typeof api.listVersions>(),
 }))
@@ -153,4 +162,57 @@ it("drops continuation pages before invalidating lists", async () => {
     true
   )
   client.clear()
+})
+
+describe("autofill queries", () => {
+  it("keeps every read under one autofill prefix", () => {
+    expect([
+      autofillProfileQuery().queryKey,
+      autofillNotesQuery().queryKey,
+      noteVersionsQuery().queryKey,
+      noteVersionQuery("version-a").queryKey,
+    ]).toEqual([
+      ["autofill", "profile"],
+      ["autofill", "notes"],
+      ["autofill", "note-versions"],
+      ["autofill", "note-version", "version-a"],
+    ])
+  })
+
+  it("reads each through its own server call", async () => {
+    const client = new QueryClient()
+    const profile = {
+      profile: emptyProfile,
+      revision: 0,
+      updatedAt: null,
+      exists: false,
+    }
+    const notes = { content: "- Lives in SF.", revision: 1, updatedAt: null }
+    const version = {
+      id: "version-a",
+      reason: "edit" as const,
+      createdAt: "2026-10-19T00:00:00Z",
+      length: 14,
+    }
+    const snapshot = {
+      id: "version-a",
+      reason: "edit" as const,
+      createdAt: "2026-10-19T00:00:00Z",
+      content: "- Lives in SF.",
+    }
+    server.getAutofillProfile.mockResolvedValue(profile)
+    server.getAutofillNotes.mockResolvedValue(notes)
+    server.listAutofillNoteVersions.mockResolvedValue([version])
+    server.getAutofillNoteVersion.mockResolvedValue(snapshot)
+    expect(await client.fetchQuery(autofillProfileQuery())).toEqual(profile)
+    expect(await client.fetchQuery(autofillNotesQuery())).toEqual(notes)
+    expect(await client.fetchQuery(noteVersionsQuery())).toEqual([version])
+    expect(await client.fetchQuery(noteVersionQuery("version-a"))).toEqual(
+      snapshot
+    )
+    expect(server.getAutofillNoteVersion).toHaveBeenCalledWith({
+      id: "version-a",
+    })
+    client.clear()
+  })
 })

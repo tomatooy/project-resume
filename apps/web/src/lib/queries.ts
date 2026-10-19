@@ -19,6 +19,9 @@ import {
   deleteResume,
   deleteUserSkill,
   duplicateResume,
+  getAutofillNotes,
+  getAutofillNoteVersion,
+  getAutofillProfile,
   getOrCreateConversation,
   getResume,
   getUserSkill,
@@ -27,6 +30,7 @@ import {
   listMessages,
   listResumePage,
   getResumeSummary,
+  listAutofillNoteVersions,
   listSkills,
   listVersions,
   renameResume,
@@ -279,6 +283,37 @@ export const userSkillQuery = (id: string) =>
   queryOptions({
     queryKey: ["skills", id] as const,
     queryFn: () => getUserSkill({ id }),
+  })
+
+/* ------------------------------------------------------------- autofill */
+
+// One `["autofill"]` prefix for the Autofill page, so a write can refresh
+// everything the page shows with one key.
+
+export const autofillProfileQuery = () =>
+  queryOptions({
+    queryKey: ["autofill", "profile"] as const,
+    queryFn: getAutofillProfile,
+  })
+
+export const autofillNotesQuery = () =>
+  queryOptions({
+    queryKey: ["autofill", "notes"] as const,
+    queryFn: getAutofillNotes,
+  })
+
+/** History: the newest 20 snapshots, without their text. */
+export const noteVersionsQuery = () =>
+  queryOptions({
+    queryKey: ["autofill", "note-versions"] as const,
+    queryFn: listAutofillNoteVersions,
+  })
+
+/** One snapshot with its text, for the History preview. */
+export const noteVersionQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["autofill", "note-version", id] as const,
+    queryFn: () => getAutofillNoteVersion({ id }),
   })
 
 /* ------------------------------------------------------------ cache ops */

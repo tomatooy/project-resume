@@ -7,6 +7,15 @@ import type { ResumeSummary } from "@workspace/resume-core"
 import type { Resume } from "@workspace/resume-schema"
 
 import {
+  getAutofillNotes as getAutofillNotesFn,
+  getAutofillNoteVersion as getAutofillNoteVersionFn,
+  getAutofillProfile as getAutofillProfileFn,
+  listAutofillNoteVersions as listAutofillNoteVersionsFn,
+  restoreAutofillNoteVersion as restoreAutofillNoteVersionFn,
+  saveAutofillNotes as saveAutofillNotesFn,
+  saveAutofillProfile as saveAutofillProfileFn,
+} from "@/server/fns/autofill"
+import {
   createResume as createResumeFn,
   deleteResume as deleteResumeFn,
   duplicateResume as duplicateResumeFn,
@@ -288,5 +297,19 @@ export const updateUserSkill = guard(updateUserSkillFn)
 export const deleteUserSkill = guard(deleteUserSkillFn)
 export const setSkillEnabled = guard(setSkillEnabledFn)
 export const importSkillMarkdown = guard(importSkillMarkdownFn)
+
+/* ------------------------------------------------------------- autofill */
+
+/**
+ * The Autofill page. Each save carries the revision it read, and a stale one
+ * comes back as CONFLICT rather than overwriting a newer write.
+ */
+export const getAutofillProfile = guardNullary(getAutofillProfileFn)
+export const saveAutofillProfile = guard(saveAutofillProfileFn)
+export const getAutofillNotes = guardNullary(getAutofillNotesFn)
+export const saveAutofillNotes = guard(saveAutofillNotesFn)
+export const listAutofillNoteVersions = guardNullary(listAutofillNoteVersionsFn)
+export const getAutofillNoteVersion = guard(getAutofillNoteVersionFn)
+export const restoreAutofillNoteVersion = guard(restoreAutofillNoteVersionFn)
 
 export type { Resume }
