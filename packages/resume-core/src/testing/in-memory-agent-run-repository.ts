@@ -1,5 +1,5 @@
 import type { TurnPlan } from "../domain/chat"
-import type { AgentRun } from "../domain/suggestion"
+import type { AgentRun, RunKind } from "../domain/suggestion"
 import type {
   AgentRunRepository,
   FinishAgentRun,
@@ -13,6 +13,7 @@ export class InMemoryAgentRunRepository implements AgentRunRepository {
   async create(input: NewAgentRun): Promise<AgentRun> {
     const run: AgentRun = {
       id: this.db.uuid(),
+      kind: input.kind ?? "chat",
       conversationId: input.conversationId,
       resumeId: input.resumeId,
       hintSkillId: input.hintSkillId ?? null,
@@ -89,8 +90,9 @@ export class InMemoryAgentRunRepository implements AgentRunRepository {
     return count
   }
 
-  async usageSince(since: Date) {
+  async usageSince(since: Date, kind: RunKind) {
     const recent = this.db.runs
+      .filter((r) => r.kind === kind)
       .map((r) => r.createdAt)
       .filter((at) => new Date(at) >= since)
       .sort()

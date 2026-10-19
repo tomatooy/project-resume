@@ -37,7 +37,7 @@ export type Database = {
       agent_runs: {
         Row: {
           budget_exhausted: boolean
-          conversation_id: string
+          conversation_id: string | null
           created_at: string
           error_class: string | null
           finished_at: string | null
@@ -45,6 +45,7 @@ export type Database = {
           id: string
           input: Json
           input_tokens: number | null
+          kind: Database["public"]["Enums"]["run_kind"]
           latency_ms: number | null
           model: string
           output_tokens: number | null
@@ -58,7 +59,7 @@ export type Database = {
         }
         Insert: {
           budget_exhausted?: boolean
-          conversation_id: string
+          conversation_id?: string | null
           created_at?: string
           error_class?: string | null
           finished_at?: string | null
@@ -66,6 +67,7 @@ export type Database = {
           id?: string
           input?: Json
           input_tokens?: number | null
+          kind?: Database["public"]["Enums"]["run_kind"]
           latency_ms?: number | null
           model: string
           output_tokens?: number | null
@@ -79,7 +81,7 @@ export type Database = {
         }
         Update: {
           budget_exhausted?: boolean
-          conversation_id?: string
+          conversation_id?: string | null
           created_at?: string
           error_class?: string | null
           finished_at?: string | null
@@ -87,6 +89,7 @@ export type Database = {
           id?: string
           input?: Json
           input_tokens?: number | null
+          kind?: Database["public"]["Enums"]["run_kind"]
           latency_ms?: number | null
           model?: string
           output_tokens?: number | null
@@ -779,7 +782,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      agent_usage_since: { Args: { p_since: string }; Returns: Json }
+      agent_usage_since: {
+        Args: {
+          p_kind?: Database["public"]["Enums"]["run_kind"]
+          p_since: string
+        }
+        Returns: Json
+      }
       claim_tailor_dispatch: { Args: { p_id: string }; Returns: string }
       commit_tailor_creation: { Args: { p_input: Json }; Returns: boolean }
       create_memory_summary: {
@@ -890,6 +899,7 @@ export type Database = {
         | "insert_after"
         | "delete"
         | "move"
+      run_kind: "chat" | "autofill"
       run_status: "running" | "completed" | "failed" | "cancelled"
       suggestion_status: "pending" | "accepted" | "rejected" | "stale"
     }
@@ -1031,6 +1041,7 @@ export const Constants = {
         "delete",
         "move",
       ],
+      run_kind: ["chat", "autofill"],
       run_status: ["running", "completed", "failed", "cancelled"],
       suggestion_status: ["pending", "accepted", "rejected", "stale"],
     },

@@ -262,7 +262,7 @@ check(
 )
 check(
   "the hourly count sees the run",
-  await a.runs.assertWithinHourlyLimit(1).then(
+  await a.runs.assertWithinHourlyLimit("chat", 1).then(
     () => false,
     (error) => error instanceof AppError && error.code === "RATE_LIMITED"
   )

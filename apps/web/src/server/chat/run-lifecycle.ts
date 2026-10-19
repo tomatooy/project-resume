@@ -37,6 +37,9 @@ export async function settleRun(
 ): Promise<void> {
   const { services, background, log, now } = deps
   const { run, metadata } = open
+  // Always set on a chat run (the database requires it); only autofill runs
+  // have none, and they never reach the chat lifecycle.
+  const { conversationId } = run
   const { status, usage } = outcome
 
   // A paused turn leaves the run open: the browser still owes the
@@ -58,14 +61,16 @@ export async function settleRun(
 
   const latencyMs = now().getTime() - open.startedAt
   try {
-    await services.memory.record(
-      fromUIMessage(outcome.message, {
-        conversationId: run.conversationId,
-        agentRunId: run.id,
-        metadata:
-          status === "cancelled" ? { ...metadata, stopped: true } : metadata,
-      })
-    )
+    if (conversationId !== null) {
+      await services.memory.record(
+        fromUIMessage(outcome.message, {
+          conversationId,
+          agentRunId: run.id,
+          metadata:
+            status === "cancelled" ? { ...metadata, stopped: true } : metadata,
+        })
+      )
+    }
     await services.runs.finish(run.id, {
       status,
       errorClass,
@@ -94,11 +99,9 @@ export async function settleRun(
     latencyMs,
   })
 
+  if (conversationId === null) return
   background.run(async () => {
-    const result = await services.memory.maybeConsolidate(run.conversationId)
-    log.info("memory_consolidation", {
-      conversationId: run.conversationId,
-      outcome: result,
-    })
+    const result = await services.memory.maybeConsolidate(conversationId)
+    log.info("memory_consolidation", { conversationId, outcome: result })
   })
 }

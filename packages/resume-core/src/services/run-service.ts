@@ -1,6 +1,12 @@
 import { AppError } from "../domain/errors"
 import type { TurnPlan } from "../domain/chat"
-import type { AgentRun, RunInput } from "../domain/suggestion"
+import type {
+  AgentRun,
+  AutofillProcedure,
+  Quota,
+  RunInput,
+  RunKind,
+} from "../domain/suggestion"
 import type {
   AgentRunRepository,
   FinishAgentRun,
@@ -115,6 +121,27 @@ export class RunService {
     })
   }
 
+  /**
+   * An autofill call's run. It belongs to no conversation, so there is no
+   * running-run check, and autofill never edits the resume, so there is no
+   * snapshot. `input` stays empty: page content never lands on the row.
+   */
+  startAutofill(input: {
+    resumeId: string
+    procedure: AutofillProcedure
+    model: string
+  }): Promise<AgentRun> {
+    return this.runs.create({
+      kind: "autofill",
+      conversationId: null,
+      resumeId: input.resumeId,
+      hintSkillId: input.procedure,
+      model: input.model,
+      resumeVersionId: null,
+      input: {},
+    })
+  }
+
   finish(runId: string, input: FinishAgentRun): Promise<void> {
     return this.runs.finish(runId, input)
   }
@@ -130,17 +157,20 @@ export class RunService {
   }
 
   /**
-   * Counts this user's runs in the trailing hour. The repository query runs
-   * under RLS, which is what scopes it to the user without a user_id column.
+   * Counts this user's runs of one kind in the trailing hour. The repository
+   * query runs under RLS, which is what scopes it to the user without a
+   * user_id column.
    */
-  async assertWithinHourlyLimit(limit = DEFAULT_HOURLY_LIMIT): Promise<void> {
+  async assertWithinHourlyLimit(
+    kind: RunKind = "chat",
+    limit = DEFAULT_HOURLY_LIMIT
+  ): Promise<void> {
     const now = this.clock()
-    const recent = await this.runs.usageSince(new Date(now.getTime() - HOUR_MS))
+    const recent = await this.usage(now, kind)
     if (recent.count < limit) return
 
-    const oldest = recent.oldest
-    const resetAt = oldest
-      ? new Date(oldest).getTime() + HOUR_MS
+    const resetAt = recent.oldest
+      ? new Date(recent.oldest).getTime() + HOUR_MS
       : now.getTime() + HOUR_MS
     const retryAfterSeconds = Math.max(
       1,
@@ -152,5 +182,23 @@ export class RunService {
       undefined,
       retryAfterSeconds
     )
+  }
+
+  /** What is left of one kind's hourly quota, and when its oldest unit frees. */
+  async quotaStatus(
+    kind: RunKind,
+    limit = DEFAULT_HOURLY_LIMIT
+  ): Promise<Quota> {
+    const recent = await this.usage(this.clock(), kind)
+    return {
+      remaining: Math.max(0, limit - recent.count),
+      resetAt: recent.oldest
+        ? new Date(new Date(recent.oldest).getTime() + HOUR_MS).toISOString()
+        : null,
+    }
+  }
+
+  private usage(now: Date, kind: RunKind) {
+    return this.runs.usageSince(new Date(now.getTime() - HOUR_MS), kind)
   }
 }

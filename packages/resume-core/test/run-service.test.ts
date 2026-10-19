@@ -171,7 +171,7 @@ describe("RunService.assertWithinHourlyLimit", () => {
     }
 
     await expect(
-      h.runService.assertWithinHourlyLimit(4)
+      h.runService.assertWithinHourlyLimit("chat", 4)
     ).resolves.toBeUndefined()
   })
 
@@ -182,7 +182,9 @@ describe("RunService.assertWithinHourlyLimit", () => {
       await h.runService.finish(run.id, { status: "completed" })
     }
 
-    const error = await h.runService.assertWithinHourlyLimit(4).catch((e) => e)
+    const error = await h.runService
+      .assertWithinHourlyLimit("chat", 4)
+      .catch((e) => e)
     expect(error).toBeInstanceOf(AppError)
     expect(error.code).toBe("RATE_LIMITED")
     expect(error.retryAfterSeconds).toBeGreaterThan(0)
@@ -202,8 +204,79 @@ describe("RunService.assertWithinHourlyLimit", () => {
     }
 
     await expect(
-      h.runService.assertWithinHourlyLimit(4)
+      h.runService.assertWithinHourlyLimit("chat", 4)
     ).resolves.toBeUndefined()
+  })
+
+  it("counts each kind on its own", async () => {
+    const h = await seeded()
+    for (let i = 0; i < 4; i += 1) {
+      const run = await h.runService.start(h.input)
+      await h.runService.finish(run.id, { status: "completed" })
+    }
+
+    await expect(
+      h.runService.assertWithinHourlyLimit("chat", 4)
+    ).rejects.toMatchObject({ code: "RATE_LIMITED" })
+    await expect(
+      h.runService.assertWithinHourlyLimit("autofill", 4)
+    ).resolves.toBeUndefined()
+  })
+})
+
+describe("RunService.quotaStatus", () => {
+  it("reports remaining units and the reset time", async () => {
+    const h = await seeded()
+    expect(await h.runService.quotaStatus("autofill", 4)).toEqual({
+      remaining: 4,
+      resetAt: null,
+    })
+
+    const run = await h.runService.startAutofill({
+      resumeId: h.resumeId,
+      procedure: "autofill.infer",
+      model: "deepseek-v4-flash",
+    })
+
+    expect(await h.runService.quotaStatus("autofill", 4)).toEqual({
+      remaining: 3,
+      resetAt: new Date(Date.parse(run.createdAt) + 3_600_000).toISOString(),
+    })
+  })
+
+  it("never reports fewer than zero units", async () => {
+    const h = await seeded()
+    for (let i = 0; i < 5; i += 1) {
+      await h.runService.startAutofill({
+        resumeId: h.resumeId,
+        procedure: "autofill.answer",
+        model: "deepseek-v4-flash",
+      })
+    }
+
+    expect((await h.runService.quotaStatus("autofill", 4)).remaining).toBe(0)
+  })
+})
+
+describe("RunService.startAutofill", () => {
+  it("starts autofill runs without a conversation or snapshot", async () => {
+    const h = await seeded()
+
+    const run = await h.runService.startAutofill({
+      resumeId: h.resumeId,
+      procedure: "autofill.generate",
+      model: "deepseek-v4-flash",
+    })
+
+    expect(run).toMatchObject({
+      kind: "autofill",
+      conversationId: null,
+      hintSkillId: "autofill.generate",
+      resumeVersionId: null,
+      input: {},
+      status: "running",
+    })
+    expect(await h.versionService.list(h.resumeId)).toEqual([])
   })
 })
 
