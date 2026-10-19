@@ -824,6 +824,7 @@ export type Database = {
           p_content_hash: string
           p_created_by?: Database["public"]["Enums"]["created_by_kind"]
           p_dedupe?: boolean
+          p_expected_revision?: number
           p_label?: string
           p_resume_id: string
           p_schema_version: number

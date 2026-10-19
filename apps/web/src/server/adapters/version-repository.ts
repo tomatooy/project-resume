@@ -1,10 +1,11 @@
 import { migrateResume } from "@workspace/resume-schema"
-import type {
-  CreateVersionInput,
-  CreateVersionResult,
-  VersionRecord,
-  VersionRepository,
-  VersionSummary,
+import {
+  AppError,
+  type CreateVersionInput,
+  type CreateVersionResult,
+  type VersionRecord,
+  type VersionRepository,
+  type VersionSummary,
 } from "@workspace/resume-core"
 import type { Db } from "../auth/supabase"
 import { toJson } from "./json"
@@ -74,7 +75,12 @@ export class SupabaseVersionRepository implements VersionRepository {
       p_created_by: input.createdBy,
       p_agent_run_id: input.agentRunId ?? undefined,
       p_dedupe: input.dedupe ?? true,
+      p_expected_revision: input.expectedRevision,
     })
+    // Mapped here, not only at the handler, because `snapshotHead` rereads on
+    // a conflict and needs to recognize one.
+    if (error?.code === "P0409")
+      throw new AppError("CONFLICT", "Resume changed")
     if (error) throw error
 
     const result = createVersionResultSchema.parse(data)

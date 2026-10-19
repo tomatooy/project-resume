@@ -110,4 +110,10 @@ describe("errorResponse", () => {
       "INTERNAL"
     )
   })
+
+  it("answers a stale snapshot revision as a conflict", () => {
+    expect(toAppError(postgrest({ code: "P0409", message: "x" })).code).toBe(
+      "CONFLICT"
+    )
+  })
 })

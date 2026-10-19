@@ -223,6 +223,23 @@ check(
   versions.length === 3 && versions[0]?.versionNo === 3
 )
 
+const latest = await a.resumes.get(created.id)
+let staleSnapshot = false
+try {
+  await supabasePorts(dbA, USER_A).versions.create({
+    resumeId: created.id,
+    content: latest.data,
+    schemaVersion: latest.schemaVersion,
+    contentHash: "stale-snapshot",
+    label: "Stale snapshot",
+    createdBy: "user",
+    expectedRevision: latest.revision - 1,
+  })
+} catch (error) {
+  staleSnapshot = error instanceof AppError && error.code === "CONFLICT"
+}
+check("a snapshot at a stale revision is a CONFLICT", staleSnapshot)
+
 console.log("suggestions")
 const conversation = await a.memory.openConversation(created.id)
 check("conversation is created", conversation.id.length > 0)

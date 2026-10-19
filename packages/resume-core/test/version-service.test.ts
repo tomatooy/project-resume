@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { harness } from "./harness"
 
@@ -96,5 +96,59 @@ describe("VersionService", () => {
 
     const { content } = await h.versionService.getContent(v1.id)
     expect(content.basics.name).not.toBe("Ada")
+  })
+})
+
+describe("VersionService.snapshotHead", () => {
+  it("rereads once when an autosave lands during the snapshot", async () => {
+    const h = await seeded()
+    const create = h.versions.create.bind(h.versions)
+    vi.spyOn(h.versions, "create").mockImplementationOnce(async (input) => {
+      // The autosave lands between the read and the write, so this write
+      // carries a stale revision.
+      await edit(h, "Ada")
+      return create(input)
+    })
+
+    const { version, resume } = await h.versionService.snapshotHead(
+      h.resumeId,
+      { label: "Autofill: Stripe · Software Engineer", createdBy: "system" }
+    )
+
+    expect(resume.data.basics.name).toBe("Ada")
+    expect(version.label).toBe("Autofill: Stripe · Software Engineer")
+    const stored = await h.versionService.getContent(version.id)
+    expect(stored.content.basics.name).toBe("Ada")
+    expect((await h.resumeService.get(h.resumeId)).data.basics.name).toBe("Ada")
+  })
+
+  it("gives up after a second conflict", async () => {
+    const h = await seeded()
+    const create = h.versions.create.bind(h.versions)
+    let edits = 0
+    vi.spyOn(h.versions, "create").mockImplementation(async (input) => {
+      edits += 1
+      await edit(h, `Edit ${edits}`)
+      return create(input)
+    })
+
+    await expect(
+      h.versionService.snapshotHead(h.resumeId, { createdBy: "system" })
+    ).rejects.toMatchObject({ code: "CONFLICT" })
+    // Two attempts, each undone by an autosave; the user's last edit stands.
+    expect((await h.resumeService.get(h.resumeId)).data.basics.name).toBe(
+      "Edit 2"
+    )
+    expect(await h.versionService.list(h.resumeId)).toEqual([])
+  })
+
+  it("does not retry a failure that is not a conflict", async () => {
+    const h = await seeded()
+    vi.spyOn(h.versions, "create").mockRejectedValueOnce(new Error("boom"))
+
+    await expect(
+      h.versionService.snapshotHead(h.resumeId, { createdBy: "system" })
+    ).rejects.toThrow("boom")
+    expect(await h.versionService.list(h.resumeId)).toEqual([])
   })
 })
