@@ -125,6 +125,148 @@ export type Database = {
           },
         ]
       }
+      autofill_applications: {
+        Row: {
+          company: string | null
+          counts: Json
+          created_at: string
+          id: string
+          job_target_id: string | null
+          org_slug: string | null
+          posting_key: string
+          resume_id: string | null
+          resume_version_id: string | null
+          title: string | null
+          updated_at: string
+          url: string
+          user_id: string
+          vendor: string
+        }
+        Insert: {
+          company?: string | null
+          counts?: Json
+          created_at?: string
+          id?: string
+          job_target_id?: string | null
+          org_slug?: string | null
+          posting_key: string
+          resume_id?: string | null
+          resume_version_id?: string | null
+          title?: string | null
+          updated_at?: string
+          url: string
+          user_id?: string
+          vendor: string
+        }
+        Update: {
+          company?: string | null
+          counts?: Json
+          created_at?: string
+          id?: string
+          job_target_id?: string | null
+          org_slug?: string | null
+          posting_key?: string
+          resume_id?: string | null
+          resume_version_id?: string | null
+          title?: string | null
+          updated_at?: string
+          url?: string
+          user_id?: string
+          vendor?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "autofill_applications_job_target_id_fkey"
+            columns: ["job_target_id"]
+            isOneToOne: false
+            referencedRelation: "job_targets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "autofill_applications_resume_id_fkey"
+            columns: ["resume_id"]
+            isOneToOne: false
+            referencedRelation: "resumes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "autofill_applications_resume_version_id_fkey"
+            columns: ["resume_version_id"]
+            isOneToOne: false
+            referencedRelation: "resume_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      autofill_note_versions: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          reason: Database["public"]["Enums"]["note_version_reason"]
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          reason: Database["public"]["Enums"]["note_version_reason"]
+          user_id?: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          reason?: Database["public"]["Enums"]["note_version_reason"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      autofill_notes: {
+        Row: {
+          content: string
+          revision: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content?: string
+          revision?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          content?: string
+          revision?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      autofill_profiles: {
+        Row: {
+          data: Json
+          revision: number
+          schema_version: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          data: Json
+          revision?: number
+          schema_version: number
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          data?: Json
+          revision?: number
+          schema_version?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       conversations: {
         Row: {
           active_summary_id: string | null
@@ -844,6 +986,10 @@ export type Database = {
         Args: { p_external_job_id: string; p_platform: string }
         Returns: Json
       }
+      restore_autofill_note_version: {
+        Args: { p_expected_revision: number; p_version_id: string }
+        Returns: Json
+      }
       resume_search_candidates: {
         Args: {
           p_before_at?: string
@@ -876,6 +1022,22 @@ export type Database = {
         }
       }
       resume_search_text: { Args: { p_data: Json }; Returns: string }
+      save_autofill_notes: {
+        Args: {
+          p_content: string
+          p_expected_revision: number
+          p_snapshot?: Database["public"]["Enums"]["note_version_reason"]
+        }
+        Returns: Json
+      }
+      save_autofill_profile: {
+        Args: {
+          p_data: Json
+          p_expected_revision: number
+          p_schema_version: number
+        }
+        Returns: Json
+      }
       tailor_admit: { Args: { p_input: Json }; Returns: Json }
       tailor_adopt: {
         Args: {
@@ -894,6 +1056,7 @@ export type Database = {
     Enums: {
       created_by_kind: "user" | "agent" | "system"
       message_role: "user" | "assistant" | "system"
+      note_version_reason: "merge" | "edit" | "restore"
       patch_op:
         | "replace_text"
         | "update_fields"
@@ -1035,6 +1198,7 @@ export const Constants = {
     Enums: {
       created_by_kind: ["user", "agent", "system"],
       message_role: ["user", "assistant", "system"],
+      note_version_reason: ["merge", "edit", "restore"],
       patch_op: [
         "replace_text",
         "update_fields",
