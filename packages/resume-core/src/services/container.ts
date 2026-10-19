@@ -1,5 +1,7 @@
 import type { TailorOperationRepository } from "../ports/tailor-operation-repository"
 import { TailorOperationService } from "./tailor-operation-service"
+import type { AutofillNotesRepository } from "../ports/autofill-notes-repository"
+import type { AutofillProfileRepository } from "../ports/autofill-profile-repository"
 import type { AgentRunRepository } from "../ports/agent-run-repository"
 import type { ConversationRepository } from "../ports/conversation-repository"
 import type { JobFetcher } from "../ports/job-fetcher"
@@ -14,6 +16,8 @@ import type { SuggestionRepository } from "../ports/suggestion-repository"
 import type { Summarizer } from "../ports/summarizer"
 import type { SummaryRepository } from "../ports/summary-repository"
 import type { VersionRepository } from "../ports/version-repository"
+import { AutofillNotesService } from "./autofill-notes-service"
+import { AutofillProfileService } from "./autofill-profile-service"
 import { ImportService } from "./import-service"
 import { MemoryService } from "./memory-service"
 import { ResumeService } from "./resume-service"
@@ -40,6 +44,8 @@ export type Ports = {
   jobFetcher: JobFetcher
   operations: TailorOperationRepository
   skills: SkillRepository
+  autofillProfiles: AutofillProfileRepository
+  autofillNotes: AutofillNotesRepository
   /** Injected so a test can move time; wall clock otherwise. */
   clock?: () => Date
 }
@@ -55,6 +61,8 @@ export type Services = {
   tailor: TailorService
   operations: TailorOperationService
   skills: SkillService
+  autofillProfile: AutofillProfileService
+  autofillNotes: AutofillNotesService
 }
 
 /**
@@ -104,5 +112,7 @@ export function createServices(ports: Ports): Services {
       ports.clock
     ),
     skills: new SkillService(ports.skills),
+    autofillProfile: new AutofillProfileService(ports.autofillProfiles),
+    autofillNotes: new AutofillNotesService(ports.autofillNotes),
   }
 }

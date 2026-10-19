@@ -1,3 +1,4 @@
+export * from "./domain/autofill"
 export * from "./domain/job-identity"
 export * from "./domain/linkedin-extension"
 export * from "./domain/tailor-operation"

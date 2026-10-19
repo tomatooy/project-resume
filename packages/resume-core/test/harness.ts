@@ -23,6 +23,8 @@ export function harness() {
     memoryService: services.memory,
     tailorService: services.tailor,
     skillService: services.skills,
+    autofillProfileService: services.autofillProfile,
+    autofillNotesService: services.autofillNotes,
   }
 }
 

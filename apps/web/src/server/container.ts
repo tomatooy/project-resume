@@ -15,6 +15,8 @@ import {
 } from "@workspace/resume-core"
 
 import { SupabaseAgentRunRepository } from "./adapters/agent-run-repository"
+import { SupabaseAutofillNotesRepository } from "./adapters/autofill-notes-repository"
+import { SupabaseAutofillProfileRepository } from "./adapters/autofill-profile-repository"
 import { SupabaseConversationRepository } from "./adapters/conversation-repository"
 import { WorkerJobFetcher } from "./adapters/job-fetcher"
 import { SupabaseJobTargetRepository } from "./adapters/job-target-repository"
@@ -103,6 +105,8 @@ export function supabasePorts(
     resumeTailor: lazyResumeTailor,
     jobFetcher,
     skills: new SupabaseSkillRepository(db, userId),
+    autofillProfiles: new SupabaseAutofillProfileRepository(db, userId),
+    autofillNotes: new SupabaseAutofillNotesRepository(db, userId),
     ...over,
   }
 }

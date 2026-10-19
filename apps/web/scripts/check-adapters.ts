@@ -14,7 +14,10 @@
  * ones every local Supabase stack prints; they are not secrets and they are
  * worthless against anything but 127.0.0.1.
  */
+import { isDeepStrictEqual } from "node:util"
 import { createClient } from "@supabase/supabase-js"
+import { emptyProfile, PROFILE_SCHEMA_VERSION } from "@workspace/autofill"
+import { sampleProfile } from "@workspace/autofill/fixtures"
 import {
   AppError,
   matchDocument,
@@ -415,6 +418,193 @@ try {
   removedGone = error instanceof AppError && error.code === "NOT_FOUND"
 }
 check("a removed skill is gone from the editor", removedGone)
+
+console.log("autofill")
+// A previous run leaves A's Profile, Notes and History behind. Clearing them
+// lets every run start from expected revision 0.
+const clearedAutofill = [
+  await dbA.from("autofill_note_versions").delete().eq("user_id", USER_A),
+  await dbA.from("autofill_notes").delete().eq("user_id", USER_A),
+  await dbA.from("autofill_profiles").delete().eq("user_id", USER_A),
+]
+for (const { error } of clearedAutofill) if (error) throw error
+const autofillPorts = supabasePorts(dbA, USER_A)
+const UNKNOWN_VERSION = crypto.randomUUID()
+
+const noProfile = await a.autofillProfile.get()
+check(
+  "an absent Profile reads as empty",
+  !noProfile.exists &&
+    noProfile.revision === 0 &&
+    isDeepStrictEqual(noProfile.profile, emptyProfile)
+)
+check(
+  "the first Profile save is revision 1",
+  (
+    await a.autofillProfile.save({
+      profile: sampleProfile,
+      expectedRevision: 0,
+    })
+  ).revision === 1
+)
+let profileConflict = false
+try {
+  await a.autofillProfile.save({ profile: sampleProfile, expectedRevision: 0 })
+} catch (error) {
+  profileConflict = error instanceof AppError && error.code === "CONFLICT"
+}
+check("a stale Profile save is a CONFLICT", profileConflict)
+const storedProfile = await autofillPorts.autofillProfiles.get()
+check(
+  "the Profile reads back as saved",
+  isDeepStrictEqual(storedProfile?.data, sampleProfile) &&
+    storedProfile?.schemaVersion === PROFILE_SCHEMA_VERSION &&
+    storedProfile.revision === 1
+)
+// A document an older or broken writer left behind reads as the empty Profile
+// at its stored revision, so the next save replaces it.
+const corrupted = await dbA
+  .from("autofill_profiles")
+  .update({ data: { personal: { first: 42 } } })
+  .eq("user_id", USER_A)
+if (corrupted.error) throw corrupted.error
+const unparsed = await a.autofillProfile.get()
+check(
+  "a Profile that no longer parses reads as empty at its revision",
+  unparsed.exists &&
+    unparsed.revision === 2 &&
+    isDeepStrictEqual(unparsed.profile, emptyProfile)
+)
+check(
+  "the next save replaces it",
+  (
+    await a.autofillProfile.save({
+      profile: sampleProfile,
+      expectedRevision: 2,
+    })
+  ).revision === 3
+)
+
+const noteText = "## Logistics\n- Lives in SF."
+check(
+  "absent Notes read as empty",
+  isDeepStrictEqual(await a.autofillNotes.get(), {
+    content: "",
+    revision: 0,
+    updatedAt: null,
+  })
+)
+check(
+  "the first Notes save is revision 1",
+  (
+    await a.autofillNotes.save({
+      content: noteText,
+      expectedRevision: 0,
+      snapshot: false,
+    })
+  ).revision === 1
+)
+const editSave = await autofillPorts.autofillNotes.save({
+  content: "## Logistics\n- Lives in Oakland.",
+  expectedRevision: 1,
+  snapshot: "edit",
+})
+check(
+  "an edit save returns its snapshot",
+  editSave.revision === 2 && editSave.versionId !== null
+)
+const editId = editSave.versionId ?? UNKNOWN_VERSION
+let notesConflict = false
+try {
+  await a.autofillNotes.save({
+    content: "- Other.",
+    expectedRevision: 1,
+    snapshot: false,
+  })
+} catch (error) {
+  notesConflict = error instanceof AppError && error.code === "CONFLICT"
+}
+check("a stale Notes save is a CONFLICT", notesConflict)
+const history = await autofillPorts.autofillNotes.listVersions()
+check(
+  "History lists the one snapshot",
+  history.length === 1 &&
+    history[0]?.id === editId &&
+    history[0]?.reason === "edit" &&
+    history[0]?.length === noteText.length
+)
+const editVersion = await autofillPorts.autofillNotes.findVersion(editId)
+check(
+  "the snapshot holds the text before the edit",
+  editVersion?.content === noteText && editVersion.reason === "edit"
+)
+const restoredNotes = await autofillPorts.autofillNotes.restore(editId, 2)
+check(
+  "a restore returns the earlier text",
+  restoredNotes.content === noteText && restoredNotes.revision === 3
+)
+check(
+  "the restore snapshots the text it replaced",
+  (await autofillPorts.autofillNotes.listVersions())
+    .map(({ reason }) => reason)
+    .join() === "restore,edit"
+)
+check(
+  "an unknown snapshot is null",
+  (await autofillPorts.autofillNotes.findVersion(UNKNOWN_VERSION)) === null
+)
+let unknownRestore = false
+try {
+  await autofillPorts.autofillNotes.restore(UNKNOWN_VERSION, 3)
+} catch (error) {
+  unknownRestore = error instanceof AppError && error.code === "NOT_FOUND"
+}
+check("restoring an unknown snapshot is NOT_FOUND", unknownRestore)
+let staleRestore = false
+try {
+  await autofillPorts.autofillNotes.restore(editId, 2)
+} catch (error) {
+  staleRestore = error instanceof AppError && error.code === "CONFLICT"
+}
+check("a stale restore is a CONFLICT", staleRestore)
+
+const merged = await a.autofillNotes.merge(async () => ({
+  ops: [{ op: "add", heading: "Logistics", text: "Can travel monthly." }],
+  hints: [],
+}))
+check(
+  "a merge saves with an Undo snapshot",
+  merged.kind === "saved" &&
+    merged.revision === 4 &&
+    merged.undoVersionId !== null
+)
+const undone = await a.autofillNotes.undo({
+  versionId:
+    (merged.kind === "saved" && merged.undoVersionId) || UNKNOWN_VERSION,
+  revision: 4,
+})
+check(
+  "Undo restores the text before the merge",
+  undone.kind === "restored" &&
+    (await a.autofillNotes.get()).content === noteText
+)
+
+check("B does not see A's Profile", !(await b.autofillProfile.get()).exists)
+check("B does not see A's Notes", (await b.autofillNotes.get()).revision === 0)
+let foreignVersion = false
+try {
+  await b.autofillNotes.version(editId)
+} catch (error) {
+  foreignVersion = error instanceof AppError && error.code === "NOT_FOUND"
+}
+check("B cannot read A's snapshot", foreignVersion)
+let foreignRestore = false
+try {
+  await b.autofillNotes.restore({ id: editId, expectedRevision: 0 })
+} catch (error) {
+  foreignRestore = error instanceof AppError && error.code === "NOT_FOUND"
+}
+check("B cannot restore A's snapshot", foreignRestore)
 
 console.log("isolation")
 check(

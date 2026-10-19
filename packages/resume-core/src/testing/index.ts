@@ -1,5 +1,7 @@
 export * from "./db"
 export * from "./in-memory-agent-run-repository"
+export * from "./in-memory-autofill-notes-repository"
+export * from "./in-memory-autofill-profile-repository"
 export * from "./in-memory-background"
 export * from "./in-memory-conversation-repository"
 export * from "./in-memory-job-target-repository"

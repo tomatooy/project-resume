@@ -1,3 +1,5 @@
+export * from "./autofill-notes-service"
+export * from "./autofill-profile-service"
 export * from "./import-service"
 export * from "./memory-service"
 export * from "./resume-service"

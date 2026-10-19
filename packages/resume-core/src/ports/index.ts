@@ -1,4 +1,6 @@
 export * from "./agent-run-repository"
+export * from "./autofill-notes-repository"
+export * from "./autofill-profile-repository"
 export * from "./background"
 export * from "./conversation-repository"
 export * from "./job-fetcher"
