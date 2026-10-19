@@ -59,7 +59,8 @@ export function formatDate(iso: string): string {
   })
 }
 
-function isoDate(date: Date): string {
+/** The local calendar date as "2026-10-18". */
+export function isoDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0")
   const day = String(date.getDate()).padStart(2, "0")
   return `${date.getFullYear()}-${month}-${day}`
