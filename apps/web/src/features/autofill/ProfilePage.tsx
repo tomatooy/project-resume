@@ -7,6 +7,7 @@ import { ResourceFailure } from "@/features/workspace/ResourceFailure"
 import { useTabScroll } from "@/features/workspace/use-tab-scroll"
 import { autofillNotesQuery, autofillProfileQuery } from "@/lib/queries"
 import { ImportFromResume } from "./ImportFromResume"
+import { NotesEditor } from "./NotesEditor"
 import { PageSection, ProfileForm } from "./sections"
 
 /**
@@ -61,7 +62,9 @@ export function ProfilePage() {
             ) : (
               <ImportFromResume />
             )}
-            <PageSection anchor="notes" title="Notes" />
+            <PageSection anchor="notes" title="Notes">
+              <NotesEditor state={notes.data} />
+            </PageSection>
           </>
         ) : (
           <div className="mt-7 flex flex-col gap-3">

@@ -6,7 +6,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router"
-import { act, render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { emptyProfile, profileFromResume } from "@workspace/autofill"
 import { defaultTemplateOptions } from "@workspace/resume-schema"
@@ -96,6 +96,12 @@ afterEach(() => {
   vi.resetAllMocks()
 })
 
+/** The profile's status line, not the one the notes editor has below it. */
+function profileStatus() {
+  const notes = screen.getByRole("region", { name: "Notes" })
+  return screen.getAllByRole("status").find((status) => !notes.contains(status))
+}
+
 async function renderPage(initial: string) {
   const root = createRootRoute()
   const autofill = createRoute({
@@ -156,6 +162,22 @@ describe("ProfilePage", () => {
     expect(
       screen.queryByRole("textbox", { name: "Legal first name" })
     ).not.toBeInTheDocument()
+  })
+
+  it("shows the notes editor before the first save", async () => {
+    server.getAutofillProfile.mockResolvedValue(unsaved)
+    server.getAutofillNotes.mockResolvedValue({
+      content: "- Prefers remote work",
+      revision: 2,
+      updatedAt: "2026-10-19T09:00:00.000Z",
+    })
+    await renderPage("/autofill")
+
+    const notes = await screen.findByRole("region", { name: "Notes" })
+    expect(within(notes).getByRole("textbox", { name: "Notes" })).toHaveValue(
+      "- Prefers remote work"
+    )
+    expect(within(notes).getByText("21 / 10,000")).toBeInTheDocument()
   })
 
   it("starts blank and then shows every section", async () => {
@@ -261,13 +283,13 @@ describe("ProfilePage", () => {
     expect(email).toHaveAccessibleDescription(
       "Enter an email address, like ada@example.com."
     )
-    expect(screen.getByRole("status")).toHaveTextContent(
+    expect(profileStatus()).toHaveTextContent(
       "Fix the highlighted fields to save your changes."
     )
 
     await user.type(email, "example.com")
     expect(email).not.toHaveAttribute("aria-invalid", "true")
-    expect(screen.getByRole("status")).toBeEmptyDOMElement()
+    expect(profileStatus()).toBeEmptyDOMElement()
   })
 
   it("stores the phone with its country code", async () => {
