@@ -1,3 +1,4 @@
+export * from "./classify"
 export * from "./company"
 export * from "./fields"
 export * from "./format"
