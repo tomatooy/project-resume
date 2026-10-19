@@ -6,6 +6,7 @@ import {
   createSummarizer,
 } from "@workspace/agent"
 import {
+  type AutofillModels,
   type JobParser,
   type Ports,
   type ResumeParser,
@@ -15,6 +16,7 @@ import {
 } from "@workspace/resume-core"
 
 import { SupabaseAgentRunRepository } from "./adapters/agent-run-repository"
+import { SupabaseAutofillApplicationRepository } from "./adapters/autofill-application-repository"
 import { SupabaseAutofillNotesRepository } from "./adapters/autofill-notes-repository"
 import { SupabaseAutofillProfileRepository } from "./adapters/autofill-profile-repository"
 import { SupabaseConversationRepository } from "./adapters/conversation-repository"
@@ -76,6 +78,25 @@ const lazyResumeTailor: ResumeTailor = {
 
 const jobFetcher = new WorkerJobFetcher()
 
+const notConfigured = async (): Promise<never> => {
+  throw new Error("AI is not configured")
+}
+
+/**
+ * Autofill's models before their clients are wired in: nothing is ready, and
+ * every call fails the way a missing client does.
+ */
+const autofillModels: AutofillModels = {
+  model: "unconfigured",
+  ready: () => ({ judge: false, text: false }),
+  judge: notConfigured,
+  shortText: notConfigured,
+  questions: notConfigured,
+  fillFromAnswer: notConfigured,
+  mergeNotes: notConfigured,
+  generate: notConfigured,
+}
+
 /**
  * The adapter half of the composition root: which Supabase class fills which
  * port. How the services hang off the ports is `createServices`, written
@@ -107,6 +128,8 @@ export function supabasePorts(
     skills: new SupabaseSkillRepository(db, userId),
     autofillProfiles: new SupabaseAutofillProfileRepository(db, userId),
     autofillNotes: new SupabaseAutofillNotesRepository(db, userId),
+    autofillApplications: new SupabaseAutofillApplicationRepository(db, userId),
+    autofillModels,
     ...over,
   }
 }

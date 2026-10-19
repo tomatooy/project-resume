@@ -749,6 +749,151 @@ check(
 await a.resumes.remove(olderOrigin.id)
 await a.resumes.remove(plainResume.id)
 
+console.log("autofill applications")
+// A previous run leaves A's records behind; every posting below starts with
+// no row.
+const clearedApplications = await dbA
+  .from("autofill_applications")
+  .delete()
+  .eq("user_id", USER_A)
+if (clearedApplications.error) throw clearedApplications.error
+const applicationPorts = supabasePorts(dbA, USER_A)
+const applicationPortsB = supabasePorts(dbB, USER_B)
+const filledResume = await a.resumes.create({ title: "Autofill check resume" })
+const filledVersion = await a.versions.snapshot(filledResume.id, {
+  createdBy: "system",
+})
+const filledTarget = await applicationPorts.jobTargets.create({
+  platform: null,
+  externalJobId: null,
+  sourceUrl: null,
+  rawText: "A posting for the autofill check.",
+  title: "Engineer",
+  company: "Autofill Co",
+  location: null,
+  requirements: { mustHaves: [], niceToHaves: [], keywords: [] },
+})
+const filledPosting = {
+  vendor: "greenhouse" as const,
+  postingKey: "greenhouse:autofillco:1001",
+  orgSlug: "autofillco",
+  url: "https://job-boards.greenhouse.io/autofillco/jobs/1001",
+  company: "Autofill Co",
+  title: "Engineer",
+  resumeId: filledResume.id,
+  resumeVersionId: filledVersion.id,
+  jobTargetId: null,
+}
+const firstFill =
+  await applicationPorts.autofillApplications.upsert(filledPosting)
+const secondFill = await applicationPorts.autofillApplications.upsert({
+  ...filledPosting,
+  title: "Senior Engineer",
+  jobTargetId: filledTarget.id,
+})
+check("two upserts for one posting keep one id", firstFill.id === secondFill.id)
+const storedFill = await dbA
+  .from("autofill_applications")
+  .select("vendor, posting_key, org_slug, url, company, title, job_target_id")
+  .eq("id", firstFill.id)
+  .single()
+check(
+  "the second upsert updates the record",
+  isDeepStrictEqual(storedFill.data, {
+    vendor: "greenhouse",
+    posting_key: "greenhouse:autofillco:1001",
+    org_slug: "autofillco",
+    url: "https://job-boards.greenhouse.io/autofillco/jobs/1001",
+    company: "Autofill Co",
+    title: "Senior Engineer",
+    job_target_id: filledTarget.id,
+  })
+)
+const foundFill = await applicationPorts.autofillApplications.find(
+  "greenhouse",
+  filledPosting.postingKey
+)
+check(
+  "find returns the record with its resume title",
+  foundFill?.id === firstFill.id &&
+    foundFill.resumeId === filledResume.id &&
+    foundFill.resumeTitle === "Autofill check resume" &&
+    !Number.isNaN(Date.parse(foundFill.updatedAt))
+)
+check(
+  "find keeps to the posting and the vendor",
+  (await applicationPorts.autofillApplications.find(
+    "greenhouse",
+    "greenhouse:autofillco:9999"
+  )) === null &&
+    (await applicationPorts.autofillApplications.find(
+      "ashby",
+      filledPosting.postingKey
+    )) === null
+)
+check(
+  "latestResumeId returns the record's resume",
+  (await applicationPorts.autofillApplications.latestResumeId()) ===
+    filledResume.id
+)
+const fillCounts = { fields: 18, rules: 9, ai: 4, asked: 3, drafted: 1 }
+await applicationPorts.autofillApplications.updateCounts(
+  firstFill.id,
+  fillCounts
+)
+const countedFill = await dbA
+  .from("autofill_applications")
+  .select("counts")
+  .eq("id", firstFill.id)
+  .single()
+check(
+  "updateCounts persists",
+  isDeepStrictEqual(countedFill.data?.counts, fillCounts)
+)
+check(
+  "B cannot find A's record",
+  (await applicationPortsB.autofillApplications.find(
+    "greenhouse",
+    filledPosting.postingKey
+  )) === null
+)
+check(
+  "B gets no latest resume from A's records",
+  (await applicationPortsB.autofillApplications.latestResumeId()) === null
+)
+// A newer record whose resume is deleted later gives way to the older one.
+const goneResume = await a.resumes.create({ title: "Autofill check gone" })
+const goneVersion = await a.versions.snapshot(goneResume.id, {
+  createdBy: "system",
+})
+await applicationPorts.autofillApplications.upsert({
+  ...filledPosting,
+  postingKey: "greenhouse:autofillco:1002",
+  resumeId: goneResume.id,
+  resumeVersionId: goneVersion.id,
+})
+check(
+  "latestResumeId takes the newest record",
+  (await applicationPorts.autofillApplications.latestResumeId()) ===
+    goneResume.id
+)
+await a.resumes.remove(goneResume.id)
+check(
+  "latestResumeId skips a deleted resume",
+  (await applicationPorts.autofillApplications.latestResumeId()) ===
+    filledResume.id
+)
+check(
+  "find still names a deleted resume",
+  (
+    await applicationPorts.autofillApplications.find(
+      "greenhouse",
+      "greenhouse:autofillco:1002"
+    )
+  )?.resumeTitle === "Autofill check gone"
+)
+await a.resumes.remove(filledResume.id)
+
 console.log("durable tailoring")
 const operationPorts = supabasePorts(dbA, USER_A, {
   jobParser: new StubJobParser(),

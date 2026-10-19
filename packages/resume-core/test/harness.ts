@@ -5,14 +5,14 @@ import {
   type ResumePatch,
 } from "@workspace/resume-schema"
 
-import { createServices } from "../src/services/index"
+import { type AutofillService, createServices } from "../src/services/index"
 import { InMemoryBackground, inMemoryPorts } from "../src/testing/index"
 
 /** The ports by name, and the services wired the way the app wires them. */
 export function harness() {
   const ports = inMemoryPorts()
   const services = createServices(ports)
-  return {
+  const h = {
     ...ports,
     background: new InMemoryBackground(),
     resumeService: services.resumes,
@@ -25,7 +25,16 @@ export function harness() {
     skillService: services.skills,
     autofillProfileService: services.autofillProfile,
     autofillNotesService: services.autofillNotes,
+    operationService: services.operations,
+    /**
+     * Built on each read from the ports as they are then, so a test that sets
+     * `h.autofillModels` first gets a service that calls those models.
+     */
+    get autofillService(): AutofillService {
+      return createServices(h).autofill
+    },
   }
+  return h
 }
 
 /** The first bullet of the first experience item, which every fixture has. */
