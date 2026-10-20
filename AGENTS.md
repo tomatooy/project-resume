@@ -139,7 +139,9 @@ The current code implements that target end to end:
   only the last two messages. `check_fit` is a client tool: the browser renders the PDF, answers
   with the page count, and the same run resumes. Models come from DeepSeek
   through `packages/agent/src/models.ts`; the key is `DEEPSEEK_API_KEY` in
-  `apps/web/.dev.vars` locally and a Wrangler secret in production.
+  `apps/web/.dev.vars` locally and a Wrangler secret in production. Autofill
+  also requires `TYPESAFE_API_KEY` (Jev, through `@workspace/typesafe`), set
+  the same way; without it, `infer` degrades to rules and plain questions.
 
 Where the code and the spec diverge, the code is the current reality. The
 specs' template section is the most obvious drift: it names three templates

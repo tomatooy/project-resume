@@ -49,6 +49,12 @@ bun install
 bun run dev      # starts Supabase (Docker) then http://localhost:3000
 ```
 
+Server keys go in `apps/web/.dev.vars` locally and in Wrangler secrets in
+production (see `.env.local.example`): `DEEPSEEK_API_KEY` for every AI
+feature, and `TYPESAFE_API_KEY`, which autofill requires for its Jev
+decisions. Without the TypeSafe key, autofill falls back to rules and plain
+questions.
+
 Typecheck and lint:
 
 ```bash

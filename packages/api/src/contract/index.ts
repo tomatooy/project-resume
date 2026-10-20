@@ -1,5 +1,19 @@
 import { oc } from "@orpc/contract"
 import {
+  AnswerInputSchema,
+  AnswerResultSchema,
+  GenerateInputSchema,
+  GenerateResultSchema,
+  InferInputSchema,
+  InferResultSchema,
+  NotesMergeInputSchema,
+  NotesMergeResultSchema,
+  NotesUndoInputSchema,
+  NotesUndoResultSchema,
+  PlanInputSchema,
+  PlanResultSchema,
+  StartInputSchema,
+  StartResultSchema,
   JobIdentitySchema,
   JobLookupSchema,
   ResumeSummarySchema,
@@ -77,5 +91,37 @@ export const contract = {
       .route({ method: "POST", path: "/operations/{operationId}/cancel" })
       .input(z.object({ operationId: z.uuid() }))
       .output(JobLookupSchema),
+  },
+  autofill: {
+    plan: base
+      .route({ method: "POST", path: "/autofill/plan" })
+      .input(PlanInputSchema)
+      .output(PlanResultSchema),
+    start: base
+      .route({ method: "POST", path: "/autofill/start" })
+      .input(StartInputSchema)
+      .output(StartResultSchema),
+    infer: base
+      .route({ method: "POST", path: "/autofill/infer" })
+      .input(InferInputSchema)
+      .output(InferResultSchema),
+    answer: base
+      .route({ method: "POST", path: "/autofill/answer" })
+      .input(AnswerInputSchema)
+      .output(AnswerResultSchema),
+    generate: base
+      .route({ method: "POST", path: "/autofill/generate" })
+      .input(GenerateInputSchema)
+      .output(GenerateResultSchema),
+    notes: {
+      merge: base
+        .route({ method: "POST", path: "/autofill/notes/merge" })
+        .input(NotesMergeInputSchema)
+        .output(NotesMergeResultSchema),
+      undo: base
+        .route({ method: "POST", path: "/autofill/notes/undo" })
+        .input(NotesUndoInputSchema)
+        .output(NotesUndoResultSchema),
+    },
   },
 }

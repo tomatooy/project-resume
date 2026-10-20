@@ -1,5 +1,6 @@
 import { SupabaseTailorOperationRepository } from "./adapters/tailor-operation-repository"
 import {
+  createAutofillModels,
   createJobParser,
   createResumeParser,
   createResumeTailor,
@@ -31,6 +32,7 @@ import { SupabaseVersionRepository } from "./adapters/version-repository"
 import { createModelsFromEnv } from "./ai"
 import type { Db } from "./auth/supabase"
 import { createLogger } from "./log"
+import { createTypeSafeClientFromEnv } from "./typesafe"
 
 export type { Services } from "@workspace/resume-core"
 export { createServices }
@@ -78,23 +80,42 @@ const lazyResumeTailor: ResumeTailor = {
 
 const jobFetcher = new WorkerJobFetcher()
 
-const notConfigured = async (): Promise<never> => {
-  throw new Error("AI is not configured")
+/** A missing key is a configuration error class, never a throw (spec 12.1). */
+function missingKey(errorClass: "deepseek_missing" | "typesafe_missing"): null {
+  createLogger().error("autofill_config", { errorClass })
+  return null
 }
 
 /**
- * Autofill's models before their clients are wired in: nothing is ready, and
- * every call fails the way a missing client does.
+ * Autofill's models, built on first use and kept for the request. A missing
+ * DeepSeek or TypeSafe key leaves that client null, so `ready()` reports it
+ * and `infer` degrades to rules and plain questions instead of failing.
  */
-const autofillModels: AutofillModels = {
-  model: "unconfigured",
-  ready: () => ({ judge: false, text: false }),
-  judge: notConfigured,
-  shortText: notConfigured,
-  questions: notConfigured,
-  fillFromAnswer: notConfigured,
-  mergeNotes: notConfigured,
-  generate: notConfigured,
+export function lazyAutofillModels(): AutofillModels {
+  let built: AutofillModels | null = null
+  const models = (): AutofillModels => {
+    built ??= createAutofillModels({
+      models: process.env.DEEPSEEK_API_KEY
+        ? createModelsFromEnv()
+        : missingKey("deepseek_missing"),
+      typesafe: process.env.TYPESAFE_API_KEY?.trim()
+        ? createTypeSafeClientFromEnv()
+        : missingKey("typesafe_missing"),
+    })
+    return built
+  }
+  return {
+    get model() {
+      return models().model
+    },
+    ready: () => models().ready(),
+    judge: (input) => models().judge(input),
+    shortText: (input) => models().shortText(input),
+    questions: (input) => models().questions(input),
+    fillFromAnswer: (input) => models().fillFromAnswer(input),
+    mergeNotes: (input) => models().mergeNotes(input),
+    generate: (input) => models().generate(input),
+  }
 }
 
 /**
@@ -129,7 +150,7 @@ export function supabasePorts(
     autofillProfiles: new SupabaseAutofillProfileRepository(db, userId),
     autofillNotes: new SupabaseAutofillNotesRepository(db, userId),
     autofillApplications: new SupabaseAutofillApplicationRepository(db, userId),
-    autofillModels,
+    autofillModels: lazyAutofillModels(),
     ...over,
   }
 }

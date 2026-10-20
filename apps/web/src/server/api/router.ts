@@ -135,4 +135,29 @@ export const router = shared.router({
       return found
     }),
   },
+  autofill: {
+    plan: shared.autofill.plan.handler(({ input, context }) =>
+      context.services.autofill.plan(input)
+    ),
+    start: shared.autofill.start.handler(({ input, context }) =>
+      context.services.autofill.start(input)
+    ),
+    infer: shared.autofill.infer.handler(({ input, context }) =>
+      context.services.autofill.infer(input)
+    ),
+    answer: shared.autofill.answer.handler(({ input, context }) =>
+      context.services.autofill.answer(input)
+    ),
+    generate: shared.autofill.generate.handler(({ input, context }) =>
+      context.services.autofill.generate(input)
+    ),
+    notes: {
+      merge: shared.autofill.notes.merge.handler(({ input, context }) =>
+        context.services.autofill.notesMerge(input)
+      ),
+      undo: shared.autofill.notes.undo.handler(({ input, context }) =>
+        context.services.autofill.notesUndo(input)
+      ),
+    },
+  },
 })

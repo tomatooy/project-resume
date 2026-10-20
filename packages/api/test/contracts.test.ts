@@ -13,7 +13,8 @@ it("keeps the web summary shape and explicit JSON routes", () => {
     templateId: "lisbon",
     updatedAt: new Date().toISOString(),
   }
-  expect(ResumeSummarySchema.parse(summary)).toEqual(summary)
+  // A summary sent before `job` existed still parses, with no origin job.
+  expect(ResumeSummarySchema.parse(summary)).toEqual({ ...summary, job: null })
   expect(contract.resumes.list["~orpc"].route).toMatchObject({
     method: "GET",
     path: "/resumes",
