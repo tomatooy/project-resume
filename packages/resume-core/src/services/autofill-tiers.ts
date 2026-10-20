@@ -6,12 +6,15 @@ import {
   type Fill,
   LIMITS,
   type Option,
+  pickOption,
   plainQuestions,
   type Question,
 } from "@workspace/autofill"
 import { z } from "zod"
 
 import type {
+  FillFromAnswerInput,
+  FillFromAnswerOutput,
   JudgeInput,
   JudgeItem,
   JudgeOutput,
@@ -36,6 +39,10 @@ export const LINE_OPEN = 0.8
 /** The infer deadline, and the part of it the judge and short text get. */
 export const INFER_MS = 15_000
 export const JUDGE_MS = 10_000
+/** The answer's fill and merge deadlines, and the draft's (spec 14.1). */
+export const ANSWER_FILL_MS = 15_000
+export const ANSWER_MERGE_MS = 20_000
+export const GENERATE_MS = 30_000
 
 /** The Fill schema's limit on a search query and target. */
 const SEARCH_MAX = 200
@@ -369,4 +376,230 @@ export function questionList(
     ...plain,
     ...specific.map(numbered(general.length)),
   ]
+}
+
+/** A question a model may read, with its number in the panel's list. */
+export type ReadableQuestion = { number: number; question: Question }
+
+/**
+ * The questions a model may read (spec 12.3): every field a question names is
+ * in the normal zone, judged both from the request's descriptor, which
+ * carries the section, and from the label the question itself carries, which
+ * still holds when the field is gone. So EEO, salary and other forbidden text
+ * never reaches a model. Each keeps its number in the request's list.
+ */
+export function readableQuestions(
+  vendor: AutofillVendor,
+  fields: FieldDescriptor[],
+  questions: Question[]
+): ReadableQuestion[] {
+  const byId = new Map(fields.map((field) => [field.id, field]))
+  const normal = (field: FieldDescriptor) =>
+    classifyField(vendor, field).zone === "normal"
+  const readable = (question: Question) =>
+    question.original.every(({ fieldId, label }) => {
+      const sent = byId.get(fieldId)
+      const named: FieldDescriptor = {
+        id: fieldId,
+        label,
+        control: "text",
+        required: false,
+        hasValue: false,
+      }
+      return (!sent || normal(sent)) && normal(named)
+    })
+  return questions.flatMap((question, i) =>
+    readable(question) ? [{ number: i + 1, question }] : []
+  )
+}
+
+/**
+ * The fields an answer may fill: those AI may see that a readable question
+ * names, keyed as infer keys them. Closed fields whose options never loaded
+ * stay on the page.
+ */
+export function answerTargets(
+  vendor: AutofillVendor,
+  fields: FieldDescriptor[],
+  readable: ReadableQuestion[]
+): KeyedField[] {
+  const named = new Set(
+    readable.flatMap(({ question }) =>
+      question.original.map(({ fieldId }) => fieldId)
+    )
+  )
+  return keyFields(aiFields(vendor, fields)).filter(
+    ({ field, lane }) => named.has(field.id) && lane !== "page"
+  )
+}
+
+/** What the fill model reads: every readable question and the targets. */
+export function answerInput(
+  readable: ReadableQuestion[],
+  targets: KeyedField[]
+): Pick<FillFromAnswerInput, "questions" | "fields"> {
+  const keys = new Map(targets.map(({ key, field }) => [field.id, key]))
+  return {
+    questions: readable.map(({ number, question }) => ({
+      number,
+      text: question.text,
+      options: question.options ?? [],
+      keys: question.original.flatMap(({ fieldId }) => keys.get(fieldId) ?? []),
+    })),
+    fields: targets.map((item) => ({
+      ...modelField(item),
+      control: item.field.control,
+      options: item.lane === "check" ? CHECK_OPTIONS : labels(item.field),
+    })),
+  }
+}
+
+/**
+ * Fills from the fill model's answers. A closed field takes only page
+ * options: one for a choice or checkbox, one answer per chosen option for a
+ * multi-select. A closed answer that matches no option marks every question
+ * naming its field unmatched. Search and text values pass the infer checks,
+ * and one that fails them is left open.
+ */
+export function answerFills(
+  targets: KeyedField[],
+  readable: ReadableQuestion[],
+  answers: FillFromAnswerOutput["answers"]
+): { fills: Fill[]; unmatched: string[] } {
+  const given = new Map<string, string[]>()
+  for (const { key, value } of answers) {
+    const text = value?.trim() ?? ""
+    if (text !== "") given.set(key, [...(given.get(key) ?? []), text])
+  }
+  const fills: Fill[] = []
+  const missed = new Set<string>()
+  for (const item of targets) {
+    const values = given.get(item.key)
+    const fill = values ? answerFill(item, values) : null
+    if (fill === "unmatched") missed.add(item.field.id)
+    else if (fill) fills.push(fill)
+  }
+  const unmatched = readable
+    .filter(({ question }) =>
+      question.original.some(({ fieldId }) => missed.has(fieldId))
+    )
+    .map(({ question }) => question.id)
+  return { fills, unmatched }
+}
+
+/** `values` are the field's trimmed, non-empty answers in model order. */
+function answerFill(
+  { field, lane }: KeyedField,
+  values: string[]
+): Fill | "unmatched" | null {
+  const first = values[0] ?? ""
+  switch (lane) {
+    case "choice":
+    case "check":
+    case "multi":
+      return closedFill(field, lane, values)
+    case "search":
+      return searchFill(field, first)
+    case "text":
+      return textFill(field, first)
+    case "page":
+      return null
+  }
+}
+
+function closedFill(
+  field: FieldDescriptor,
+  lane: "choice" | "check" | "multi",
+  values: string[]
+): Fill | "unmatched" {
+  const options =
+    lane === "check"
+      ? CHECK_OPTIONS.map((label) => ({ label }))
+      : (field.options ?? [])
+  const picked = values
+    .map((value) => pickOption(options, [value]))
+    .filter((index) => index !== null)
+  if (picked.length < values.length) return "unmatched"
+  const chosen = [...new Set(picked)].sort((a, b) => a - b)
+  if (lane !== "multi" && chosen.length !== 1) return "unmatched"
+  if (lane === "check") {
+    return { ...base(field), kind: "check", checked: chosen[0] === 0 }
+  }
+  return optionsFill(
+    field,
+    chosen.flatMap((i) => field.options?.[i] ?? [])
+  )
+}
+
+/** A draft's length limit, in characters or words. */
+export type DraftLimit = { kind: "characters" | "words"; value: number }
+
+const STATED_LIMIT = /(\d{1,3}(?:,\d{3})+|\d+)\s*(words|characters|chars)\b/i
+
+/**
+ * The limit a draft must fit (spec 7): `maxLength`, else one the label, then
+ * the help, states ("In 300 words or less", "1,500 characters"). A stated 0
+ * is no limit.
+ */
+export function draftLimit(field: FieldDescriptor): DraftLimit | null {
+  if (field.maxLength) return { kind: "characters", value: field.maxLength }
+  for (const text of [field.label, field.help ?? ""]) {
+    const [, digits = "", unit = ""] = STATED_LIMIT.exec(text) ?? []
+    const value = Number(digits.replaceAll(",", ""))
+    if (value > 0) {
+      const kind = unit.toLowerCase() === "words" ? "words" : "characters"
+      return { kind, value }
+    }
+  }
+  return null
+}
+
+/** The characters up to the end of the `words`-th word. */
+function wordBudget(text: string, words: number): number {
+  let count = 0
+  for (const match of text.matchAll(/\S+/g)) {
+    count += 1
+    if (count === words) return match.index + match[0].length
+  }
+  return text.length
+}
+
+/**
+ * Cuts a draft to its limit: unchanged when it fits, else after the last
+ * sentence end that fits, else at the last word boundary, else hard. A
+ * sentence end is `.`, `!` or `?` before whitespace, so "3.5" is not one.
+ */
+export function fitDraft(text: string, limit: DraftLimit | null): string {
+  if (!limit) return text
+  const budget =
+    limit.kind === "words" ? wordBudget(text, limit.value) : limit.value
+  if (text.length <= budget) return text
+  for (let i = budget - 1; i >= 0; i--) {
+    if (/[.!?]/.test(text.charAt(i)) && /\s/.test(text.charAt(i + 1))) {
+      return text.slice(0, i + 1)
+    }
+  }
+  for (let i = budget; i > 0; i--) {
+    if (/\s/.test(text.charAt(i))) return text.slice(0, i).trimEnd()
+  }
+  return text.slice(0, budget)
+}
+
+/**
+ * Fields Write with AI drafts for: text inputs and textareas a model may see,
+ * whether or not they hold text, since **Replace** redrafts a filled field.
+ */
+export function draftable(
+  vendor: AutofillVendor,
+  field: FieldDescriptor
+): boolean {
+  if (field.control !== "text" && field.control !== "textarea") return false
+  const { zone } = classifyField(vendor, field)
+  return zone === "normal" || zone === "write"
+}
+
+/** A draft as its field takes it: trimmed, one line for an input, within the limit. */
+export function shapeDraft(text: string, field: FieldDescriptor): string {
+  const trimmed = field.control === "textarea" ? text.trim() : squash(text)
+  return fitDraft(trimmed, draftLimit(field))
 }

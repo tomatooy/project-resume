@@ -2,6 +2,7 @@ import {
   applicantContext,
   type ContextInput,
   companiesMatch,
+  type Fill,
   missingAnswers,
   plainQuestions,
   resumeFileName,
@@ -10,10 +11,19 @@ import {
 
 import type {
   AiRequest,
+  AnswerInput,
+  AnswerResult,
   AutofillPage,
+  GenerateInput,
+  GenerateResult,
   InferInput,
   InferResult,
   JobMatch,
+  NotesMergeInput,
+  NotesMergeResult,
+  NotesOutcome,
+  NotesUndoInput,
+  NotesUndoResult,
   PlanInput,
   PlanResult,
   ResumeChoice,
@@ -23,6 +33,7 @@ import type {
 import { AppError } from "../domain/errors"
 import type { JobIdentity } from "../domain/job-identity"
 import type { JobBrief, ResumeRecord } from "../domain/resume"
+import type { AutofillProcedure, Quota } from "../domain/suggestion"
 import type { AutofillApplicationRepository } from "../ports/autofill-application-repository"
 import type {
   AutofillModels,
@@ -37,15 +48,26 @@ import type { TailorOperationRepository } from "../ports/tailor-operation-reposi
 import type { AutofillNotesService } from "./autofill-notes-service"
 import type { AutofillProfileService } from "./autofill-profile-service"
 import {
+  ANSWER_FILL_MS,
+  ANSWER_MERGE_MS,
   aiFields,
+  answerFills,
+  answerInput,
+  answerTargets,
+  draftable,
+  draftLimit,
+  GENERATE_MS,
   INFER_MS,
   JUDGE_MS,
   type KeyedField,
   keyFields,
   modelInputs,
+  type ReadableQuestion,
   questionFields,
   questionList,
+  readableQuestions,
   settle,
+  shapeDraft,
 } from "./autofill-tiers"
 import type { RunService } from "./run-service"
 import type { VersionService } from "./version-service"
@@ -66,12 +88,23 @@ const NOTHING_JUDGED: JudgeOutput = {
 }
 const NOTHING_ANSWERED: ShortTextOutput = { answers: [], usage: NO_USAGE }
 
-/** Why the judge and short text step failed, as the run row records it. */
+/** Why a step failed, as the run row records it. */
 type StepFailure = "timeout" | "model"
+type ErrorClass = StepFailure | "merge"
 
-type Inferred = {
-  result: Omit<InferResult, "quota">
-  failure: StepFailure | null
+/** A step's result, and why it failed when it did. */
+type Metered<T> = { value: T; failure: ErrorClass | null }
+
+/** Adds a call's tokens to the run's usage and passes its output on. */
+type Count = <T extends { usage: ModelUsage }>(output: T) => T
+
+type AnswerFills = { fills: Fill[]; unmatched: string[] }
+
+/** What a Notes merge reads besides the Notes. */
+type MergeRequest = {
+  page: AutofillPage
+  readable: ReadableQuestion[]
+  text: string
 }
 
 export type AutofillDeps = {
@@ -179,7 +212,7 @@ export class AutofillService {
    * AI answers for the fields rules left (spec 12), with one run row per
    * request (spec 13). A model that is not configured degrades to plain
    * questions without a run. A failed or late judge or short text call keeps
-   * what finished and turns the rest into plain questions (spec 2, 12.4).
+   * what finished and turns the rest into plain questions (spec 4).
    */
   async infer(input: InferInput): Promise<InferResult> {
     const started = Date.now()
@@ -208,57 +241,31 @@ export class AutofillService {
     }
 
     const context = await this.contextInput(input)
-    const run = await this.deps.runs.startAutofill({
-      resumeId: input.resumeId,
-      procedure: "autofill.infer",
-      model: models.model,
-    })
-    const usage = { ...NO_USAGE }
-    const finish = (
-      status: "completed" | "failed",
-      errorClass: string | null
-    ) =>
-      this.deps.runs.finish(run.id, {
-        status,
-        errorClass,
-        ...usage,
-        latencyMs: Date.now() - started,
-      })
-    let inferred: Inferred
-    try {
-      inferred = await this.answerFields(input, keyed, context, {
-        started,
-        usage,
-      })
-    } catch (error) {
-      await finish("failed", "internal")
-      throw error
-    }
-    const { failure } = inferred
-    await finish(failure ? "failed" : "completed", failure)
-    return this.respond(input, inferred.result)
+    const result = await this.metered(
+      input.resumeId,
+      "autofill.infer",
+      started,
+      (count) => this.answerFields(input, keyed, context, started, count)
+    )
+    return this.respond(input, result)
   }
 
   /**
    * The judge and short text in parallel until `JUDGE_MS`, the tiers, then
-   * the question list until `INFER_MS`. Both deadlines count from the start
-   * of the request. `meter.usage` sums the tokens of every call that answered.
+   * the question list until `INFER_MS`. Both deadlines count from `started`,
+   * the start of the request.
    */
   private async answerFields(
     input: InferInput,
     keyed: KeyedField[],
     context: ContextInput,
-    meter: { started: number; usage: ModelUsage }
-  ): Promise<Inferred> {
+    started: number,
+    count: Count
+  ): Promise<Metered<Omit<InferResult, "quota">>> {
     const { models } = this.deps
-    const count = <T extends { usage: ModelUsage }>(output: T): T => {
-      meter.usage.inputTokens += output.usage.inputTokens
-      meter.usage.outputTokens += output.usage.outputTokens
-      return output
-    }
     const asks = modelInputs(keyed)
     const { judge } = asks
-    const step = deadlineAt(meter.started + JUDGE_MS)
+    const step = deadlineAt(started + JUDGE_MS)
     const [judged, short] = await Promise.allSettled([
       judge.choices.length + judge.multi.length + judge.open.length > 0
         ? within(step.call.signal, () =>
@@ -289,16 +296,16 @@ export class AutofillService {
       short.status === "fulfilled" ? short.value : null
     )
     const degraded = failure !== null
-    const result = { fills, write, page, questions: [], degraded }
-    if (ask.length === 0) return { result, failure }
+    const value = { fills, write, page, questions: [], degraded }
+    if (ask.length === 0) return { value, failure }
     if (failure) {
       const questions = plainQuestions(fieldsOf(keyed), ask)
-      return { result: { ...result, questions }, failure }
+      return { value: { ...value, questions }, failure }
     }
 
     // A failed or late question list degrades to plain questions and keeps
     // the fills; the run still completed.
-    const listed = deadlineAt(meter.started + INFER_MS)
+    const listed = deadlineAt(started + INFER_MS)
     const output = await within(listed.call.signal, () =>
       models.questions({
         ...listed.call,
@@ -313,7 +320,240 @@ export class AutofillService {
     const questions = output
       ? questionList(keyed, ask, output.questions)
       : plainQuestions(fieldsOf(keyed), ask)
-    return { result: { ...result, questions, degraded: !output }, failure }
+    return { value: { ...value, questions, degraded: !output }, failure }
+  }
+
+  /**
+   * **Save and fill again** (spec 4, 8.2): one run that fills the fields the
+   * questions name from the user's text and merges the text into Notes, in
+   * parallel. The fill has `ANSWER_FILL_MS` and the merge `ANSWER_MERGE_MS`,
+   * both from the start of the request. A failed merge keeps the fills.
+   */
+  async answer(input: AnswerInput): Promise<AnswerResult> {
+    const started = Date.now()
+    await this.assertCanWrite()
+    const context = await this.contextInput(input)
+    const { page, text } = input
+    const readable = readableQuestions(
+      page.vendor,
+      input.fields,
+      input.questions
+    )
+    const targets = answerTargets(page.vendor, input.fields, readable)
+    const result = await this.metered(
+      input.resumeId,
+      "autofill.answer",
+      started,
+      async (count) => {
+        const [filled, notes] = await Promise.all([
+          this.fillFromAnswer(text, context, readable, targets, {
+            started,
+            count,
+          }),
+          this.mergeNotes(
+            { page, readable, text },
+            started + ANSWER_MERGE_MS,
+            count
+          ),
+        ])
+        return {
+          value: { ...filled.value, notes: notes.value },
+          failure: filled.failure ?? notes.failure,
+        }
+      }
+    )
+    return this.respond(input, result)
+  }
+
+  /** **Retry** for a merge that failed (spec 8.2), as its own run. */
+  async notesMerge(input: NotesMergeInput): Promise<NotesMergeResult> {
+    const started = Date.now()
+    await this.assertCanWrite()
+    // The run row points at the resume, so it must still exist.
+    if (!(await this.deps.resumes.findById(input.resumeId))) {
+      throw new AppError("NOT_FOUND", "Resume not found")
+    }
+    const { page, text } = input
+    const readable = readableQuestions(page.vendor, [], input.questions)
+    const notes = await this.metered(
+      input.resumeId,
+      "autofill.notes.merge",
+      started,
+      (count) =>
+        this.mergeNotes(
+          { page, readable, text },
+          started + ANSWER_MERGE_MS,
+          count
+        )
+    )
+    return { notes, quota: await this.deps.runs.quotaStatus("autofill") }
+  }
+
+  /** Restores the snapshot a merge took (spec 8.3). Free, so no run. */
+  notesUndo(input: NotesUndoInput): Promise<NotesUndoResult> {
+    return this.deps.notes.undo(input)
+  }
+
+  /**
+   * A draft for one text field (spec 7), cut to its limit, until
+   * `GENERATE_MS`. A failed, late or empty draft closes the run as failed and
+   * reaches the caller as an error.
+   */
+  async generate(input: GenerateInput): Promise<GenerateResult> {
+    const started = Date.now()
+    const { field } = input
+    if (!draftable(input.page.vendor, field)) {
+      throw new AppError("VALIDATION", "Write with AI can't draft this field")
+    }
+    await this.assertCanWrite()
+    const context = await this.contextInput(input)
+    const text = await this.metered(
+      input.resumeId,
+      "autofill.generate",
+      started,
+      async (count): Promise<Metered<string | null>> => {
+        const step = deadlineAt(started + GENERATE_MS)
+        const output = await within(step.call.signal, () =>
+          this.deps.models.generate({
+            ...step.call,
+            context: applicantContext(context),
+            field: {
+              label: field.label,
+              help: field.help,
+              singleLine: field.control !== "textarea",
+            },
+            limit: draftLimit(field),
+            ...(input.instruction ? { instruction: input.instruction } : {}),
+          })
+        )
+          .then(count)
+          .catch(() => null)
+        step.clear()
+        const draft = output ? shapeDraft(output.text, field) : ""
+        return draft
+          ? { value: draft, failure: null }
+          : { value: null, failure: stepFailure(step.call.signal) }
+      }
+    )
+    if (!text) {
+      throw new AppError("INTERNAL", "AI couldn't write a draft. Try again.")
+    }
+    return this.respond(input, { text })
+  }
+
+  /** Fills from the user's text until `ANSWER_FILL_MS`; a failed call fills nothing. */
+  private async fillFromAnswer(
+    text: string,
+    context: ContextInput,
+    readable: ReadableQuestion[],
+    targets: KeyedField[],
+    meter: { started: number; count: Count }
+  ): Promise<Metered<AnswerFills>> {
+    const none: AnswerFills = { fills: [], unmatched: [] }
+    if (targets.length === 0) return { value: none, failure: null }
+    const step = deadlineAt(meter.started + ANSWER_FILL_MS)
+    const output = await within(step.call.signal, () =>
+      this.deps.models.fillFromAnswer({
+        ...step.call,
+        context: applicantContext(context),
+        text,
+        ...answerInput(readable, targets),
+      })
+    )
+      .then(meter.count)
+      .catch(() => null)
+    step.clear()
+    if (!output) return { value: none, failure: stepFailure(step.call.signal) }
+    const value = answerFills(targets, readable, output.answers)
+    return { value, failure: null }
+  }
+
+  /**
+   * Merges the user's text into Notes (spec 8.2) until `deadline`, which the
+   * rerun after a conflict shares. Every attempt's tokens count, and a throw
+   * is a failed merge.
+   */
+  private async mergeNotes(
+    { page, readable, text }: MergeRequest,
+    deadline: number,
+    count: Count
+  ): Promise<Metered<NotesOutcome>> {
+    const questions = readable.map(({ number, question }) => ({
+      number,
+      text: question.text,
+      options: question.options ?? [],
+    }))
+    const step = deadlineAt(deadline)
+    const notes = await this.deps.notes
+      .merge((numbered) =>
+        within(step.call.signal, () =>
+          this.deps.models.mergeNotes({
+            ...step.call,
+            numbered,
+            questions,
+            text,
+            company: page.company,
+          })
+        )
+          .then(count)
+          .then(({ proposal }) => proposal)
+      )
+      .catch((): NotesOutcome => ({ kind: "failed" }))
+    step.clear()
+    if (notes.kind !== "failed") return { value: notes, failure: null }
+    const failure = step.call.signal.aborted ? "timeout" : "merge"
+    return { value: notes, failure }
+  }
+
+  /** Before a paid text call: the hourly limit, then a configured model. */
+  private async assertCanWrite(): Promise<void> {
+    await this.deps.runs.assertWithinHourlyLimit("autofill")
+    if (!this.deps.models.ready().text) {
+      throw new AppError("INTERNAL", "AI is not configured")
+    }
+  }
+
+  /**
+   * Runs `work` as one run row (spec 13): sums the tokens it counts and
+   * closes the row completed, or failed with the error class it reports. A
+   * throw closes the row failed as internal and passes on.
+   */
+  private async metered<T>(
+    resumeId: string,
+    procedure: AutofillProcedure,
+    started: number,
+    work: (count: Count) => Promise<Metered<T>>
+  ): Promise<T> {
+    const run = await this.deps.runs.startAutofill({
+      resumeId,
+      procedure,
+      model: this.deps.models.model,
+    })
+    const usage = { ...NO_USAGE }
+    const count: Count = (output) => {
+      usage.inputTokens += output.usage.inputTokens
+      usage.outputTokens += output.usage.outputTokens
+      return output
+    }
+    const finish = (
+      status: "completed" | "failed",
+      errorClass: string | null
+    ) =>
+      this.deps.runs.finish(run.id, {
+        status,
+        errorClass,
+        ...usage,
+        latencyMs: Date.now() - started,
+      })
+    let outcome: Metered<T>
+    try {
+      outcome = await work(count)
+    } catch (error) {
+      await finish("failed", "internal")
+      throw error
+    }
+    await finish(outcome.failure ? "failed" : "completed", outcome.failure)
+    return outcome.value
   }
 
   /**
@@ -344,10 +584,10 @@ export class AutofillService {
   }
 
   /** Records the request's counts on the application (spec 14.4) and adds the quota. */
-  private async respond(
+  private async respond<T extends object>(
     input: AiRequest,
-    result: Omit<InferResult, "quota">
-  ): Promise<InferResult> {
+    result: T
+  ): Promise<T & { quota: Quota }> {
     await this.deps.applications.updateCounts(input.applicationId, input.counts)
     return { ...result, quota: await this.deps.runs.quotaStatus("autofill") }
   }
@@ -421,6 +661,8 @@ function deadlineAt(deadline: number): { call: ModelCall; clear: () => void } {
  * call that may never settle, and the abort would be ignored.
  */
 function within<T>(signal: AbortSignal, call: () => Promise<T>): Promise<T> {
+  // A retry after the shared deadline must not reach the model at all.
+  if (signal.aborted) return Promise.reject(signal.reason)
   return new Promise<T>((resolve, reject) => {
     signal.addEventListener("abort", () => reject(signal.reason), {
       once: true,

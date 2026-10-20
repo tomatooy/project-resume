@@ -70,10 +70,21 @@ export type QuestionsOutput = {
   usage: ModelUsage
 }
 
+/**
+ * A question as the panel numbered it, so a terse answer such as "1. yes"
+ * can be read against it (spec 8.2).
+ */
+export type NumberedQuestion = {
+  number: number
+  text: string
+  options: string[]
+}
+
 export type FillFromAnswerInput = ModelCall & {
   context: Json
   text: string
-  questions: { text: string; options: string[] }[]
+  /** `keys` are the fields each question names that may still be filled. */
+  questions: (NumberedQuestion & { keys: string[] })[]
   fields: (ModelField & { control: Control; options: string[] })[]
 }
 
@@ -84,7 +95,7 @@ export type FillFromAnswerOutput = {
 
 export type MergeNotesInput = ModelCall & {
   numbered: string
-  questions: string[]
+  questions: NumberedQuestion[]
   text: string
   company: string | null
 }

@@ -1,6 +1,5 @@
 import {
   applicantContext,
-  type Control,
   type FieldDescriptor,
   plainQuestions,
 } from "@workspace/autofill"
@@ -8,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   type AutofillModels,
-  type AutofillPage,
   type InferInput,
   InferInputSchema,
   type InferResult,
@@ -18,38 +16,24 @@ import {
   type ShortTextOutput,
 } from "../src"
 import { INFER_MS, JUDGE_MS } from "../src/services/autofill-tiers"
-import { stubAutofillModels } from "../src/testing/index"
-import { harness, only } from "./harness"
-
-const PAGE: AutofillPage = {
-  vendor: "greenhouse",
-  postingKey: "greenhouse:stripe:7206421",
-  url: "https://job-boards.greenhouse.io/stripe/jobs/7206421",
-  company: "Stripe",
-  companyWeak: false,
-  title: "Software Engineer",
-}
-
-const COUNTS = { fields: 9, rules: 4, ai: 0, asked: 0, drafted: 0 }
-const USAGE = { inputTokens: 10, outputTokens: 5 }
+import {
+  COUNTS,
+  failing,
+  field,
+  hang,
+  PAGE,
+  type Session,
+  session,
+  stall,
+  USAGE,
+  YES_NO,
+} from "./autofill-session"
+import { only } from "./harness"
 
 type Choice = JudgeOutput["choices"][string]
 type Short = ShortTextOutput["answers"][number]
 const RESUME: Short["evidence"] = ["resume"]
 
-function field(
-  id: string,
-  label: string,
-  control: Control = "text",
-  extra: Partial<FieldDescriptor> = {}
-): FieldDescriptor {
-  return { id, label, control, required: true, hasValue: false, ...extra }
-}
-
-const YES_NO = [
-  { id: "#1", label: "Yes" },
-  { id: "#2", label: "No" },
-]
 const api = field("api", "Have you used Stripe's API before?", "radio", {
   options: YES_NO,
 })
@@ -78,21 +62,6 @@ const community = field(
 const team = field("team", "Team you are most excited about", "select", {
   optionsPending: true,
 })
-
-/** A harness with a started session whose models are the stub with `models`. */
-async function session(models: Partial<AutofillModels> = {}) {
-  const h = harness()
-  h.autofillModels = stubAutofillModels(models)
-  const resume = await h.resumeService.create({ title: "Base" })
-  const { applicationId } = await h.autofillService.start({
-    page: PAGE,
-    resumeId: resume.id,
-    useJob: false,
-  })
-  return { h, resumeId: resume.id, applicationId }
-}
-
-type Session = Awaited<ReturnType<typeof session>>
 
 /** Infers through the contract, so a shape the schemas refuse fails here. */
 async function infer(
@@ -151,22 +120,6 @@ function shortBy(
     }),
     usage: USAGE,
   })
-}
-
-const failing = async (): Promise<never> => {
-  throw new Error("Model unavailable")
-}
-
-/** Waits for its signal, then rejects with its reason, as a fetch does. */
-function hang<T>(input: { signal: AbortSignal }): Promise<T> {
-  return new Promise((_, reject) => {
-    input.signal.addEventListener("abort", () => reject(input.signal.reason))
-  })
-}
-
-/** Never settles, whatever its signal does. */
-function stall<T>(): Promise<T> {
-  return new Promise(() => undefined)
 }
 
 /** The key the service gave the field labeled `label`. */
