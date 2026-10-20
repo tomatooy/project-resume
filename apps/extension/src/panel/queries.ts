@@ -6,6 +6,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query"
+import type { AutofillAction } from "../lib/autofill-view"
 import {
   send,
   sendResumePage,
@@ -34,6 +35,44 @@ export function useAction() {
     },
     onError: () => client.invalidateQueries({ queryKey: key }),
   })
+}
+
+/**
+ * Autofill actions, apart from `useAction` so a running pass, which can take
+ * 25 s, does not hold up focus and draft actions.
+ */
+export function useAutofillAction() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (action: AutofillAction) => send({ type: "autofill", action }),
+    onSuccess: async (snapshot) => {
+      await client.cancelQueries({ queryKey: key })
+      client.setQueryData(key, snapshot)
+    },
+    onError: () => client.invalidateQueries({ queryKey: key }),
+  })
+}
+
+/** Refreshes the panel when its tab's autofill session changes. */
+export function useAutofillUpdates(tabId: number | null | undefined) {
+  const client = useQueryClient()
+  useEffect(() => {
+    if (tabId === null || tabId === undefined) return
+    const watched = `autofill:${tabId}`
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const changed = (changes: Record<string, chrome.storage.StorageChange>) => {
+      if (!(watched in changes) || timer) return
+      timer = setTimeout(() => {
+        timer = undefined
+        void client.invalidateQueries({ queryKey: key })
+      }, 100)
+    }
+    chrome.storage.session.onChanged.addListener(changed)
+    return () => {
+      clearTimeout(timer)
+      chrome.storage.session.onChanged.removeListener(changed)
+    }
+  }, [client, tabId])
 }
 
 /** Reloads the panel when its own tab moves to another URL. */
@@ -109,11 +148,15 @@ export function useServerUpdates(
   }, [client, jobId, accountId, operationId])
 }
 
+/** The snapshot carries the first resume page for tailoring and for autofill. */
+const seeded = (snapshot: Snapshot) =>
+  snapshot.lookup?.kind === "none" || snapshot.autofill !== null
+
 export function useBaseResumes(snapshot: Snapshot | undefined) {
   const client = useQueryClient()
   const queryKey = ["extension", "resumes", snapshot?.account?.id]
   const first =
-    snapshot?.lookup?.kind === "none"
+    snapshot && seeded(snapshot)
       ? { items: snapshot.resumes, nextCursor: snapshot.nextResumeCursor }
       : undefined
   const query = useInfiniteQuery({
@@ -126,7 +169,7 @@ export function useBaseResumes(snapshot: Snapshot | undefined) {
     staleTime: Number.POSITIVE_INFINITY,
   })
   useEffect(() => {
-    if (snapshot?.lookup?.kind !== "none") return
+    if (!snapshot || !seeded(snapshot)) return
     const key = ["extension", "resumes", snapshot.account?.id]
     type Pages = InfiniteData<
       Awaited<ReturnType<typeof sendResumePage>>,

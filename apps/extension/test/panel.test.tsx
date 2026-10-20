@@ -174,10 +174,10 @@ it("asks to connect an account before anything else", async () => {
   client.clear()
 })
 it("holds a place for autofill on application pages", async () => {
-  mock.send.mockResolvedValue(other({ kind: "ats", vendor: "greenhouse" }))
+  mock.send.mockResolvedValue(other({ kind: "ats", vendor: "lever" }))
   const client = mount()
   expect(await screen.findByText("Autofill is coming soon")).toBeTruthy()
-  expect(screen.getByText(/this Greenhouse application/)).toBeTruthy()
+  expect(screen.getByText(/this Lever application/)).toBeTruthy()
   expect(screen.getByText("Autofill")).toBeTruthy()
   expect(
     screen.getByRole("button", { name: "Minimize to widget" })

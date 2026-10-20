@@ -11,14 +11,22 @@ import {
 import { Spinner } from "@workspace/ui/components/spinner"
 import {
   currentQuery,
+  useAutofillAction,
+  useAutofillUpdates,
   useBaseResumes,
   useOperationRecovery,
   useAction,
   useRoutingRefresh,
   useServerUpdates,
 } from "./queries"
+import { AutofillPanel } from "./autofill/AutofillPanel"
 import { ExtensionError, type Message } from "../lib/messages"
-import { AtsVendorSchema, atsName, categoryOf } from "../lib/pages"
+import {
+  AtsVendorSchema,
+  atsName,
+  autofillVendor,
+  categoryOf,
+} from "../lib/pages"
 
 const vendors = new Intl.ListFormat("en", { type: "disjunction" }).format(
   AtsVendorSchema.options.map(atsName)
@@ -30,6 +38,7 @@ const control = (type: "panel-minimize" | "panel-close") => {
 export function App() {
   const state = useQuery(currentQuery())
   const action = useAction()
+  const autofill = useAutofillAction()
   const [selection, setSelection] = useState<{
     account: string
     id: string
@@ -38,6 +47,7 @@ export function App() {
   useRoutingRefresh(data?.tabId)
   const resumes = useBaseResumes(data)
   useOperationRecovery(data)
+  useAutofillUpdates(data?.autofill ? data.tabId : null)
   useServerUpdates(
     data?.page.kind === "job" ? data.page.identity.externalJobId : undefined,
     data?.account?.id,
@@ -58,7 +68,12 @@ export function App() {
     )?.id ??
     resumes.rows[0]?.id ??
     ""
-  const message = action.error?.message ?? state.error?.message
+  const message =
+    action.error?.message ?? autofill.error?.message ?? state.error?.message
+  // Focus and draft never hold up the panel's other autofill buttons.
+  const sent = autofill.isPending ? autofill.variables?.kind : undefined
+  const sending =
+    sent === undefined || sent === "focus" || sent === "draft" ? null : sent
   const pending = action.isPending
   // A failed refresh still says which page the tab is on.
   const known =
@@ -114,7 +129,26 @@ export function App() {
         </Button>
       </>
     )
-  else if (page?.kind === "ats")
+  else if (page?.kind === "ats" && data.autofill) {
+    const view = data.autofill
+    content = (
+      <AutofillPanel
+        view={{ ...view, vendor: view.vendor ?? autofillVendor(page) }}
+        resumes={{
+          rows: resumes.rows,
+          more:
+            resumes.hasNextPage && !resumes.isFetchingNextPage
+              ? () => void resumes.fetchNextPage()
+              : null,
+        }}
+        onAction={(next) => autofill.mutate(next)}
+        onOpenProfile={(section) => act({ type: "open-app", section })}
+        onOpenApp={() => act({ type: "open-app" })}
+        pending={pending}
+        sending={sending}
+      />
+    )
+  } else if (page?.kind === "ats")
     content = (
       <>
         <h1>Autofill is coming soon</h1>
