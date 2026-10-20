@@ -13,7 +13,10 @@
   },
   "dependencies": {
     "@workspace/api": "workspace:*",
+    "@workspace/autofill": "workspace:*",
     "@workspace/resume-core": "workspace:*",
+    "@workspace/resume-render": "workspace:*",
+    "@workspace/resume-schema": "workspace:*",
     "@workspace/ui": "workspace:*",
     "@supabase/supabase-js": "^2.112.4",
     "@tanstack/react-query": "^5.102.8",

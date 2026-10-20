@@ -48,6 +48,17 @@
       ],
       "js": ["widget-host.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://boards.greenhouse.io/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://boards.eu.greenhouse.io/*",
+        "https://job-boards.eu.greenhouse.io/*",
+        "https://jobs.ashbyhq.com/*"
+      ],
+      "js": ["autofill.js"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
@@ -79,7 +90,7 @@
     "type": "module"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "icons": {
     "16": "icons/16.png",

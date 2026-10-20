@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { SUPPORTED_MATCHES } from "../lib/pages"
+import { SUPPORTED_MATCHES, autofillVendor, classifyPage } from "../lib/pages"
 import {
   forgetTab,
   locate,
@@ -27,6 +27,7 @@ const WidgetMessage = z.discriminatedUnion("type", [
 type WidgetMessage = z.infer<typeof WidgetMessage>
 const positionKey = "widget:position"
 const hostScript = "widget-host.js"
+const autofillScript = "autofill.js"
 export const BLOCKED_TITLE = "VS:Résumé can't run on this page"
 
 /** Tells the tab's host to fetch its view again. False when no host answers. */
@@ -154,13 +155,19 @@ async function toolbar(tab: chrome.tabs.Tab) {
 async function injectOpenTabs() {
   const tabs = await chrome.tabs.query({ url: SUPPORTED_MATCHES })
   await Promise.all(
-    tabs.map((tab) =>
-      tab.id === undefined || tab.discarded
-        ? undefined
-        : chrome.scripting
-            .executeScript({ target: { tabId: tab.id }, files: [hostScript] })
-            .catch(() => undefined)
-    )
+    tabs.flatMap(({ id: tabId, discarded, url }) => {
+      if (tabId === undefined || discarded) return []
+      // Application pages also get autofill, in its own injection.
+      const files =
+        url && autofillVendor(classifyPage(url))
+          ? [hostScript, autofillScript]
+          : [hostScript]
+      return files.map((file) =>
+        chrome.scripting
+          .executeScript({ target: { tabId }, files: [file] })
+          .catch(() => undefined)
+      )
+    })
   )
 }
 

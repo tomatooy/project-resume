@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
 import { expect, it } from "vitest"
 import { z } from "zod"
-import { SUPPORTED_MATCHES } from "../src/lib/pages"
+import { AUTOFILL_MATCHES, SUPPORTED_MATCHES } from "../src/lib/pages"
 function files(path: string): string[] {
   return readdirSync(path, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory()
@@ -57,6 +57,7 @@ it("declares only required privileges and existing entrypoints", () => {
   expect(readFileSync("panel.html", "utf8")).toContain("src/panel/main.tsx")
   expect(manifest.content_scripts).toEqual([
     { matches: SUPPORTED_MATCHES, js: ["widget-host.js"] },
+    { matches: AUTOFILL_MATCHES, js: ["autofill.js"] },
   ])
   // The toolbar can open the panel on any page; the widget stays on
   // supported pages.
