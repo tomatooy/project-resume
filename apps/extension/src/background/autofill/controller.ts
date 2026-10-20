@@ -115,22 +115,24 @@ const hasForm = (session: AutofillSession | null): session is AutofillSession =>
 
 /**
  * Claims the tab's one pass, or gives null while another runs. An automatic
- * pass that finds one running is noted instead, and runs when that one ends:
+ * pass needs the record a run started, so it never makes the first run. One
+ * that finds a pass running is noted instead, and runs when that one ends:
  * its fields appeared during that pass, which never sees them.
  */
 async function claimPass(tabId: number, auto: boolean): Promise<Pass | null> {
   const now = Date.now()
+  const free = (session: AutofillSession) =>
+    canRunPass(session, now) && (!auto || session.started !== null)
   const { before, after } = await updateSession(tabId, (session) => {
     if (!hasForm(session)) return session
-    if (canRunPass(session, now))
-      return { ...session, running: now, rerun: false }
-    return auto && !session.rerun ? { ...session, rerun: true } : session
+    if (free(session)) return { ...session, running: now, rerun: false }
+    return auto && !canRunPass(session, now) && !session.rerun
+      ? { ...session, rerun: true }
+      : session
   })
   // The reducer is pure, so `before` tells whether it claimed.
   const page =
-    hasForm(before) && canRunPass(before, now) && after !== null
-      ? pageOf(after)
-      : null
+    hasForm(before) && free(before) && after !== null ? pageOf(after) : null
   return after !== null && page !== null
     ? { session: after, page, claim: now }
     : null

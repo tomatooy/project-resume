@@ -100,8 +100,9 @@ async function takeScan(
   // back.
   if (before !== null && (fresh || before.documentId !== frame.documentId))
     await syncOverlay(tabId)
-  // Fields that appear after the first run get an automatic pass.
-  if (after.started !== null && added.length > 0) await run(tabId, "auto")
+  // Fields that appear get an automatic pass once a run has started the
+  // record. One that appears during a pass gets it when that pass ends.
+  if (added.length > 0) await run(tabId, "auto")
 }
 
 async function onContent(
