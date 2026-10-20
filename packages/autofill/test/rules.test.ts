@@ -123,6 +123,24 @@ const RACES = [
   "Decline To Self Identify",
 ]
 
+/** Ashby's US EEO survey, as on live postings (Ashby 13). */
+const ASHBY_GENDERS = ["Male", "Female", "Decline to self-identify"]
+const ASHBY_RACES = [
+  "Hispanic or Latino",
+  "White (Not Hispanic or Latino)",
+  "Black or African American (Not Hispanic or Latino)",
+  "Native Hawaiian or Other Pacific Islander (Not Hispanic or Latino)",
+  "Asian (Not Hispanic or Latino)",
+  "American Indian or Alaska Native (Not Hispanic or Latino)",
+  "Two or More Races (Not Hispanic or Latino)",
+  "Decline to self-identify",
+]
+const ASHBY_VETERANS = [
+  "I identify as one or more of the classifications of protected veteran listed above",
+  "I am not a protected veteran",
+  "I decline to self-identify for protected veteran status",
+]
+
 describe("ruleFills", () => {
   it("fills the Greenhouse standard fields and links (GH 10.10)", () => {
     const { fills, classes } = ruleFills(greenhouseNewFields, context())
@@ -345,6 +363,41 @@ describe("ruleFills", () => {
   it("leaves the single-line open question to AI (Ashby 9.1)", () => {
     const { classes } = ruleFills(ashbyFields, context({ vendor: "ashby" }))
     expect(routeOf(classes, "question_11916358008")).toBe("ai")
+  })
+
+  it("answers Ashby's EEO survey from the Profile (Ashby 13)", () => {
+    const question = (id: string, label: string, labels: string[]) =>
+      field({
+        id,
+        label,
+        control: "radio",
+        options: options(...labels),
+        required: false,
+      })
+    const survey = [
+      question("_systemfield_eeoc_gender", "Gender", ASHBY_GENDERS),
+      question("_systemfield_eeoc_race", "Race", ASHBY_RACES),
+      question(
+        "_systemfield_eeoc_veteran_status",
+        "Veteran Status",
+        ASHBY_VETERANS
+      ),
+    ]
+    const { fills, classes } = ruleFills(survey, context({ vendor: "ashby" }))
+    expect(fills).toEqual([
+      picked("_systemfield_eeoc_gender", ["#3"], ["Decline to self-identify"]),
+      picked("_systemfield_eeoc_race", ["#8"], ["Decline to self-identify"]),
+      picked(
+        "_systemfield_eeoc_veteran_status",
+        ["#3"],
+        ["I decline to self-identify for protected veteran status"]
+      ),
+    ])
+    expect(classes.map((entry) => entry.route)).toEqual([
+      "rule",
+      "rule",
+      "rule",
+    ])
   })
 
   it("never truncates to fit maxLength", () => {
@@ -1056,6 +1109,14 @@ describe("eeoFill", () => {
       ["Prefer not to say"],
     ],
     [
+      "Ashby's gender decline",
+      "eeo.gender",
+      "radio",
+      {},
+      ASHBY_GENDERS,
+      ["Decline to self-identify"],
+    ],
+    [
       "a Hispanic answer",
       "eeo.hispanic",
       "select",
@@ -1075,9 +1136,73 @@ describe("eeoFill", () => {
       "one race with a qualifier",
       "eeo.race",
       "select",
-      { race: ["asian"] },
+      { race: ["asian"], hispanic: "no" },
       ["White (Not Hispanic or Latino)", "Asian (Not Hispanic or Latino)"],
       ["Asian (Not Hispanic or Latino)"],
+    ],
+    [
+      "no race that answers an undisclosed Hispanic question",
+      "eeo.race",
+      "radio",
+      { race: ["asian"] },
+      ASHBY_RACES,
+      null,
+    ],
+    [
+      "Ashby's race decline",
+      "eeo.race",
+      "radio",
+      {},
+      ASHBY_RACES,
+      ["Decline to self-identify"],
+    ],
+    [
+      "two or more races, not Hispanic or Latino",
+      "eeo.race",
+      "radio",
+      { race: ["asian", "white"], hispanic: "no" },
+      ASHBY_RACES,
+      ["Two or More Races (Not Hispanic or Latino)"],
+    ],
+    [
+      "Hispanic or Latino over a race on a single choice",
+      "eeo.race",
+      "radio",
+      { race: ["white"], hispanic: "yes" },
+      ASHBY_RACES,
+      ["Hispanic or Latino"],
+    ],
+    [
+      "Hispanic or Latino with a race decline",
+      "eeo.race",
+      "radio",
+      { hispanic: "yes" },
+      ASHBY_RACES,
+      ["Hispanic or Latino"],
+    ],
+    [
+      "Hispanic or Latino beside each race on a multi-select",
+      "eeo.race",
+      "checkboxes",
+      { race: ["asian"], hispanic: "yes" },
+      ["Hispanic or Latino", "Asian", "White", "Decline to self-identify"],
+      ["Hispanic or Latino", "Asian"],
+    ],
+    [
+      "Hispanic or Latino alone on a multi-select",
+      "eeo.race",
+      "checkboxes",
+      { hispanic: "yes" },
+      ["Hispanic or Latino", "Asian", "White", "Decline to self-identify"],
+      ["Hispanic or Latino"],
+    ],
+    [
+      "a race when the options have no Hispanic answer",
+      "eeo.race",
+      "select",
+      { race: ["white"], hispanic: "yes" },
+      RACES,
+      ["White"],
     ],
     [
       "each race on a multi-select",
@@ -1126,6 +1251,22 @@ describe("eeoFill", () => {
       { veteran: "not-protected" },
       veterans,
       [veterans[0] ?? ""],
+    ],
+    [
+      "Ashby's protected veteran",
+      "eeo.veteran",
+      "radio",
+      { veteran: "protected" },
+      ASHBY_VETERANS,
+      [ASHBY_VETERANS[0] ?? ""],
+    ],
+    [
+      "Ashby's veteran decline",
+      "eeo.veteran",
+      "radio",
+      {},
+      ASHBY_VETERANS,
+      ["I decline to self-identify for protected veteran status"],
     ],
     [
       "no veteran answer from a bare yes",

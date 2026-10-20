@@ -4,7 +4,7 @@ import type {
   WorkerMessage,
   WorkerReply,
 } from "../lib/autofill-protocol"
-import { LIMITS } from "./dom"
+import { isShown, LIMITS, scriptClick } from "./dom"
 import { handleFor } from "./drivers"
 import { type AttachResult, attachFile } from "./file"
 import { createOverlay } from "./overlay"
@@ -26,6 +26,7 @@ type Attach = Extract<WorkerMessage, { type: "autofill-attach" }>
 const WORKER_TYPES = new Set<string>([
   "autofill-ping",
   "autofill-rescan",
+  "autofill-open-form",
   "autofill-read-options",
   "autofill-write",
   "autofill-attach",
@@ -152,7 +153,8 @@ export function startAutofill(
   const read = (): Scan => {
     const url = new URL(location.href)
     const key = postingKey(url)
-    const form = adapter && key !== null ? adapter.findForm(document) : null
+    const found = adapter && key !== null ? adapter.findForm(document) : null
+    const form = found && isShown(found) ? found : null
     fields = adapter && form ? adapter.scan(form) : []
     handles = new Map(
       fields.map((field) => [field.descriptor.id, handleFor(field)])
@@ -222,11 +224,16 @@ export function startAutofill(
   }
 
   /** Runs `task` after the requests before it, on fresh handles. */
-  const request = <T>(task: () => Promise<T>): Promise<T> => {
+  const request = <T>(
+    expectedKey: string | null | undefined,
+    task: () => Promise<T>
+  ): Promise<T> => {
     queued += 1
     const run = queue.then(async () => {
       try {
-        read()
+        const current = read()
+        if (expectedKey !== undefined && current.postingKey !== expectedKey)
+          throw new Error("The application changed.")
         return await task()
       } finally {
         queued -= 1
@@ -313,6 +320,8 @@ export function startAutofill(
   ): boolean => {
     if (sender.id !== chrome.runtime.id || !isWorkerMessage(message))
       return false
+    const perform = <T>(task: () => Promise<T>) =>
+      request(message.postingKey, task)
     switch (message.type) {
       case "autofill-ping": {
         const reply: WorkerReply<"autofill-ping"> = {
@@ -328,9 +337,36 @@ export function startAutofill(
         scan(true)
         return false
       }
+      case "autofill-open-form": {
+        void perform(async () => {
+          const url = new URL(location.href)
+          const link = adapter?.formLink(document, url)
+          if (!link) return { ok: false }
+          const target = new URL(link)
+          if (target.origin !== url.origin) return { ok: false }
+          const anchor = [
+            ...document.querySelectorAll<HTMLAnchorElement>("a[href]"),
+          ].find((node) => {
+            const href = new URL(node.href)
+            return (
+              href.origin === target.origin &&
+              href.pathname === target.pathname &&
+              (node.target === "" || node.target === "_self") &&
+              isShown(node)
+            )
+          })
+          if (anchor) scriptClick(anchor)
+          else {
+            target.search = url.search
+            location.assign(target.href)
+          }
+          return { ok: true }
+        }).then(respond, () => respond({ ok: false }))
+        return true
+      }
       case "autofill-read-options": {
         const failed: WorkerReply<"autofill-read-options"> = { options: {} }
-        void request(() => readOptions(message.fieldIds)).then(respond, () =>
+        void perform(() => readOptions(message.fieldIds)).then(respond, () =>
           respond(failed)
         )
         return true
@@ -338,7 +374,7 @@ export function startAutofill(
       case "autofill-write": {
         const { fills, force } = message
         const failed: WorkerReply<"autofill-write"> = { results: {} }
-        void request(
+        void perform(
           async (): Promise<WorkerReply<"autofill-write">> => ({
             results: await writeAll(handles, fills, new Set(force), owner),
           })
@@ -347,30 +383,44 @@ export function startAutofill(
       }
       case "autofill-attach": {
         const failed: WorkerReply<"autofill-attach"> = { result: "failed" }
-        void request(() => attach(message)).then(respond, () => respond(failed))
+        void perform(() => attach(message)).then(respond, () => respond(failed))
         return true
       }
       case "autofill-clear": {
         const failed: WorkerReply<"autofill-clear"> = { ok: false }
-        void request(() => clear(message.fieldId)).then(respond, () =>
+        void perform(() => clear(message.fieldId)).then(respond, () =>
           respond(failed)
         )
         return true
       }
       case "autofill-focus": {
         const failed: WorkerReply<"autofill-focus"> = { ok: false }
-        void request(() => focus(message.fieldId)).then(respond, () =>
+        void perform(() => focus(message.fieldId)).then(respond, () =>
           respond(failed)
         )
         return true
       }
       case "autofill-overlay": {
+        if (
+          message.postingKey !== undefined &&
+          message.postingKey !== postingKey(new URL(location.href))
+        ) {
+          respond({ ok: false })
+          return false
+        }
         overlay.show(message.fieldIds, message.disabled)
         const reply: WorkerReply<"autofill-overlay"> = { ok: true }
         respond(reply)
         return false
       }
       case "autofill-draft-result": {
+        if (
+          message.postingKey !== undefined &&
+          message.postingKey !== postingKey(new URL(location.href))
+        ) {
+          respond({ ok: false })
+          return false
+        }
         overlay.result(message.fieldId, message.text, message.error)
         const reply: WorkerReply<"autofill-draft-result"> = { ok: true }
         respond(reply)
@@ -382,6 +432,9 @@ export function startAutofill(
   const onProbe = (event: Event) => {
     if (alive()) event.preventDefault()
     else stop()
+  }
+  const onShow = (event: PageTransitionEvent) => {
+    if (event.persisted) scan(true)
   }
 
   const observer = new MutationObserver(schedule)
@@ -396,6 +449,7 @@ export function startAutofill(
     document.removeEventListener("input", schedule, true)
     document.removeEventListener("change", schedule, true)
     document.removeEventListener(PROBE, onProbe)
+    window.removeEventListener("pageshow", onShow)
     try {
       chrome.runtime.onMessage.removeListener(onRuntime)
     } catch {
@@ -403,13 +457,16 @@ export function startAutofill(
     }
   }
 
-  observer.observe(document.body ?? document.documentElement, {
+  observer.observe(document.documentElement, {
     childList: true,
     subtree: true,
+    attributes: true,
+    attributeFilter: ["class", "style", "hidden", "aria-hidden"],
   })
   document.addEventListener("input", schedule, true)
   document.addEventListener("change", schedule, true)
   document.addEventListener(PROBE, onProbe)
+  window.addEventListener("pageshow", onShow)
   chrome.runtime.onMessage.addListener(onRuntime)
   scan(true)
   return { stop }

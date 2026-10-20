@@ -60,9 +60,10 @@ export type ContentMessage = z.infer<typeof ContentMessageSchema>
  * Service worker to content script. The content script trusts these by
  * sender id, so they are typed here but never parsed.
  */
-export type WorkerMessage =
+type WorkerCommand =
   | { type: "autofill-ping" }
   | { type: "autofill-rescan" }
+  | { type: "autofill-open-form" }
   | { type: "autofill-read-options"; fieldIds: string[] }
   | { type: "autofill-write"; fills: Fill[]; force: string[] }
   | {
@@ -82,6 +83,11 @@ export type WorkerMessage =
       error: string | null
     }
 
+export type WorkerMessage = WorkerCommand & {
+  /** Guards navigation between postings within the same document. */
+  postingKey?: string | null
+}
+
 const OkSchema = z.object({ ok: z.boolean() })
 
 /** The content script's reply to each message, parsed by the service worker. */
@@ -91,6 +97,7 @@ export const WorkerReplySchemas = {
     postingKey: z.string().min(1).max(300).nullable(),
   }),
   "autofill-rescan": z.object({ ok: z.literal(true) }),
+  "autofill-open-form": OkSchema,
   "autofill-read-options": z.object({
     options: z.record(FieldIdSchema, z.array(OptionSchema).nullable()),
   }),

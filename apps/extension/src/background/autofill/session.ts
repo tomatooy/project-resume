@@ -77,7 +77,7 @@ export const AutofillSessionSchema = z.object({
   postingKey: z.string().nullable(),
   /** The document of the last scan; another one means the page reloaded. */
   documentId: z.string(),
-  /** The frame that sent the scan: 0 in v1 (spec 15.1). */
+  /** The top frame or embedded ATS frame that sent the scan. */
   frameId: z.number().int().min(0),
   vendor: AutofillVendorSchema,
   url: z.string(),

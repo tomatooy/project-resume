@@ -1,19 +1,21 @@
 import type { CanonicalKey, FieldDescriptor, Option } from "./fields"
-import { pickOption } from "./match"
+import { normalizeText, pickOption } from "./match"
 import type { Profile } from "./profile"
 
 type Eeo = Profile["eeo"]
 type Candidates = readonly string[]
 
 /*
- * Option wording per Profile answer, most specific first. Unverified until
- * real EEO fixtures arrive: the phrases follow the OFCCP forms and the
- * Greenhouse defaults. `pickOption` also takes the one option that starts
- * with a candidate, so "Asian" finds "Asian (Not Hispanic or Latino)".
+ * Option wording per Profile answer, most specific first. Ashby's survey
+ * wording is checked on live postings (Ashby research 13); the rest follows
+ * the OFCCP forms and the Greenhouse defaults, unverified. `pickOption` also
+ * takes the one option that starts with a candidate, so "Asian" finds
+ * "Asian (Not Hispanic or Latino)".
  */
 
 const DECLINE: Candidates = [
   "Decline To Self Identify",
+  "I decline to self-identify",
   "I don't wish to answer",
   "I do not wish to answer",
   "I don't want to answer",
@@ -69,6 +71,12 @@ const TWO_OR_MORE: Candidates = [
   "Mixed race",
 ]
 
+/** Hispanic or Latino as one answer of a race question (EEO-1). */
+const LATINO: Candidates = ["Hispanic or Latino", "Hispanic"]
+
+/** Normalized option text saying the applicant is not Hispanic or Latino. */
+const NOT_LATINO = /\bno[nt] hispanic\b/
+
 /** No bare Yes or No: a veteran is not always a protected veteran. */
 const VETERAN: Record<Eeo["veteran"], Candidates> = {
   protected: [
@@ -103,6 +111,7 @@ const DISABILITY: Record<Eeo["disability"], Candidates> = {
 function wanted(
   key: CanonicalKey,
   eeo: Eeo,
+  options: readonly Option[],
   multiple: boolean
 ): readonly Candidates[] | null {
   switch (key) {
@@ -110,9 +119,17 @@ function wanted(
       return [GENDER[eeo.gender]]
     case "eeo.hispanic":
       return [HISPANIC[eeo.hispanic]]
-    case "eeo.race":
-      if (eeo.race.length > 1 && !multiple) return [TWO_OR_MORE]
-      return eeo.race.map((race) => RACE[race])
+    case "eeo.race": {
+      // As a single choice, Hispanic or Latino covers every race (EEO-1).
+      const latino =
+        eeo.hispanic === "yes" && pickOption(options, LATINO) !== null
+      if (latino && (!multiple || eeo.race.includes("decline"))) return [LATINO]
+      const races =
+        eeo.race.length > 1 && !multiple
+          ? [TWO_OR_MORE]
+          : eeo.race.map((race) => RACE[race])
+      return latino ? [LATINO, ...races] : races
+    }
     case "eeo.veteran":
       return [VETERAN[eeo.veteran]]
     case "eeo.disability":
@@ -133,7 +150,7 @@ export function eeoFill(
 ): { optionIds: string[]; labels: string[] } | null {
   const options = field.options ?? []
   const multiple = field.control === "checkboxes" || field.multiple === true
-  const lists = wanted(key, eeo, multiple)
+  const lists = wanted(key, eeo, options, multiple)
   if (!lists || options.length === 0) return null
   const chosen: Option[] = []
   for (const candidates of lists) {
@@ -142,6 +159,13 @@ export function eeoFill(
     if (!option) return null
     if (!chosen.includes(option)) chosen.push(option)
   }
+  // "White (Not Hispanic or Latino)" also answers the Hispanic question.
+  if (
+    key === "eeo.race" &&
+    eeo.hispanic !== "no" &&
+    chosen.some(({ label }) => NOT_LATINO.test(normalizeText(label)))
+  )
+    return null
   return {
     optionIds: chosen.map((option) => option.id),
     labels: chosen.map((option) => option.label),

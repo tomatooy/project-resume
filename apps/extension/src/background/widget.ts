@@ -1,8 +1,7 @@
 import { z } from "zod"
-import { SUPPORTED_MATCHES, autofillVendor, classifyPage } from "../lib/pages"
+import { classifyPage } from "../lib/pages"
 import {
   forgetTab,
-  locate,
   moveTab,
   transition,
   updateTabState,
@@ -12,6 +11,9 @@ import {
   type TabEvent,
   type View,
 } from "./tab-state"
+import { hasPageHost, hereFor } from "./page"
+import { autofillFrames } from "./autofill/frames"
+import { sendToContent } from "./autofill/send"
 import { forgetAutofill, moveAutofill } from "./autofill/session"
 
 const WidgetMessage = z.discriminatedUnion("type", [
@@ -52,11 +54,16 @@ async function apply(tabId: number, here: Here, event: TabEvent) {
   await updateTabState(tabId, (state) => transition(state, here, event))
 }
 
-async function hostState(tabId: number, here: Here) {
+async function hostState(
+  tabId: number,
+  here: Here,
+  documentId: string | undefined
+) {
   const [{ after }, saved] = await Promise.all([
-    updateTabState(tabId, (state) =>
-      transition(state, here, { type: "navigate", document: false })
-    ),
+    updateTabState(tabId, (state) => ({
+      ...transition(state, here, { type: "navigate", document: false }),
+      hostDocumentId: documentId ?? state.hostDocumentId,
+    })),
     chrome.storage.local.get(positionKey),
   ])
   const position = z.number().min(0).max(1).safeParse(saved[positionKey])
@@ -66,24 +73,25 @@ async function hostState(tabId: number, here: Here) {
   }
 }
 
-function handle(
+async function handle(
   message: WidgetMessage,
   sender: chrome.runtime.MessageSender,
   tabId: number
-): Promise<unknown> | null {
+): Promise<unknown> {
   const host = sender.frameId === 0
   const frame = (file: string) =>
     (sender.frameId ?? 0) > 0 && sender.url === chrome.runtime.getURL(file)
+  if (!host && !(await hasPageHost(tabId, sender.tab?.url))) return null
   // A content script's sender.url keeps the URL it loaded with, so in-page
   // navigation leaves it behind. The tab URL is current.
-  const tab = locate(sender.tab?.url)
+  const tab = await hereFor(tabId, sender.tab?.url)
   const change = async (event: TabEvent) => {
     await apply(tabId, tab, event)
     return { ok: await refreshHost(tabId) }
   }
   switch (message.type) {
     case "widget-state":
-      return host ? hostState(tabId, tab) : null
+      return host ? hostState(tabId, tab, sender.documentId) : null
     case "widget-position":
       return host
         ? chrome.storage.local
@@ -129,7 +137,8 @@ async function block(tabId: number, here: Here) {
 async function toolbar(tab: chrome.tabs.Tab) {
   const tabId = tab.id
   if (tabId === undefined) return
-  const here = locate(tab.url)
+  await ensureAutofill(tabId)
+  const here = await hereFor(tabId, tab.url)
   const showing = await ping(tabId)
   const opening = showing !== "panel"
   // Without a readable URL, Chrome did not grant activeTab: a restricted page.
@@ -151,23 +160,41 @@ async function toolbar(tab: chrome.tabs.Tab) {
   }
   // Covers a live host that missed the ping; a new host fetches on its own.
   await refreshHost(tabId)
+  await ensureAutofill(tabId)
+}
+
+/** Repair open frames after installation or when the toolbar is opened. */
+async function ensureAutofill(tabId: number): Promise<void> {
+  const frames = await autofillFrames(tabId)
+  await Promise.all(
+    frames.map(async (frame) => {
+      try {
+        await sendToContent(tabId, frame, { type: "autofill-ping" })
+      } catch {
+        await chrome.scripting
+          .executeScript({
+            target: { tabId, documentIds: [frame.documentId] },
+            files: [autofillScript],
+          })
+          .catch(() => {})
+      }
+      await sendToContent(tabId, frame, { type: "autofill-rescan" }).catch(
+        () => {}
+      )
+    })
+  )
 }
 
 async function injectOpenTabs() {
-  const tabs = await chrome.tabs.query({ url: SUPPORTED_MATCHES })
+  const tabs = await chrome.tabs.query({})
   await Promise.all(
-    tabs.flatMap(({ id: tabId, discarded, url }) => {
-      if (tabId === undefined || discarded) return []
-      // Application pages also get autofill, in its own injection.
-      const files =
-        url && autofillVendor(classifyPage(url))
-          ? [hostScript, autofillScript]
-          : [hostScript]
-      return files.map((file) =>
-        chrome.scripting
-          .executeScript({ target: { tabId }, files: [file] })
-          .catch(() => undefined)
-      )
+    tabs.map(async ({ id: tabId, discarded, url }) => {
+      if (tabId === undefined || discarded) return
+      if (url && classifyPage(url).kind !== "unsupported")
+        await chrome.scripting
+          .executeScript({ target: { tabId }, files: [hostScript] })
+          .catch(() => {})
+      await ensureAutofill(tabId)
     })
   )
 }
@@ -186,9 +213,10 @@ export function registerWidget() {
     const tabId = sender.tab?.id
     if (!message.success || sender.id !== chrome.runtime.id || !tabId)
       return false
-    const reply = handle(message.data, sender, tabId)
-    if (!reply) return false
-    reply.then(respond, () => respond({ ok: false }))
+    void handle(message.data, sender, tabId).then(
+      (reply) => respond(reply),
+      () => respond({ ok: false })
+    )
     return true
   })
   chrome.tabs.onRemoved.addListener((tabId) => {

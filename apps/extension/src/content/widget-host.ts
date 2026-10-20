@@ -19,6 +19,9 @@
   let wanted: View = "none"
   let position = 0.18
   let generation = 0
+  let watchedOrigin: string | null = null
+  let frameVisible: boolean | null = null
+  let frameTimer: ReturnType<typeof setTimeout> | undefined
   const alive = () => {
     try {
       return Boolean(chrome.runtime?.id)
@@ -91,6 +94,34 @@
       if (!alive()) teardown()
     })
   }
+  const embeddedVisibility = (origin: string): boolean | null => {
+    const matches = [...document.querySelectorAll("iframe")].filter((node) => {
+      try {
+        return new URL(node.src).origin === origin
+      } catch {
+        return false
+      }
+    })
+    // An origin alone cannot identify one of several sibling embeds.
+    const [embedded] = matches
+    if (matches.length !== 1 || !embedded) return null
+    return (
+      embedded.getClientRects().length > 0 &&
+      getComputedStyle(embedded).visibility !== "hidden"
+    )
+  }
+  const inspectFrames = () => {
+    if (!watchedOrigin || frameTimer) return
+    frameTimer = setTimeout(() => {
+      frameTimer = undefined
+      if (!watchedOrigin) return
+      const next = embeddedVisibility(watchedOrigin)
+      if (next === frameVisible) return
+      frameVisible = next
+      forward({ type: "autofill-frame-change" })
+    }, 300)
+  }
+  const frameObserver = new MutationObserver(inspectFrames)
   const onMessage = (event: MessageEvent<unknown>) => {
     if (
       shown !== "widget" ||
@@ -133,7 +164,15 @@
     )
       return
     if (message.type === "widget-ping") respond({ view: shown })
-    else if (message.type === "widget-refresh") {
+    else if (
+      message.type === "autofill-frame-state" &&
+      "origin" in message &&
+      typeof message.origin === "string"
+    ) {
+      watchedOrigin = message.origin
+      frameVisible = embeddedVisibility(watchedOrigin)
+      respond({ visible: frameVisible })
+    } else if (message.type === "widget-refresh") {
       respond({ ok: true })
       void refresh()
     }
@@ -153,9 +192,12 @@
   }
   const teardown = () => {
     generation += 1
+    clearTimeout(frameTimer)
+    frameObserver.disconnect()
     host.remove()
     window.removeEventListener("message", onMessage)
     window.removeEventListener("resize", layout)
+    window.removeEventListener("resize", inspectFrames)
     window.removeEventListener("pageshow", onShow)
     document.removeEventListener("visibilitychange", onVisibility)
     document.removeEventListener(probe, onProbe)
@@ -167,10 +209,17 @@
   }
   window.addEventListener("message", onMessage)
   window.addEventListener("resize", layout)
+  window.addEventListener("resize", inspectFrames)
   window.addEventListener("pageshow", onShow)
   document.addEventListener("visibilitychange", onVisibility)
   document.addEventListener(probe, onProbe)
   chrome.runtime.onMessage.addListener(onRuntime)
+  frameObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["src", "style", "class", "hidden"],
+  })
   void refresh()
 })()
 

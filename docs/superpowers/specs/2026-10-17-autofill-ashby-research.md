@@ -13,9 +13,10 @@ Sources:
 
 ## 1. Summary
 
-- Ashby's form is easy to scan. Every field sits in a
-  `.ashby-application-form-field-entry` with a `data-field-path` that is
-  stable per posting, and every label has a `for` that points at the input.
+- Ashby's form is easy to scan. Every question entry has a `data-field-path`
+  that is stable per posting, and every label has a `for` that points at the
+  input. Choice questions lack the `.ashby-application-form-field-entry`
+  class, and each survey is a form of its own (13).
 - The hashed CSS classes (`_input_80epu_28`, `_required_f7cvd_91`) change with
   Ashby deploys. The adapter uses only `ashby-*` classes, `data-field-path`,
   `id`, `name`, `type`, `required` and ARIA roles.
@@ -78,6 +79,8 @@ Notes:
 
 - There is no `<form>` element in the fixture. Form detection keys on
   `.ashby-application-form-container`, not on `form`.
+- A posting with surveys, such as the US EEO one, has one more form container
+  per survey, and the upload pane has another class (13).
 - The left pane gives the location and location type for free. The spec does
   not read the job description, but the location type ("Hybrid") and city list
   could feed "Are you open to hybrid work" as page context. Not needed for v1.
@@ -125,7 +128,8 @@ System field paths, known from the fixture plus unverified ones to confirm:
 |---|---|
 | `_systemfield_name`, `_systemfield_email`, `_systemfield_resume` | Observed |
 | `_systemfield_phone`, `_systemfield_location`, `_systemfield_linkedin` (or similar) | Unverified |
-| `_systemfield_eeoc_gender`, `_systemfield_eeoc_race`, `_systemfield_eeoc_veteran_status`, `_systemfield_eeoc_disability_status` | Unverified; Ashby's US EEO block |
+| `_systemfield_eeoc_gender`, `_systemfield_eeoc_race`, `_systemfield_eeoc_veteran_status` | Observed on live postings; Ashby's US EEO survey (13) |
+| `_systemfield_eeoc_disability_status` | Unverified; not on the sampled postings (13) |
 
 The vendor key table in `packages/autofill` maps known system paths first;
 everything else goes through the label dictionary. A system path that the
@@ -358,3 +362,83 @@ Ashby postings that, between them, include:
 - A conditional question that appears after an answer.
 - The resume field after a file is attached.
 - The overview page, and `document.title` / `<head>` meta tags (for 7).
+
+## 13. Surveys and choice questions
+
+Checked on 2026-10-20 against Ashby's production bundle (React 18.3.1) and
+the posting data of live OpenAI, Notion, Replit and Vanta postings. Sampled
+postings from Linear, Plaid, PostHog and Ramp had no survey. There is no DOM
+fixture yet, so the drivers below still need a manual check (12).
+
+### 13.1 Forms on the page
+
+- Each form is its own `.ashby-application-form-container`: the application
+  form, then one per survey inside `.ashby-survey-form-container`. The US EEO
+  survey is one of these, so a scan of the first container alone missed it.
+- With surveys, Ashby's own resume upload is
+  `.ashby-application-form-autofill-uploader`; without them it is
+  `.ashby-application-form-autofill-pane`. Both sit outside the form
+  containers.
+- `findForm` returns the lowest element holding every form container, so the
+  scan and the user-edit listener cover the surveys too. The scan keeps only
+  entries inside a form container and outside both upload panes.
+
+### 13.2 Choice questions
+
+- Single select (`ValueSelect`) and multi select (`MultiValueSelect`) entries
+  are a bare `div[data-field-path][data-field-entry-id]`, without the
+  `.ashby-application-form-field-entry` class. The title and description sit
+  inside the entry's fieldset. The adapter finds entries by
+  `data-field-path` alone. Before this, it missed every choice question,
+  including ones on the application form such as pronouns or "How did you
+  hear about us?".
+- A single select with 8 options or fewer is a radio group:
+  `fieldset.ashby-application-form-input-radio-group`, radios
+  `#{entryId}-labeled-radio-{n}` sharing `name={entryId}`, each with a
+  `label[for]`. The radios are transparent but laid out, so they count as
+  shown. Clicking a checked radio unchecks it.
+- A single select with more than 8 options is an autocomplete: an input with
+  `role=combobox` and `aria-expanded`, and `aria-controls` only while open.
+  It opens on an `ArrowDown` keydown; `mousedown` and focus do not open it.
+  Options are `div[role=option]` in a portal. A click on one selects it, and
+  the input then shows its label. Typing filters the list (match-sorter), so
+  the option order can change after a search.
+- A multi select is a checkbox group:
+  `fieldset.ashby-application-form-input-checkbox-group`, boxes
+  `#{entryId}-labeled-checkbox-{n}`, each with a `label[for]` and named after
+  its own option. The adapter reads the group itself, since the generic scan
+  takes differently named boxes for separate yes or no fields. React 18
+  commits each click before the next, so clicking the boxes back to back is
+  safe.
+- Choice inputs have no `required` attribute. Only the hashed `_required_`
+  class on the title marks a required question, so `required` is false for
+  them.
+
+### 13.3 The US EEO survey
+
+The same on all four postings. Its two sections have no title; the heading
+("U.S. EQUAL EMPLOYMENT OPPORTUNITY INFORMATION", "SELF-IDENTIFICATION OF
+VETERAN STATUS") is bold text in the section description, so these fields
+have no `section`. Every question is optional, and none asks about
+disability.
+
+| Path | Title | Options, in order | Rendered as |
+|---|---|---|---|
+| `_systemfield_eeoc_gender` | Gender | Male; Female; Decline to self-identify | radio |
+| `_systemfield_eeoc_race` | Race | Hispanic or Latino; White (Not Hispanic or Latino); Black or African American (Not Hispanic or Latino); Native Hawaiian or Other Pacific Islander (Not Hispanic or Latino); Asian (Not Hispanic or Latino); American Indian or Alaska Native (Not Hispanic or Latino); Two or More Races (Not Hispanic or Latino); Decline to self-identify | radio (exactly 8 options) |
+| `_systemfield_eeoc_veteran_status` | Veteran Status | I identify as one or more of the classifications of protected veteran listed above; I am not a protected veteran; I decline to self-identify for protected veteran status | radio |
+
+Race is the combined EEO-1 question, so its answer also says whether the
+applicant is Hispanic or Latino. The rules in `packages/autofill/src/eeo.ts`:
+
+- A Hispanic answer of "yes" picks "Hispanic or Latino" on a single choice,
+  whatever the race. On a multi-select it is checked beside each race.
+- An option that says "Not Hispanic or Latino" is picked only when the
+  Profile's Hispanic answer is "no". Otherwise the race question goes to
+  **Fill these on the page**. Two or more races pick "Two or More Races (Not
+  Hispanic or Latino)" under the same rule.
+- Decline picks "Decline to self-identify". The veteran decline is found by
+  its start, "I decline to self-identify".
+
+With the default Profile, where every EEO answer is "decline", all three
+questions fill.

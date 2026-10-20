@@ -4,6 +4,12 @@ import {
   type WorkerReply,
   WorkerReplySchemas,
 } from "../../lib/autofill-protocol"
+import {
+  autofillFrames,
+  type ContentTarget,
+  frameVisible,
+  sameDocument,
+} from "./frames"
 
 const REPLIES: { [K in WorkerMessage["type"]]: z.ZodType<WorkerReply<K>> } =
   WorkerReplySchemas
@@ -12,17 +18,30 @@ const replyOf = <K extends WorkerMessage["type"]>(
   type: K
 ): z.ZodType<WorkerReply<K>> => REPLIES[type]
 
-/**
- * Sends to the autofill content script in one frame of the tab, which is the
- * session's frame (0 without a session), and checks the reply's shape.
- */
+/** Document targeting prevents a replaced iframe from receiving old writes. */
 export async function sendToContent<K extends WorkerMessage["type"]>(
   tabId: number,
-  frameId: number,
+  target: ContentTarget,
   message: WorkerMessage & { type: K }
 ): Promise<WorkerReply<K>> {
-  const reply: unknown = await chrome.tabs.sendMessage(tabId, message, {
-    frameId,
-  })
+  const frame = (await autofillFrames(tabId)).find((candidate) =>
+    sameDocument(candidate, target)
+  )
+  if (!frame) throw new Error("The application frame changed.")
+  if (
+    [
+      "autofill-write",
+      "autofill-attach",
+      "autofill-clear",
+      "autofill-read-options",
+    ].includes(message.type) &&
+    (await frameVisible(tabId, frame)) === false
+  )
+    throw new Error("Open the application form on the page.")
+  const reply: unknown = await chrome.tabs.sendMessage(
+    tabId,
+    { ...message, postingKey: target.postingKey },
+    { documentId: target.documentId }
+  )
   return replyOf<K>(message.type).parse(reply)
 }

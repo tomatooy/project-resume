@@ -118,7 +118,7 @@ function containerOf(group: Group): HTMLElement {
 }
 
 /** Option ids are positional; a list over the limit is searched instead. */
-function listed(choices: ScannedField["choices"]): {
+export function listed(choices: ScannedField["choices"]): {
   options?: Option[]
   searchable?: true
 } {

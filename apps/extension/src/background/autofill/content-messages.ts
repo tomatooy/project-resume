@@ -1,9 +1,19 @@
 import type { Fill } from "@workspace/autofill/fields"
+import { z } from "zod"
 import {
   type ContentMessage,
   ContentMessageSchema,
 } from "../../lib/autofill-protocol"
 import { autofillVendor, classifyPage } from "../../lib/pages"
+import { refreshHost } from "../widget"
+import {
+  autofillFrame,
+  type AutofillFrame,
+  frameVisible,
+  sameDocument,
+  scanUrl,
+  updateDetectionBadge,
+} from "./frames"
 import { draft, run, syncOverlay, writeFills } from "./controller"
 import { registerOrigin, takeOrigin } from "./origin"
 import { sendToContent } from "./send"
@@ -14,29 +24,31 @@ import {
   markDrafted,
   markOwned,
   readDocument,
+  readSession,
   type ScanFrame,
   type ScanMessage,
   updateSession,
 } from "./session"
 
-/**
- * The sender's tab and frame when it is our content script in the top frame
- * of an autofill page (spec 15.3). Anything else is not listened to.
- */
-function contentFrame(
+/** Browser metadata, never an iframe URL claimed by a page message. */
+async function contentFrame(
   sender: chrome.runtime.MessageSender
-): { tabId: number; frame: ScanFrame } | null {
+): Promise<{ tabId: number; frame: AutofillFrame } | null> {
   const tabId = sender.tab?.id
-  const vendor = autofillVendor(classifyPage(sender.url ?? ""))
   if (
     sender.id !== chrome.runtime.id ||
-    sender.frameId !== 0 ||
+    sender.frameId === undefined ||
+    sender.frameId < 0 ||
     tabId === undefined ||
-    vendor === null ||
     sender.documentId === undefined
   )
     return null
-  return { tabId, frame: { documentId: sender.documentId, frameId: 0, vendor } }
+  const frame = await autofillFrame(tabId)
+  return frame &&
+    frame.frameId === sender.frameId &&
+    frame.documentId === sender.documentId
+    ? { tabId, frame }
+    : null
 }
 
 /** Puts back what we wrote before the page reloaded. */
@@ -107,44 +119,113 @@ async function takeScan(
 
 async function onContent(
   tabId: number,
-  frame: ScanFrame,
+  frame: AutofillFrame,
   message: ContentMessage
 ): Promise<void> {
   switch (message.type) {
     case "autofill-scan":
-      return takeScan(tabId, frame, message)
+      if (message.url !== scanUrl(frame.url)) return
+      await takeScan(
+        tabId,
+        frame,
+        (await frameVisible(tabId, frame)) === false
+          ? { ...message, form: false, formLink: null, fields: [] }
+          : message
+      )
+      await updateDetectionBadge(tabId, await autofillFrame(tabId))
+      await refreshHost(tabId)
+      return
     case "autofill-owned":
       await updateSession(tabId, (session) =>
-        session ? markOwned(session, message.fieldIds) : session
+        session && sameDocument(session, frame)
+          ? markOwned(session, message.fieldIds)
+          : session
       )
       return
     case "autofill-draft":
       return draft(tabId, message.fieldId, message.instruction)
     case "autofill-inserted":
       await updateSession(tabId, (session) =>
-        session ? markDrafted(session, message.fieldId) : session
+        session && sameDocument(session, frame)
+          ? markDrafted(session, message.fieldId)
+          : session
       )
       return
   }
 }
 
+/** Recheck the live target when a frame navigates, disappears or is hidden. */
+async function refreshDetection(tabId: number): Promise<void> {
+  const frame = await autofillFrame(tabId)
+  await updateSession(tabId, (session) =>
+    session &&
+    (!frame ||
+      !sameDocument(session, frame) ||
+      session.url !== scanUrl(frame.url))
+      ? { ...session, form: false, fields: [], formLink: null }
+      : session
+  )
+  await updateDetectionBadge(tabId, frame)
+  if (frame)
+    await sendToContent(tabId, frame, { type: "autofill-rescan" }).catch(
+      () => {}
+    )
+  await refreshHost(tabId)
+}
+
+const FrameChangeSchema = z.object({
+  type: z.literal("autofill-frame-change"),
+})
+
 export function registerAutofill(): void {
   registerOrigin()
   chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
-    const from = contentFrame(sender)
-    if (!from) return false
+    if (sender.id !== chrome.runtime.id || sender.tab?.id === undefined)
+      return false
+    if (sender.frameId === 0 && FrameChangeSchema.safeParse(raw).success) {
+      respond({ ok: true })
+      void refreshDetection(sender.tab.id).catch(() => {})
+      return false
+    }
     const parsed = ContentMessageSchema.safeParse(raw)
     if (!parsed.success) return false
     // The content script only learns that the message arrived.
     respond({ ok: true })
-    void onContent(from.tabId, from.frame, parsed.data).catch(() => {})
+    void (async () => {
+      const from = await contentFrame(sender)
+      if (!from) return
+      if (parsed.data.type !== "autofill-scan") {
+        const session = await readSession(from.tabId)
+        if (
+          !session ||
+          !sameDocument(session, from.frame) ||
+          session.url !== scanUrl(from.frame.url)
+        )
+          return
+      }
+      await onContent(from.tabId, from.frame, parsed.data)
+    })().catch(() => {})
     return false
   })
-  // A single-page app moves to another posting without a new document.
-  chrome.webNavigation.onHistoryStateUpdated.addListener(
-    ({ frameId, tabId, url }) => {
-      if (frameId !== 0 || autofillVendor(classifyPage(url)) === null) return
-      void sendToContent(tabId, 0, { type: "autofill-rescan" }).catch(() => {})
-    }
-  )
+  const navigate = ({
+    tabId,
+    frameId,
+    url,
+    documentLifecycle,
+  }: chrome.webNavigation.WebNavigationFramedCallbackDetails) => {
+    if (documentLifecycle !== "active") return
+    void (async () => {
+      if (
+        frameId === 0 ||
+        autofillVendor(classifyPage(url)) !== null ||
+        (await readSession(tabId))?.frameId === frameId
+      )
+        await refreshDetection(tabId)
+    })().catch(() => {})
+  }
+  chrome.webNavigation.onCommitted.addListener(navigate)
+  chrome.webNavigation.onHistoryStateUpdated.addListener(navigate)
+  chrome.tabs.onActivated.addListener(({ tabId }) => {
+    void refreshDetection(tabId).catch(() => {})
+  })
 }

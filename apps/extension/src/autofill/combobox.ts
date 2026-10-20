@@ -59,7 +59,7 @@ export function reactSelectParts(input: HTMLInputElement): ComboParts | null {
   }
 }
 
-/** An ARIA 1.2 combobox whose value is its text. Unverified. */
+/** An ARIA 1.2 combobox whose value is its text, as on Ashby (Ashby 13). */
 export function ariaComboParts(input: HTMLInputElement): ComboParts {
   return {
     input,
@@ -84,7 +84,8 @@ const shownOptions = (parts: ComboParts): HTMLElement[] | null => {
 
 /**
  * Opens the menu and waits for its options. A menu already open is left as
- * it is: `mousedown` on an open react-select closes it.
+ * it is: `mousedown` on an open react-select closes it. An input that is its
+ * own opener gets `ArrowDown`: Ashby's ignores `mousedown` (Ashby 13).
  */
 export function openCombo(
   parts: ComboParts,
@@ -93,7 +94,14 @@ export function openCombo(
   parts.input.focus()
   if (!shownOptions(parts))
     parts.opener.dispatchEvent(
-      new MouseEvent("mousedown", { bubbles: true, cancelable: true })
+      parts.opener === parts.input
+        ? new KeyboardEvent("keydown", {
+            key: "ArrowDown",
+            code: "ArrowDown",
+            bubbles: true,
+            cancelable: true,
+          })
+        : new MouseEvent("mousedown", { bubbles: true, cancelable: true })
     )
   return waitFor(() => shownOptions(parts), timeoutMs)
 }

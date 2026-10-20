@@ -58,27 +58,14 @@
         "https://jobs.ashbyhq.com/*"
       ],
       "js": ["autofill.js"],
+      "all_frames": true,
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
       "resources": ["widget.html"],
-      "matches": [
-        "https://www.linkedin.com/*",
-        "https://*.myworkdayjobs.com/*",
-        "https://*.myworkdaysite.com/*",
-        "https://boards.greenhouse.io/*",
-        "https://job-boards.greenhouse.io/*",
-        "https://boards.eu.greenhouse.io/*",
-        "https://job-boards.eu.greenhouse.io/*",
-        "https://jobs.lever.co/*",
-        "https://jobs.eu.lever.co/*",
-        "https://jobs.ashbyhq.com/*",
-        "https://jobs.smartrecruiters.com/*",
-        "https://careers.smartrecruiters.com/*",
-        "https://*.icims.com/*"
-      ]
+      "matches": ["<all_urls>"]
     },
     {
       "resources": ["panel.html"],

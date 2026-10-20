@@ -47,7 +47,7 @@ export function App() {
   useRoutingRefresh(data?.tabId)
   const resumes = useBaseResumes(data)
   useOperationRecovery(data)
-  useAutofillUpdates(data?.autofill ? data.tabId : null)
+  useAutofillUpdates(data?.tabId)
   useServerUpdates(
     data?.page.kind === "job" ? data.page.identity.externalJobId : undefined,
     data?.account?.id,

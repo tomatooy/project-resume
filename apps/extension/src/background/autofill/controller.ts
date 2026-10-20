@@ -20,6 +20,7 @@ import type {
   WriteOutcomeSchema,
 } from "../../lib/autofill-protocol"
 import type { AutofillAction, AutofillView } from "../../lib/autofill-view"
+import { autofillFrame, sameDocument, scanUrl } from "./frames"
 import { sendToContent } from "./send"
 import {
   type AutofillSession,
@@ -80,7 +81,7 @@ export async function syncOverlay(tabId: number): Promise<void> {
     const session = await readSession(tabId)
     if (!session) return
     const { quota } = session
-    await sendToContent(tabId, session.frameId, {
+    await sendToContent(tabId, session, {
       type: "autofill-overlay",
       fieldIds: writeFieldIds(session),
       disabled: quota?.remaining === 0 ? limitLine(quota.resetAt) : null,
@@ -209,7 +210,7 @@ async function sendWrites(
   force: string[] = []
 ): Promise<WriteResults> {
   if (fills.length === 0) return {}
-  const { results } = await sendToContent(tabId, session.frameId, {
+  const { results } = await sendToContent(tabId, session, {
     type: "autofill-write",
     fills,
     force,
@@ -267,7 +268,7 @@ async function readOptions(
     )
     .map(({ id }) => id)
   if (fieldIds.length === 0) return session
-  const { options } = await sendToContent(tabId, session.frameId, {
+  const { options } = await sendToContent(tabId, session, {
     type: "autofill-read-options",
     fieldIds,
   })
@@ -797,7 +798,7 @@ async function attachResume(
   if (document?.versionId !== versionId) return
   const fill = resumeFill(session.plan)
   const result: AttachOutcome = fill
-    ? await sendToContent(tabId, session.frameId, {
+    ? await sendToContent(tabId, session, {
         type: "autofill-attach",
         fieldId: fill.fieldId,
         fileName: document.fileName,
@@ -848,7 +849,7 @@ export async function draft(
   const session = await readSession(tabId)
   if (!session) return
   const reply = async (text: string | null, error: string | null) => {
-    await sendToContent(tabId, session.frameId, {
+    await sendToContent(tabId, session, {
       type: "autofill-draft-result",
       fieldId,
       text,
@@ -894,7 +895,7 @@ export async function draft(
 async function clearField(tabId: number, fieldId: string): Promise<void> {
   const session = await readSession(tabId)
   if (!session) return
-  await sendToContent(tabId, session.frameId, {
+  await sendToContent(tabId, session, {
     type: "autofill-clear",
     fieldId,
   })
@@ -943,7 +944,8 @@ export async function act(
       return overwriteField(tabId, action.fieldId)
     case "focus": {
       const session = await readSession(tabId)
-      await sendToContent(tabId, session?.frameId ?? 0, {
+      if (!session) return
+      await sendToContent(tabId, session, {
         type: "autofill-focus",
         fieldId: action.fieldId,
       })
@@ -952,7 +954,7 @@ export async function act(
     case "open-form": {
       const session = await readSession(tabId)
       if (session?.formLink)
-        await chrome.tabs.update(tabId, { url: session.formLink })
+        await sendToContent(tabId, session, { type: "autofill-open-form" })
       return
     }
     case "attach":
@@ -968,8 +970,17 @@ export async function act(
  */
 export async function autofillSnapshot(tabId: number): Promise<AutofillView> {
   let session = await readSession(tabId)
-  if (!session) {
-    void sendToContent(tabId, 0, { type: "autofill-rescan" }).catch(() => {})
+  const frame = await autofillFrame(tabId)
+  if (
+    !session ||
+    !frame ||
+    !sameDocument(session, frame) ||
+    session.url !== scanUrl(frame.url)
+  ) {
+    if (frame)
+      void sendToContent(tabId, frame, { type: "autofill-rescan" }).catch(
+        () => {}
+      )
     return autofillView(null, null, Date.now())
   }
   const page = pageOf(session)

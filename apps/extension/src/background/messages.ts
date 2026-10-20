@@ -13,7 +13,8 @@ import {
 import { autofillVendor } from "../lib/pages"
 import { act, autofillSnapshot } from "./autofill/controller"
 import { activePage } from "./navigation"
-import { locate, readTabState, view } from "./tab-state"
+import { hasPageHost, hereFor } from "./page"
+import { readTabState, view } from "./tab-state"
 
 function panelSender(sender: chrome.runtime.MessageSender): boolean {
   return (
@@ -28,8 +29,9 @@ export async function trustedPanel(
   if (!panelSender(sender)) return false
   if (!sender.tab) return true
   if ((sender.frameId ?? 0) <= 0 || sender.tab.id === undefined) return false
+  if (!(await hasPageHost(sender.tab.id, sender.tab.url))) return false
   const state = await readTabState(sender.tab.id)
-  return view(state, locate(sender.tab.url)) === "panel"
+  return view(state, await hereFor(sender.tab.id, sender.tab.url)) === "panel"
 }
 const isNotFound = (error: unknown) =>
   z.object({ code: z.literal("NOT_FOUND") }).safeParse(error).success

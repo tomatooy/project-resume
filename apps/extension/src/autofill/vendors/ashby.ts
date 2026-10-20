@@ -6,24 +6,29 @@ import {
   isShown,
   labelFor,
   labelText,
+  ownLabel,
   textWithBreaks,
   uniqueIds,
 } from "../dom"
 import { hasValueNow } from "../drivers"
-import { scanGeneric } from "../generic"
+import { listed, scanGeneric } from "../generic"
 import type { PageInfo, ScannedField, VendorAdapter } from "../types"
 import { humanizeSlug, siteName, titleCompany } from "./page-info"
 
 type Live = Omit<ScannedField, "descriptor">
 
 // Only `ashby-*` classes: the hashed ones change with Ashby deploys (Ashby 1).
+// Each survey, such as the US EEO one, is a form of its own (Ashby 13).
 const FORM = ".ashby-application-form-container"
-const ENTRY = ".ashby-application-form-field-entry[data-field-path]"
-/** Ashby's own "Autofill from resume" pane, which is never touched. */
-const IGNORE = ".ashby-application-form-autofill-pane"
+// Choice questions lack `.ashby-application-form-field-entry` (Ashby 13).
+const ENTRY = "[data-field-path]"
+/** Ashby's own "Autofill from resume" upload, which is never touched. */
+const IGNORE =
+  ".ashby-application-form-autofill-pane, .ashby-application-form-autofill-uploader"
 const TITLE = ".ashby-application-form-question-title"
 const HELP = ".ashby-application-form-question-description"
 const SECTION = ".ashby-application-form-section-container"
+const CHECKBOXES = ".ashby-application-form-input-checkbox-group"
 const HEADINGS = "h1, h2, h3, h4, h5, h6, legend"
 const POSTING_PATH =
   /^\/([^/]+)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/application)?\/?$/i
@@ -51,6 +56,25 @@ function postingPath(
 
 const pathOf = (entry: Element): string =>
   clip(entry.getAttribute("data-field-path") ?? "", ID_MAX)
+
+/** The page has no `form` element; this holds every form container. */
+function findForm(doc: Document): Element | null {
+  const forms = [...doc.querySelectorAll(FORM)]
+  const holdsAll = (node: Element): boolean =>
+    forms.every((form) => node.contains(form))
+  for (let node = forms[0] ?? null; node; node = node.parentElement)
+    if (holdsAll(node)) return node
+  return null
+}
+
+/** The question entries of every form under `root`, in page order. */
+const entriesIn = (root: ParentNode): HTMLElement[] =>
+  [...root.querySelectorAll(ENTRY)].filter(
+    (entry): entry is HTMLElement =>
+      entry instanceof HTMLElement &&
+      entry.closest(FORM) !== null &&
+      entry.closest(IGNORE) === null
+  )
 
 const requiredIn = (entry: Element): boolean =>
   entry.querySelector('[required], [aria-required="true"]') !== null
@@ -103,7 +127,30 @@ function yesNo(entry: Element): Live["choices"] | null {
   return said.has("yes") && said.has("no") ? choices : null
 }
 
-/** One entry's field: a combobox, Yes and No buttons, else a native control. */
+/** Ashby names each box after its option, so `scanGeneric` sees lone boxes. */
+function checkboxGroup(entry: Element): Live | null {
+  const group = entry.querySelector(CHECKBOXES)
+  if (!(group instanceof HTMLElement)) return null
+  const choices = [...group.querySelectorAll("input[type=checkbox]")].flatMap(
+    (box) =>
+      box instanceof HTMLInputElement
+        ? [
+            {
+              element: box,
+              label: clip(ownLabel(box) || box.name, LIMITS.option),
+            },
+          ]
+        : []
+  )
+  return choices.length > 0
+    ? { element: group, kind: "checkboxes", choices }
+    : null
+}
+
+/**
+ * One entry's field: a combobox, Yes and No buttons, a checkbox list, else a
+ * native control.
+ */
 function entryField(entry: HTMLElement, path: string): ScannedField | null {
   const titleNode = entry.querySelector(TITLE)
   const title = titleNode ? labelText(titleNode) : ""
@@ -157,6 +204,21 @@ function entryField(entry: HTMLElement, path: string): ScannedField | null {
     }
   }
 
+  const group = checkboxGroup(entry)
+  if (group)
+    return {
+      ...group,
+      descriptor: {
+        id: path,
+        label: title,
+        ...extras,
+        control: "checkboxes",
+        ...listed(group.choices),
+        required: requiredIn(entry),
+        hasValue: hasValueNow(group),
+      },
+    }
+
   const [field] = scanGeneric(entry, { idOf: () => path })
   if (!field) return null
   const { help: _help, section: _section, ...descriptor } = field.descriptor
@@ -175,18 +237,12 @@ function entryField(entry: HTMLElement, path: string): ScannedField | null {
   }
 }
 
-function scan(form: Element): ScannedField[] {
+function scan(root: Element): ScannedField[] {
   const fields: ScannedField[] = []
-  for (const entry of form.querySelectorAll(ENTRY)) {
+  for (const entry of entriesIn(root)) {
     if (fields.length >= LIMITS.fields) break
     const path = pathOf(entry)
-    if (
-      !(entry instanceof HTMLElement) ||
-      path === "" ||
-      entry.closest(IGNORE) ||
-      !isShown(entry)
-    )
-      continue
+    if (path === "" || !isShown(entry)) continue
     const field = entryField(entry, path)
     if (field) fields.push(field)
   }
@@ -203,7 +259,14 @@ function scan(form: Element): ScannedField[] {
  */
 function page(doc: Document, url: URL): PageInfo {
   const heading = doc.querySelector("h1.ashby-job-posting-heading")
-  const title = (heading && clip(labelText(heading), TITLE_MAX)) || null
+  const embeddedTitle =
+    url.searchParams.get("displayMode") === "application-form-only"
+      ? TITLE_PATTERNS[0]?.exec(doc.title)?.groups?.title
+      : null
+  const title =
+    (heading && clip(labelText(heading), TITLE_MAX)) ||
+    (embeddedTitle && clip(embeddedTitle, TITLE_MAX)) ||
+    null
   const company =
     siteName(doc, "Ashby") ?? titleCompany(doc, title, TITLE_PATTERNS)
   if (company)
@@ -224,8 +287,7 @@ export const ashby: VendorAdapter = {
         )
       : null
   },
-  // The page has no `form` element.
-  findForm: (doc) => doc.querySelector(FORM),
+  findForm,
   // The Overview tab links to the Application tab (spec 6.5).
   formLink: (_doc, url) => {
     const path = postingPath(url)
@@ -237,10 +299,8 @@ export const ashby: VendorAdapter = {
   page,
   // Compares attributes, since jsdom has no `CSS.escape`.
   attachedName: (field) => {
-    const entry = [...field.element.ownerDocument.querySelectorAll(ENTRY)].find(
-      (node) =>
-        !node.closest(IGNORE) &&
-        node.getAttribute("data-field-path") === field.descriptor.id
+    const entry = entriesIn(field.element.ownerDocument).find(
+      (node) => node.getAttribute("data-field-path") === field.descriptor.id
     )
     return entry ? shownName(entry) : null
   },
