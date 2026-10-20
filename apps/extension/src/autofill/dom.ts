@@ -224,13 +224,29 @@ export function helpFor(control: HTMLElement): string | undefined {
 }
 
 /**
+ * The events a person's edit fires. `blur: false` keeps the control focused,
+ * as a search box must be: react-select clears its query on blur.
+ */
+export function fireEdit(
+  element: HTMLElement,
+  options: { blur?: boolean } = {}
+): void {
+  element.dispatchEvent(new Event("input", { bubbles: true }))
+  element.dispatchEvent(new Event("change", { bubbles: true }))
+  if (options.blur === false) return
+  element.dispatchEvent(new FocusEvent("blur"))
+  element.dispatchEvent(new FocusEvent("focusout", { bubbles: true }))
+}
+
+/**
  * Sets the value through the prototype's setter, so a framework that wraps
  * the instance's `value` still sees the change, then fires the events a
  * person's edit would.
  */
 export function setNativeValue(
   element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
-  value: string
+  value: string,
+  options: { blur?: boolean } = {}
 ): void {
   const prototype =
     element instanceof HTMLTextAreaElement
@@ -241,10 +257,7 @@ export function setNativeValue(
   const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set
   if (setter) setter.call(element, value)
   else element.value = value
-  element.dispatchEvent(new Event("input", { bubbles: true }))
-  element.dispatchEvent(new Event("change", { bubbles: true }))
-  element.dispatchEvent(new FocusEvent("blur"))
-  element.dispatchEvent(new FocusEvent("focusout", { bubbles: true }))
+  fireEdit(element, options)
 }
 
 /** `id`, else `name`, else the element's path from `root`. */
@@ -291,6 +304,23 @@ export function uniqueIds(ids: string[]): string[] {
     return next
   })
 }
+
+let clicking = 0
+
+/**
+ * `click()` from a script still makes a checkbox or radio fire trusted
+ * `input` and `change`, so ownership ignores events while one runs.
+ */
+export function scriptClick(element: HTMLElement): void {
+  clicking += 1
+  try {
+    element.click()
+  } finally {
+    clicking -= 1
+  }
+}
+
+export const inScriptClick = (): boolean => clicking > 0
 
 /** Polls `read` every 50 ms until it gives a value or the time runs out. */
 export function waitFor<T>(

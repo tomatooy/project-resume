@@ -15,6 +15,7 @@ import {
   ownLabel,
   uniqueIds,
 } from "./dom"
+import { hasValueNow } from "./drivers"
 import type { ScannedField } from "./types"
 
 type Native = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
@@ -131,7 +132,14 @@ type Draft = Omit<FieldDescriptor, "id"> & {
   idFrom: HTMLElement
   name?: string
 }
-type Built = Omit<ScannedField, "descriptor"> & { draft: Draft }
+type Live = Omit<ScannedField, "descriptor">
+type Built = Live & { draft: Draft }
+
+/** Value presence comes from the drivers, as vendor widgets' does. */
+const finish = (field: Live, draft: Omit<Draft, "hasValue">): Built => ({
+  ...field,
+  draft: { ...draft, hasValue: hasValueNow(field) },
+})
 
 function single(control: Native, root: Element): Built {
   const label = labelFor(control)
@@ -146,65 +154,46 @@ function single(control: Native, root: Element): Built {
     const choices = [...control.options]
       .filter((option) => !isPlaceholder(option))
       .map((option) => ({ element: option, label: optionText(option) }))
-    return {
-      element: control,
-      kind: "select",
-      choices,
-      draft: {
+    return finish(
+      { element: control, kind: "select", choices },
+      {
         ...base,
         control: "select",
         ...listed(choices),
         ...(control.multiple ? { multiple: true } : {}),
         autocomplete: autocompleteOf(control),
-        hasValue: [...control.selectedOptions].some(
-          (option) => !isPlaceholder(option)
-        ),
-      },
-    }
+      }
+    )
   }
   if (control instanceof HTMLTextAreaElement)
-    return {
-      element: control,
-      kind: "text",
-      choices: [],
-      draft: {
+    return finish(
+      { element: control, kind: "text", choices: [] },
+      {
         ...base,
         control: "textarea",
         maxLength: maxLengthOf(control),
         autocomplete: autocompleteOf(control),
-        hasValue: control.value.trim() !== "",
-      },
-    }
+      }
+    )
   if (control.type === "file")
-    return {
-      element: control,
-      kind: "file",
-      choices: [],
-      draft: {
-        ...base,
-        control: "file",
-        hasValue: (control.files?.length ?? 0) > 0,
-      },
-    }
+    return finish(
+      { element: control, kind: "file", choices: [] },
+      { ...base, control: "file" }
+    )
   if (control.type === "checkbox")
-    return {
-      element: control,
-      kind: "checkbox",
-      choices: [],
-      draft: { ...base, control: "checkbox", hasValue: control.checked },
-    }
-  return {
-    element: control,
-    kind: "text",
-    choices: [],
-    draft: {
+    return finish(
+      { element: control, kind: "checkbox", choices: [] },
+      { ...base, control: "checkbox" }
+    )
+  return finish(
+    { element: control, kind: "text", choices: [] },
+    {
       ...base,
       control: textControl(control.type),
       maxLength: maxLengthOf(control),
       autocomplete: autocompleteOf(control),
-      hasValue: control.value.trim() !== "",
-    },
-  }
+    }
+  )
 }
 
 function grouped(group: Group, root: Element): Built {
@@ -214,11 +203,9 @@ function grouped(group: Group, root: Element): Built {
     label: clip(ownLabel(member) || member.value, LIMITS.option),
   }))
   const control = group.type === "radio" ? "radio" : "checkboxes"
-  return {
-    element: containerOf(group),
-    kind: control,
-    choices,
-    draft: {
+  return finish(
+    { element: containerOf(group), kind: control, choices },
+    {
       idFrom: group.first,
       name: group.name,
       label,
@@ -227,9 +214,8 @@ function grouped(group: Group, root: Element): Built {
       control,
       ...listed(choices),
       required: group.members.some(required),
-      hasValue: group.members.some((member) => member.checked),
-    },
-  }
+    }
+  )
 }
 
 /**

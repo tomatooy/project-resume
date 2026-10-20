@@ -1,9 +1,19 @@
+import type { Option } from "@workspace/autofill/fields"
 import type {
   ContentMessage,
   WorkerMessage,
   WorkerReply,
 } from "../lib/autofill-protocol"
-import type { PageInfo, VendorAdapter } from "./types"
+import { LIMITS } from "./dom"
+import { handleFor } from "./drivers"
+import { createOwner } from "./owner"
+import type {
+  FieldHandle,
+  PageInfo,
+  ScannedField,
+  VendorAdapter,
+} from "./types"
+import { writeAll } from "./writer"
 
 const PROBE = "vs-resume-autofill:probe"
 const NO_PAGE: PageInfo = { company: null, companyWeak: false, title: null }
@@ -48,6 +58,27 @@ function alive(): boolean {
 const send = async (message: ContentMessage): Promise<unknown> =>
   chrome.runtime.sendMessage(message)
 
+/** The innermost scanned field holding `target`, else null. */
+function fieldAt(
+  fields: readonly ScannedField[],
+  target: EventTarget | null
+): ScannedField | null {
+  if (!(target instanceof Node)) return null
+  const exact = fields.find(
+    ({ element, choices }) =>
+      element === target || choices.some((choice) => choice.element === target)
+  )
+  if (exact) return exact
+  let inner: ScannedField | null = null
+  for (const field of fields)
+    if (
+      field.element.contains(target) &&
+      (!inner || inner.element.contains(field.element))
+    )
+      inner = field
+  return inner
+}
+
 /**
  * Runs autofill on the page: reports the form and its fields to the service
  * worker as they change, and answers its messages. Null when a live copy
@@ -64,16 +95,65 @@ export function startAutofill(
   const debounceMs = options.debounceMs ?? 300
   let timer: ReturnType<typeof setTimeout> | undefined
   let last = ""
+  let fields: ScannedField[] = []
+  let handles = new Map<string, FieldHandle>()
+  let watched: { form: Element; unwatch: () => void } | null = null
+  // Requests run one at a time, and scans wait until none is left.
+  let queue: Promise<unknown> = Promise.resolve()
+  let queued = 0
+  let held = false
+
+  const post = (message: ContentMessage): Promise<boolean> =>
+    send(message).then(
+      () => true,
+      () => {
+        if (!alive()) stop()
+        return false
+      }
+    )
+
+  const owner = createOwner({
+    debounceMs,
+    report: (fieldIds) => {
+      for (let i = 0; i < fieldIds.length; i += LIMITS.fields)
+        void post({
+          type: "autofill-owned",
+          fieldIds: fieldIds.slice(i, i + LIMITS.fields),
+        })
+    },
+  })
 
   const postingKey = (url: URL): string | null =>
     adapter?.postingKey(url) ?? null
 
   // Without a posting key the service worker cannot key a plan, so the page
-  // reports no form.
+  // reports no form. Each read also refreshes the handles requests use.
   const read = (): Scan => {
     const url = new URL(location.href)
     const key = postingKey(url)
     const form = adapter && key !== null ? adapter.findForm(document) : null
+    fields = adapter && form ? adapter.scan(form) : []
+    handles = new Map(
+      fields.map((field) => [field.descriptor.id, handleFor(field)])
+    )
+    owner.noteScan(
+      fields.map(({ descriptor }) => ({
+        id: descriptor.id,
+        hasValue: descriptor.hasValue,
+      }))
+    )
+    if ((watched?.form ?? null) !== form) {
+      watched?.unwatch()
+      watched = form
+        ? {
+            form,
+            unwatch: owner.watch(
+              form,
+              (target) => fieldAt(fields, target)?.descriptor.id ?? null
+            ),
+          }
+        : null
+    }
     return {
       type: "autofill-scan",
       url: location.origin + location.pathname,
@@ -81,24 +161,25 @@ export function startAutofill(
       page: adapter ? adapter.page(document, url) : NO_PAGE,
       form: form !== null,
       formLink: adapter && !form ? adapter.formLink(document, url) : null,
-      fields:
-        adapter && form
-          ? adapter.scan(form).map((field) => field.descriptor)
-          : [],
+      fields: fields.map((field) => field.descriptor),
     }
   }
 
   const scan = (force: boolean) => {
     clearTimeout(timer)
     timer = undefined
+    // Our own writes would report half-filled forms; one scan follows them.
+    if (queued > 0) {
+      held = true
+      return
+    }
     const message = read()
     const sent = JSON.stringify(message)
     if (!force && sent === last) return
     last = sent
-    send(message).catch(() => {
-      if (!alive()) stop()
+    void post(message).then((ok) => {
       // Sent again on the next change.
-      else if (last === sent) last = ""
+      if (!ok && last === sent) last = ""
     })
   }
 
@@ -106,6 +187,59 @@ export function startAutofill(
   // still gets scanned.
   const schedule = () => {
     timer ??= setTimeout(() => scan(false), debounceMs)
+  }
+
+  /** Runs `task` after the requests before it, on fresh handles. */
+  const request = <T>(task: () => Promise<T>): Promise<T> => {
+    queued += 1
+    const run = queue.then(async () => {
+      try {
+        read()
+        return await task()
+      } finally {
+        queued -= 1
+        if (queued === 0 && held) {
+          held = false
+          scan(true)
+        }
+      }
+    })
+    queue = run.catch(() => undefined)
+    return run
+  }
+
+  const readOptions = async (
+    fieldIds: string[]
+  ): Promise<WorkerReply<"autofill-read-options">> => {
+    // One widget at a time: each opens its menu, reads it and closes it.
+    const entries: [string, Option[] | null][] = []
+    for (const id of fieldIds) {
+      const handle = handles.get(id)
+      const listed = handle
+        ? await handle.readOptions().catch(() => null)
+        : null
+      entries.push([id, listed])
+    }
+    return { options: Object.fromEntries(entries) }
+  }
+
+  const clear = async (
+    fieldId: string
+  ): Promise<WorkerReply<"autofill-clear">> => {
+    const handle = handles.get(fieldId)
+    try {
+      await handle?.clear()
+    } finally {
+      // The user asked for it empty, so it stays theirs.
+      owner.own([fieldId])
+    }
+    return { ok: handle !== undefined }
+  }
+
+  const focus = (fieldId: string): Promise<WorkerReply<"autofill-focus">> => {
+    const handle = handles.get(fieldId)
+    handle?.focus()
+    return Promise.resolve({ ok: handle !== undefined })
   }
 
   const onRuntime = (
@@ -130,6 +264,37 @@ export function startAutofill(
         scan(true)
         return false
       }
+      case "autofill-read-options": {
+        const failed: WorkerReply<"autofill-read-options"> = { options: {} }
+        void request(() => readOptions(message.fieldIds)).then(respond, () =>
+          respond(failed)
+        )
+        return true
+      }
+      case "autofill-write": {
+        const { fills, force } = message
+        const failed: WorkerReply<"autofill-write"> = { results: {} }
+        void request(
+          async (): Promise<WorkerReply<"autofill-write">> => ({
+            results: await writeAll(handles, fills, new Set(force), owner),
+          })
+        ).then(respond, () => respond(failed))
+        return true
+      }
+      case "autofill-clear": {
+        const failed: WorkerReply<"autofill-clear"> = { ok: false }
+        void request(() => clear(message.fieldId)).then(respond, () =>
+          respond(failed)
+        )
+        return true
+      }
+      case "autofill-focus": {
+        const failed: WorkerReply<"autofill-focus"> = { ok: false }
+        void request(() => focus(message.fieldId)).then(respond, () =>
+          respond(failed)
+        )
+        return true
+      }
       default:
         return false
     }
@@ -146,6 +311,8 @@ export function startAutofill(
     clearTimeout(timer)
     timer = undefined
     observer.disconnect()
+    watched?.unwatch()
+    watched = null
     document.removeEventListener("input", schedule, true)
     document.removeEventListener("change", schedule, true)
     document.removeEventListener(PROBE, onProbe)
