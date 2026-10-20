@@ -1,4 +1,5 @@
 import type { VendorAdapter } from "../types"
+import { ashby } from "./ashby"
 import { greenhouse } from "./greenhouse"
 
 /** Adapters by exact page host. `pages.ts` lists the same hosts but loads Zod. */
@@ -7,6 +8,7 @@ const HOSTS = new Map<string, VendorAdapter>([
   ["job-boards.greenhouse.io", greenhouse],
   ["boards.eu.greenhouse.io", greenhouse],
   ["job-boards.eu.greenhouse.io", greenhouse],
+  ["jobs.ashbyhq.com", ashby],
 ])
 
 /** The adapter for a page host, or null when no vendor serves it. */
