@@ -212,11 +212,17 @@ export function labelFor(control: HTMLElement): string {
   )
 }
 
-/** `aria-describedby` text, leaving out error messages. */
-export function helpFor(control: HTMLElement): string | undefined {
+/**
+ * `aria-describedby` text, leaving out error messages. `keep` picks the ids
+ * instead, for a vendor that points it at other text too.
+ */
+export function helpFor(
+  control: HTMLElement,
+  keep: (id: string) => boolean = (id) => !id.toLowerCase().includes("error")
+): string | undefined {
   const ids = (control.getAttribute("aria-describedby") ?? "")
     .split(/\s+/)
-    .filter((id) => id !== "" && !id.toLowerCase().includes("error"))
+    .filter((id) => id !== "" && keep(id))
   const text = byIds(control, ids.join(" "))
     .map(textWithBreaks)
     .filter((part) => part !== "")
