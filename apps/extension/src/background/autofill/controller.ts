@@ -14,6 +14,7 @@ import type {
 } from "@workspace/resume-core/contracts"
 import { z } from "zod"
 import { api } from "../../lib/api"
+import { DRAFT_FAILED, limitLine } from "../../lib/autofill-copy"
 import type {
   WorkerReply,
   WriteOutcomeSchema,
@@ -33,6 +34,7 @@ import {
   saveDocument,
   updateSession,
   usesJob,
+  writeFieldIds,
 } from "./session"
 import { autofillView } from "./view"
 
@@ -48,6 +50,8 @@ const CALL_MS = 25_000
 const AUTO_PASSES = 5
 /** The most questions one answer carries. */
 const ANSWER_QUESTIONS = 200
+/** How long a draft may take; the server gives up at 30 s. */
+const DRAFT_MS = 35_000
 
 type Mode = "manual" | "auto"
 type Started = NonNullable<AutofillSession["started"]>
@@ -64,6 +68,25 @@ function pageOf(session: AutofillSession): AutofillPage | null {
     postingKey: session.postingKey,
     url: session.url,
     ...session.page,
+  }
+}
+
+/**
+ * Sends the page's Write with AI buttons: the group's fields, disabled with
+ * the reset time while no quota is left (spec 7). It never throws.
+ */
+export async function syncOverlay(tabId: number): Promise<void> {
+  try {
+    const session = await readSession(tabId)
+    if (!session) return
+    const { quota } = session
+    await sendToContent(tabId, session.frameId, {
+      type: "autofill-overlay",
+      fieldIds: writeFieldIds(session),
+      disabled: quota?.remaining === 0 ? limitLine(quota.resetAt) : null,
+    })
+  } catch {
+    // The page is gone or still loading; its next scan or pass sends again.
   }
 }
 
@@ -114,6 +137,8 @@ async function withPass(
     await updateSession(tabId, (session) =>
       session?.running === pass.claim ? { ...session, running: null } : session
     )
+    // Each pass may change the group and the quota.
+    await syncOverlay(tabId)
   }
 }
 
@@ -691,16 +716,17 @@ async function retryNotes(tabId: number): Promise<void> {
       timeout()
     )
   )
-  if (!result) return
-  await updatePosting(tabId, page.postingKey, (current) => ({
-    ...current,
-    notes: {
-      outcome: result.notes,
-      retry: result.notes.kind === "failed" ? retry : null,
-      undo: null,
-    },
-    quota: result.quota,
-  }))
+  if (result)
+    await updatePosting(tabId, page.postingKey, (current) => ({
+      ...current,
+      notes: {
+        outcome: result.notes,
+        retry: result.notes.kind === "failed" ? retry : null,
+        undo: null,
+      },
+      quota: result.quota,
+    }))
+  await syncOverlay(tabId)
 }
 
 async function undoNotes(tabId: number): Promise<void> {
@@ -788,6 +814,62 @@ async function failAttach(tabId: number, versionId: string): Promise<void> {
       ? { ...session, attach: { ...session.attach, status: "failed" } }
       : session
   )
+}
+
+/**
+ * Drafts a written answer for a Write with AI field and sends it to the
+ * page's popover (spec 7). Drafts are kept nowhere. It needs the first run's
+ * record, the field in the group and quota left; anything else gets a line.
+ */
+export async function draft(
+  tabId: number,
+  fieldId: string,
+  instruction?: string
+): Promise<void> {
+  const session = await readSession(tabId)
+  if (!session) return
+  const reply = async (text: string | null, error: string | null) => {
+    await sendToContent(tabId, session.frameId, {
+      type: "autofill-draft-result",
+      fieldId,
+      text,
+      error,
+    }).catch(() => {})
+  }
+  const page = pageOf(session)
+  const { started, quota } = session
+  const field = session.fields.find(({ id }) => id === fieldId)
+  if (!page || !started || !field || !writeFieldIds(session).includes(fieldId))
+    return reply(null, DRAFT_FAILED)
+  if (quota?.remaining === 0) return reply(null, limitLine(quota.resetAt))
+  const outcome = await api.autofill
+    .generate(
+      {
+        page,
+        resumeId: started.resumeId,
+        applicationId: started.applicationId,
+        useJob: usesJob(session),
+        counts: countsOf(session),
+        field,
+        ...(instruction ? { instruction } : {}),
+      },
+      { signal: AbortSignal.timeout(DRAFT_MS) }
+    )
+    .then(
+      (result) => ({ text: result.text, quota: result.quota }),
+      (error: unknown) => ({ text: null, quota: limitedQuota(error) })
+    )
+  const next = outcome.quota
+  if (next)
+    await updatePosting(tabId, page.postingKey, (current) => ({
+      ...current,
+      quota: next,
+    }))
+  await reply(
+    outcome.text,
+    outcome.text !== null ? null : next ? limitLine(next.resetAt) : DRAFT_FAILED
+  )
+  await syncOverlay(tabId)
 }
 
 async function clearField(tabId: number, fieldId: string): Promise<void> {
@@ -879,6 +961,8 @@ export async function autofillSnapshot(tabId: number): Promise<AutofillView> {
     canRunPass(session, Date.now())
   ) {
     await planFor(tabId, session, page)
+    // A new plan brings the quota and may change the group.
+    await syncOverlay(tabId)
     session = await readSession(tabId)
   }
   const document = await readDocument(tabId)

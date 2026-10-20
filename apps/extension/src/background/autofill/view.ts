@@ -6,6 +6,7 @@ import {
   canRunPass,
   type FieldState,
   type StoredDocument,
+  writeFieldIds,
 } from "./session"
 
 const noGroups = (): AutofillView["groups"] => ({
@@ -58,7 +59,7 @@ function groupOf(
   state: FieldState | undefined,
   lists: Lists
 ): AutofillGroup | null {
-  if (fieldClass?.route === "write" || lists.write.has(field.id)) return "write"
+  if (lists.write.has(field.id)) return "write"
   const ours = field.hasValue && state?.owned !== true
   if (ours && state?.source === "ai") return "ai"
   if (ours && state?.source === "rule") return "filled"
@@ -79,7 +80,7 @@ function groupFields(
 ): AutofillView["groups"] {
   const groups = noGroups()
   const lists: Lists = {
-    write: new Set(session.ai.write),
+    write: new Set(writeFieldIds(session)),
     page: new Set(session.ai.page),
     attachFailed,
   }

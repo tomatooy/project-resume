@@ -10,9 +10,10 @@ export const LIMITS = {
   help: 2000,
   options: 300,
   option: 200,
+  instruction: 500,
 } as const satisfies Pick<
   typeof SHARED_LIMITS,
-  "fields" | "label" | "help" | "options" | "option"
+  "fields" | "label" | "help" | "options" | "option" | "instruction"
 >
 
 const ID_MAX = 300

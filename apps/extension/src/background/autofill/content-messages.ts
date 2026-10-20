@@ -4,13 +4,14 @@ import {
   ContentMessageSchema,
 } from "../../lib/autofill-protocol"
 import { autofillVendor, classifyPage } from "../../lib/pages"
-import { run, writeFills } from "./controller"
+import { draft, run, syncOverlay, writeFills } from "./controller"
 import { registerOrigin, takeOrigin } from "./origin"
 import { sendToContent } from "./send"
 import {
   type AutofillSession,
   applyScan,
   fieldsToFill,
+  markDrafted,
   markOwned,
   readDocument,
   type ScanFrame,
@@ -95,6 +96,10 @@ async function takeScan(
       )
   }
   if (restore.length > 0) await restoreFills(tabId, after, restore)
+  // Another posting clears the Write with AI buttons; a reload brings them
+  // back.
+  if (before !== null && (fresh || before.documentId !== frame.documentId))
+    await syncOverlay(tabId)
   // Fields that appear after the first run get an automatic pass.
   if (after.started !== null && added.length > 0) await run(tabId, "auto")
 }
@@ -104,11 +109,22 @@ async function onContent(
   frame: ScanFrame,
   message: ContentMessage
 ): Promise<void> {
-  if (message.type === "autofill-scan") await takeScan(tabId, frame, message)
-  else if (message.type === "autofill-owned")
-    await updateSession(tabId, (session) =>
-      session ? markOwned(session, message.fieldIds) : session
-    )
+  switch (message.type) {
+    case "autofill-scan":
+      return takeScan(tabId, frame, message)
+    case "autofill-owned":
+      await updateSession(tabId, (session) =>
+        session ? markOwned(session, message.fieldIds) : session
+      )
+      return
+    case "autofill-draft":
+      return draft(tabId, message.fieldId, message.instruction)
+    case "autofill-inserted":
+      await updateSession(tabId, (session) =>
+        session ? markDrafted(session, message.fieldId) : session
+      )
+      return
+  }
 }
 
 export function registerAutofill(): void {

@@ -272,6 +272,19 @@ export function markOwned(
   return changed ? { ...session, states } : session
 }
 
+/** The user inserted a Write with AI draft into the field. */
+export function markDrafted(
+  session: AutofillSession,
+  fieldId: string
+): AutofillSession {
+  const state = session.states[fieldId]
+  if (!state || state.drafted) return session
+  return {
+    ...session,
+    states: { ...session.states, [fieldId]: { ...state, drafted: true } },
+  }
+}
+
 export function recordWrites(
   session: AutofillSession,
   fills: Fill[],
@@ -349,6 +362,24 @@ export const attachFailed = (
 ): boolean =>
   attach?.status === "failed" ||
   (attach?.status === "pending" && now - attach.at > ATTACH_MS)
+
+/**
+ * The Write with AI group (spec 7): fields the rules route there and ones
+ * `infer` judged to need a written answer, in form order. Empty before the
+ * first run.
+ */
+export function writeFieldIds(session: AutofillSession): string[] {
+  if (session.started === null) return []
+  const routed = new Set(
+    (session.plan?.classes ?? [])
+      .filter(({ route }) => route === "write")
+      .map(({ fieldId }) => fieldId)
+  )
+  const judged = new Set(session.ai.write)
+  return session.fields
+    .filter(({ id }) => routed.has(id) || judged.has(id))
+    .map(({ id }) => id)
+}
 
 /** Whether AI calls may use the resume's job description (spec 6.3). */
 export function usesJob(session: AutofillSession): boolean {

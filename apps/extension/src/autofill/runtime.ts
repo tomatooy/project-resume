@@ -7,6 +7,7 @@ import type {
 import { LIMITS } from "./dom"
 import { handleFor } from "./drivers"
 import { type AttachResult, attachFile } from "./file"
+import { createOverlay } from "./overlay"
 import { createOwner } from "./owner"
 import type {
   FieldHandle,
@@ -129,6 +130,20 @@ export function startAutofill(
     },
   })
 
+  // Write with AI drafts go only into text inputs and textareas.
+  const overlay = createOverlay({
+    send: (message) => void post(message),
+    field: (fieldId) => {
+      const found = fields.find(({ descriptor }) => descriptor.id === fieldId)
+      const element = found?.kind === "text" ? found.element : undefined
+      return element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement
+        ? element
+        : undefined
+    },
+    owner,
+  })
+
   const postingKey = (url: URL): string | null =>
     adapter?.postingKey(url) ?? null
 
@@ -160,6 +175,8 @@ export function startAutofill(
           }
         : null
     }
+    // Fields move and re-render, so the buttons follow each read.
+    overlay.layout()
     return {
       type: "autofill-scan",
       url: location.origin + location.pathname,
@@ -333,8 +350,18 @@ export function startAutofill(
         )
         return true
       }
-      default:
+      case "autofill-overlay": {
+        overlay.show(message.fieldIds, message.disabled)
+        const reply: WorkerReply<"autofill-overlay"> = { ok: true }
+        respond(reply)
         return false
+      }
+      case "autofill-draft-result": {
+        overlay.result(message.fieldId, message.text, message.error)
+        const reply: WorkerReply<"autofill-draft-result"> = { ok: true }
+        respond(reply)
+        return false
+      }
     }
   }
 
@@ -351,6 +378,7 @@ export function startAutofill(
     observer.disconnect()
     watched?.unwatch()
     watched = null
+    overlay.destroy()
     document.removeEventListener("input", schedule, true)
     document.removeEventListener("change", schedule, true)
     document.removeEventListener(PROBE, onProbe)
