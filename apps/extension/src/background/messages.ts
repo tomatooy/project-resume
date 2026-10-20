@@ -10,6 +10,8 @@ import {
   type Message,
   type Snapshot,
 } from "../lib/messages"
+import { autofillVendor } from "../lib/pages"
+import { act, autofillSnapshot } from "./autofill/controller"
 import { activePage } from "./navigation"
 import { locate, readTabState, view } from "./tab-state"
 
@@ -29,8 +31,11 @@ export async function trustedPanel(
   const state = await readTabState(sender.tab.id)
   return view(state, locate(sender.tab.url)) === "panel"
 }
+const isNotFound = (error: unknown) =>
+  z.object({ code: z.literal("NOT_FOUND") }).safeParse(error).success
+
 export async function snapshot(tabId?: number): Promise<Snapshot> {
-  const { page } = await activePage(tabId)
+  const { tab, page } = await activePage(tabId)
   const user = await account()
   const result: Snapshot = {
     tabId: tabId ?? null,
@@ -40,6 +45,24 @@ export async function snapshot(tabId?: number): Promise<Snapshot> {
     resumes: [],
     nextResumeCursor: null,
     lastBaseId: null,
+    autofill: null,
+  }
+  const autofillTab = tabId ?? tab?.id
+  if (user && autofillVendor(page) !== null && autofillTab !== undefined) {
+    result.autofill = await autofillSnapshot(autofillTab)
+    const first = await api.resumes.page({})
+    result.resumes = first.items
+    result.nextResumeCursor = first.nextCursor
+    // The picker lists the session's resume even when it is on a later page.
+    const picked = result.autofill.resume?.id
+    if (picked && !result.resumes.some((r) => r.id === picked)) {
+      try {
+        result.resumes.push(await api.resumes.summary({ id: picked }))
+      } catch (error) {
+        if (!isNotFound(error)) throw error
+      }
+    }
+    return result
   }
   if (!user || page.kind !== "job") return result
   result.lookup = await api.jobs.lookup(page.identity)
@@ -57,10 +80,7 @@ export async function snapshot(tabId?: number): Promise<Snapshot> {
       try {
         result.resumes.push(await api.resumes.summary({ id: remembered.data }))
       } catch (error) {
-        if (
-          !z.object({ code: z.literal("NOT_FOUND") }).safeParse(error).success
-        )
-          throw error
+        if (!isNotFound(error)) throw error
         await chrome.storage.local.remove(key)
       }
     }
@@ -84,6 +104,11 @@ export async function handleMessage(
   tabId?: number
 ): Promise<Snapshot> {
   if (message.type === "state") return snapshot(tabId)
+  // Outside the lock: a pass can take 25 s, and the controller runs one at a time.
+  if (message.type === "autofill") {
+    await act(await autofillTab(tabId), message.action)
+    return snapshot(tabId)
+  }
   const pending = mutations.get(tabId)
   if (pending) return pending
   const mutation = execute(message, tabId)
@@ -94,8 +119,17 @@ export async function handleMessage(
     mutations.delete(tabId)
   }
 }
+/** The tab an autofill action is for: the panel's own, or the active one. */
+async function autofillTab(tabId?: number): Promise<number> {
+  if (!(await account())) throw new Error("Connect your account")
+  const { tab, page } = await activePage(tabId)
+  const id = tabId ?? tab?.id
+  if (id === undefined || autofillVendor(page) === null)
+    throw new Error("The page changed. Try again.")
+  return id
+}
 async function execute(
-  message: Exclude<Message, { type: "state" }>,
+  message: Exclude<Message, { type: "state" | "autofill" }>,
   tabId?: number
 ): Promise<Snapshot> {
   if (message.type === "connect") {
@@ -107,7 +141,12 @@ async function execute(
     return snapshot(tabId)
   }
   if (message.type === "open-app") {
-    await chrome.tabs.create({ url: config().appOrigin })
+    const { appOrigin } = config()
+    await chrome.tabs.create({
+      url: message.section
+        ? `${appOrigin}/autofill#${message.section}`
+        : appOrigin,
+    })
     return snapshot(tabId)
   }
   const user = await account()

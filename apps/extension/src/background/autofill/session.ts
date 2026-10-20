@@ -340,7 +340,7 @@ export function countsOf(session: AutofillSession): Counts {
 }
 
 /** Whether AI calls may use the resume's job description (spec 6.3). */
-export function useJob(session: AutofillSession): boolean {
+export function usesJob(session: AutofillSession): boolean {
   const match = session.plan?.jobMatch
   return (
     match === "match" ||

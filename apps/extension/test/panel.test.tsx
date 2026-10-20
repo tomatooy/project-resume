@@ -38,6 +38,7 @@ function snapshot(
     resumes: [],
     nextResumeCursor: null,
     lastBaseId: null,
+    autofill: null,
     lookup: {
       kind: "bound",
       identity: { platform: "linkedin", externalJobId: "123456" },

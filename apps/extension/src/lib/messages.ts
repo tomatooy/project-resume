@@ -8,6 +8,8 @@ import {
   JobLookupSchema,
   ResumeSummarySchema,
 } from "@workspace/resume-core/contracts"
+import { ProfileSectionSchema } from "@workspace/autofill/fields"
+import { AutofillActionSchema, AutofillViewSchema } from "./autofill-view"
 import { AtsVendorSchema } from "./pages"
 
 export const PageSchema = z.discriminatedUnion("kind", [
@@ -28,6 +30,7 @@ export const SnapshotSchema = z.object({
   resumes: z.array(ResumeSummarySchema),
   nextResumeCursor: z.string().nullable().default(null),
   lastBaseId: z.string().nullable(),
+  autofill: AutofillViewSchema.nullable().default(null),
 })
 export type Snapshot = z.infer<typeof SnapshotSchema>
 export const MessageSchema = z.discriminatedUnion("type", [
@@ -54,7 +57,12 @@ export const MessageSchema = z.discriminatedUnion("type", [
     resumeId: z.uuid(),
     identity: JobIdentitySchema,
   }),
-  z.object({ type: z.literal("open-app") }),
+  // A section opens that part of the Autofill profile page.
+  z.object({
+    type: z.literal("open-app"),
+    section: ProfileSectionSchema.optional(),
+  }),
+  z.object({ type: z.literal("autofill"), action: AutofillActionSchema }),
 ])
 export type Message = z.infer<typeof MessageSchema>
 export const ReplySchema = z.discriminatedUnion("ok", [
