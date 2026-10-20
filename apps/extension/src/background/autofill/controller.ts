@@ -14,11 +14,15 @@ import type {
 } from "@workspace/resume-core/contracts"
 import { z } from "zod"
 import { api } from "../../lib/api"
-import type { WriteOutcomeSchema } from "../../lib/autofill-protocol"
+import type {
+  WorkerReply,
+  WriteOutcomeSchema,
+} from "../../lib/autofill-protocol"
 import type { AutofillAction, AutofillView } from "../../lib/autofill-view"
 import { sendToContent } from "./send"
 import {
   type AutofillSession,
+  attachFailed,
   canRunPass,
   countsOf,
   fieldsToFill,
@@ -49,6 +53,7 @@ type Mode = "manual" | "auto"
 type Started = NonNullable<AutofillSession["started"]>
 type Pass = { session: AutofillSession; page: AutofillPage; claim: number }
 type WriteResults = Record<string, z.infer<typeof WriteOutcomeSchema>>
+type AttachOutcome = WorkerReply<"autofill-attach">["result"]
 
 const timeout = () => ({ signal: AbortSignal.timeout(CALL_MS) })
 
@@ -254,14 +259,21 @@ async function planFor(
   return plan
 }
 
+/** The plan's fill for the resume file field. */
+function resumeFill(plan: PlanResult | null): Fill | null {
+  return (
+    [...(plan?.fills ?? []), ...(plan?.overwrites ?? [])].find(
+      ({ kind }) => kind === "resume-file"
+    ) ?? null
+  )
+}
+
 /** The file field the resume PDF goes to, while it is not the user's. */
 function resumeField(
   session: AutofillSession,
   plan: PlanResult
 ): FieldDescriptor | null {
-  const fill = [...plan.fills, ...plan.overwrites].find(
-    ({ kind }) => kind === "resume-file"
-  )
+  const fill = resumeFill(plan)
   const field = fill && session.fields.find(({ id }) => id === fill.fieldId)
   return field && session.states[field.id]?.owned !== true ? field : null
 }
@@ -278,27 +290,27 @@ function nextAttach(
   now: number
 ): AutofillSession["attach"] {
   const field = resumeField(session, plan)
-  const before = session.started
-  if (!field) return session.attach
-  if (before === null)
-    return field.hasValue
-      ? session.attach
-      : {
-          versionId: started.versionId,
-          status: "pending",
-          at: now,
-          previous: null,
-        }
-  if (before.resumeId !== started.resumeId)
-    return {
-      versionId: started.versionId,
-      status: "pending",
-      at: now,
-      previous: before.fileName,
-    }
-  return session.attach?.status === "pending"
-    ? { ...session.attach, versionId: started.versionId, at: now }
-    : session.attach
+  const { attach, started: before } = session
+  if (!field) return attach
+  const pending = (previous: string | null): AutofillSession["attach"] => ({
+    versionId: started.versionId,
+    status: "pending",
+    at: now,
+    previous,
+  })
+  if (before === null) return field.hasValue ? attach : pending(null)
+  if (before.resumeId !== started.resumeId) {
+    // A file we never attached is not ours to replace.
+    if (attach === null && field.hasValue) return attach
+    // Our file on the page: the last one attached, or the one an unfinished
+    // attach was to replace.
+    return pending(
+      attach?.status === "done" ? before.fileName : (attach?.previous ?? null)
+    )
+  }
+  return attach?.status === "pending"
+    ? { ...attach, versionId: started.versionId, at: now }
+    : attach
 }
 
 /**
@@ -486,12 +498,47 @@ async function askAi(
   )
 }
 
+/**
+ * Autofill attaches the resume again after a failed attach, or when none was
+ * made, while the field is empty and not the user's. A switched resume gets
+ * its own attach when it starts.
+ */
+async function retryAttach(
+  tabId: number,
+  key: string,
+  plan: PlanResult
+): Promise<void> {
+  const now = Date.now()
+  await updatePosting(tabId, key, (session) => {
+    const { attach, started } = session
+    const field = resumeField(session, plan)
+    if (
+      started === null ||
+      started.resumeId !== plan.resumeId ||
+      field === null ||
+      field.hasValue ||
+      (attach !== null && !attachFailed(attach, now))
+    )
+      return session
+    return {
+      ...session,
+      attach: {
+        versionId: started.versionId,
+        status: "pending",
+        at: now,
+        previous: attach?.previous ?? null,
+      },
+    }
+  })
+}
+
 async function runPass(tabId: number, pass: Pass, mode: Mode): Promise<void> {
   const session = await readOptions(tabId, pass)
   if (!session) return
   const plan = await planFor(tabId, session, pass.page)
   const resumeId = plan.resumeId
   if (resumeId === null) return
+  if (mode === "manual") await retryAttach(tabId, pass.page.postingKey, plan)
   // Rule values do not wait for the record; AI calls need its id.
   const starting: Promise<Started | null> =
     session.started?.resumeId === resumeId
@@ -683,6 +730,66 @@ async function undoNotes(tabId: number): Promise<void> {
   )
 }
 
+/**
+ * Attaches the PDF the panel rendered for the pending version (spec 10). It
+ * is recorded as a rule fill, so a reload attaches it again.
+ */
+async function attachResume(
+  tabId: number,
+  versionId: string,
+  base64: string
+): Promise<void> {
+  const session = await readSession(tabId)
+  const attach = session?.attach
+  if (
+    !session ||
+    attach?.status !== "pending" ||
+    attach.versionId !== versionId
+  )
+    return
+  const document = await readDocument(tabId)
+  // A newer snapshot is being stored, and its own attach follows.
+  if (document?.versionId !== versionId) return
+  const fill = resumeFill(session.plan)
+  const result: AttachOutcome = fill
+    ? await sendToContent(tabId, session.frameId, {
+        type: "autofill-attach",
+        fieldId: fill.fieldId,
+        fileName: document.fileName,
+        base64,
+        previous: attach.previous,
+      }).then(
+        (reply) => reply.result,
+        (): AttachOutcome => "failed"
+      )
+    : "failed"
+  await updatePosting(tabId, session.postingKey, (current) => {
+    const recorded =
+      fill && result === "attached"
+        ? recordWrites(current, [fill], { [fill.fieldId]: "written" })
+        : current
+    const latest = current.attach
+    // An attach for a newer version replaces this file in turn.
+    if (latest?.status !== "pending" || latest.versionId !== versionId)
+      return recorded
+    // A skipped field keeps the user's own file, which needs no warning.
+    return {
+      ...recorded,
+      attach: { ...latest, status: result === "failed" ? "failed" : "done" },
+    }
+  })
+}
+
+/** The panel could not render the PDF; the field goes to the page list. */
+async function failAttach(tabId: number, versionId: string): Promise<void> {
+  await updateSession(tabId, (session) =>
+    session?.attach?.status === "pending" &&
+    session.attach.versionId === versionId
+      ? { ...session, attach: { ...session.attach, status: "failed" } }
+      : session
+  )
+}
+
 async function clearField(tabId: number, fieldId: string): Promise<void> {
   const session = await readSession(tabId)
   if (!session) return
@@ -748,8 +855,9 @@ export async function act(
       return
     }
     case "attach":
+      return attachResume(tabId, action.versionId, action.base64)
     case "attach-failed":
-      return
+      return failAttach(tabId, action.versionId)
   }
 }
 

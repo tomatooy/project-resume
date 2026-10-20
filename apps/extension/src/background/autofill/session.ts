@@ -339,6 +339,17 @@ export function countsOf(session: AutofillSession): Counts {
   return counts
 }
 
+/** A pending attach the panel has not settled within a minute counts as failed. */
+const ATTACH_MS = 60_000
+
+/** Whether the resume attach failed, or waited on the panel too long. */
+export const attachFailed = (
+  attach: AutofillSession["attach"],
+  now: number
+): boolean =>
+  attach?.status === "failed" ||
+  (attach?.status === "pending" && now - attach.at > ATTACH_MS)
+
 /** Whether AI calls may use the resume's job description (spec 6.3). */
 export function usesJob(session: AutofillSession): boolean {
   const match = session.plan?.jobMatch

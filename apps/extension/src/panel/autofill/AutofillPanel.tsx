@@ -18,6 +18,7 @@ import {
 } from "../../lib/autofill-copy"
 import type { AutofillAction, AutofillView } from "../../lib/autofill-view"
 import type { Snapshot } from "../../lib/messages"
+import { useResumeAttach } from "./attach"
 import { Groups } from "./Groups"
 import { Questions } from "./Questions"
 import { ResumePicker } from "./ResumePicker"
@@ -44,6 +45,7 @@ export function AutofillPanel({
   pending,
   sending,
 }: Props) {
+  useResumeAttach(view.attach, onAction)
   const busy = pending || sending !== null || view.running
   const limited = view.quota?.remaining === 0
   const line = pageLine(view.company, view.title)

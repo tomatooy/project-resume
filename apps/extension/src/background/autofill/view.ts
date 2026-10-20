@@ -2,13 +2,11 @@ import type { FieldClass, FieldDescriptor } from "@workspace/autofill/fields"
 import type { AutofillGroup, AutofillView, Item } from "../../lib/autofill-view"
 import {
   type AutofillSession,
+  attachFailed as failedAttach,
   canRunPass,
   type FieldState,
   type StoredDocument,
 } from "./session"
-
-/** A pending attach the panel has not settled within a minute counts as failed. */
-const ATTACH_MS = 60_000
 
 const noGroups = (): AutofillView["groups"] => ({
   page: [],
@@ -121,11 +119,10 @@ export function autofillView(
   const fields = new Map(session.fields.map((field) => [field.id, field]))
 
   const attach = session.attach
-  const stale = attach?.status === "pending" && now - attach.at > ATTACH_MS
-  const attachFailed = attach?.status === "failed" || stale
+  const attachFailed = failedAttach(attach, now)
   const rendering =
     attach?.status === "pending" &&
-    !stale &&
+    !attachFailed &&
     document !== null &&
     document.versionId === attach.versionId
       ? {

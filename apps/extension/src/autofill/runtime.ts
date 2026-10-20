@@ -6,6 +6,7 @@ import type {
 } from "../lib/autofill-protocol"
 import { LIMITS } from "./dom"
 import { handleFor } from "./drivers"
+import { type AttachResult, attachFile } from "./file"
 import { createOwner } from "./owner"
 import type {
   FieldHandle,
@@ -19,6 +20,7 @@ const PROBE = "vs-resume-autofill:probe"
 const NO_PAGE: PageInfo = { company: null, companyWeak: false, title: null }
 
 type Scan = Extract<ContentMessage, { type: "autofill-scan" }>
+type Attach = Extract<WorkerMessage, { type: "autofill-attach" }>
 
 const WORKER_TYPES = new Set<string>([
   "autofill-ping",
@@ -86,7 +88,11 @@ function fieldAt(
  */
 export function startAutofill(
   adapter: VendorAdapter | null,
-  options: { debounceMs?: number } = {}
+  options: {
+    debounceMs?: number
+    /** Replaces the `DataTransfer` attach, which jsdom lacks. */
+    setFiles?: (input: HTMLInputElement, file: File) => void
+  } = {}
 ): { stop(): void } | null {
   // A live copy cancels the probe. A copy from an older install stops instead,
   // so the newest one always wins.
@@ -236,6 +242,33 @@ export function startAutofill(
     return { ok: handle !== undefined }
   }
 
+  const attachedName = adapter?.attachedName?.bind(adapter)
+
+  /**
+   * Attaches the resume PDF. Like a write, it marks the field ours first, so
+   * the next scan does not take our file for the user's.
+   */
+  const attach = async ({
+    fieldId,
+    fileName,
+    base64,
+    previous,
+  }: Attach): Promise<WorkerReply<"autofill-attach">> => {
+    const field = fields.find(({ descriptor }) => descriptor.id === fieldId)
+    if (!field) return { result: "failed" }
+    if (owner.isOwned(fieldId)) return { result: "skipped" }
+    // A file we attached earlier stays ours when this one does not land.
+    const ours = owner.isOurs(fieldId)
+    owner.markOurs(fieldId)
+    const result = await attachFile(
+      field,
+      { name: fileName, base64, previous },
+      { setFiles: options.setFiles, attachedName, ours }
+    ).catch((): AttachResult => "failed")
+    if (result !== "attached" && !ours) owner.release(fieldId)
+    return { result }
+  }
+
   const focus = (fieldId: string): Promise<WorkerReply<"autofill-focus">> => {
     const handle = handles.get(fieldId)
     handle?.focus()
@@ -279,6 +312,11 @@ export function startAutofill(
             results: await writeAll(handles, fills, new Set(force), owner),
           })
         ).then(respond, () => respond(failed))
+        return true
+      }
+      case "autofill-attach": {
+        const failed: WorkerReply<"autofill-attach"> = { result: "failed" }
+        void request(() => attach(message)).then(respond, () => respond(failed))
         return true
       }
       case "autofill-clear": {

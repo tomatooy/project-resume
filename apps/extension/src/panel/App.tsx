@@ -70,10 +70,17 @@ export function App() {
     ""
   const message =
     action.error?.message ?? autofill.error?.message ?? state.error?.message
-  // Focus and draft never hold up the panel's other autofill buttons.
+  // Focus, draft and the resume attach never hold up the panel's other
+  // autofill buttons.
   const sent = autofill.isPending ? autofill.variables?.kind : undefined
   const sending =
-    sent === undefined || sent === "focus" || sent === "draft" ? null : sent
+    sent === undefined ||
+    sent === "focus" ||
+    sent === "draft" ||
+    sent === "attach" ||
+    sent === "attach-failed"
+      ? null
+      : sent
   const pending = action.isPending
   // A failed refresh still says which page the tab is on.
   const known =
