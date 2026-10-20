@@ -118,6 +118,8 @@ export const AutofillSessionSchema = z.object({
   passes: z.number().int().min(0),
   /** When the pass in progress began. */
   running: z.number().nullable(),
+  /** An automatic pass was asked for during that pass, so one runs after it. */
+  rerun: z.boolean(),
   ai: z.object({
     write: z.array(z.string()),
     page: z.array(z.string()),
@@ -181,6 +183,7 @@ function newSession(
     states: {},
     passes: 0,
     running: null,
+    rerun: false,
     ai: { write: [], page: [], degraded: false },
     questions: [],
     unmatched: [],

@@ -11,8 +11,8 @@ export type AttachOptions = {
   /** The file name the vendor's widget shows, when it has its own. */
   attachedName?: (field: ScannedField) => string | null
   timeoutMs?: number
-  /** The field's file is one we attached on this page, so it may be replaced. */
-  ours?: boolean
+  /** The names of the files we put into this field on this page. */
+  placed?: ReadonlySet<string>
 }
 
 /** Sets the input's files as a person's pick would, then fires its events. */
@@ -33,9 +33,9 @@ function decode(base64: string): Uint8Array<ArrayBuffer> {
 
 /**
  * Puts the resume PDF into a file field (spec 10). A field that already
- * shows a file keeps it, unless that file is `previous` (or `ours`): the one
- * we attached before. With `attachedName`, success waits for the page to
- * show the new name.
+ * shows a file keeps it, unless the name it shows is `previous` or one in
+ * `placed`: a file we attached before. With `attachedName`, success waits
+ * for the page to show the new name.
  */
 export async function attachFile(
   field: ScannedField,
@@ -47,7 +47,7 @@ export async function attachFile(
     return "failed"
   const { attachedName } = options
   const shown = attachedName?.(field) ?? element.files?.item(0)?.name ?? null
-  if (shown !== null && !options.ours && shown !== file.previous)
+  if (shown !== null && shown !== file.previous && !options.placed?.has(shown))
     return "skipped"
   try {
     const pdf = new File([decode(file.base64)], file.name, {

@@ -168,10 +168,19 @@ export function startAutofill(
       watched = form
         ? {
             form,
-            unwatch: owner.watch(
-              form,
-              (target) => fieldAt(fields, target)?.descriptor.id ?? null
-            ),
+            unwatch: owner.watch(form, (event) => {
+              const field = fieldAt(fields, event.target)
+              if (!field || event.type !== "click")
+                return field?.descriptor.id ?? null
+              // Yes and No buttons fire no `input` or `change`, so a click on
+              // one is the person's edit. Other clicks only focus or open.
+              const { target } = event
+              return field.kind === "buttons" &&
+                target instanceof Node &&
+                field.choices.some(({ element }) => element.contains(target))
+                ? field.descriptor.id
+                : null
+            }),
           }
         : null
     }
@@ -260,10 +269,13 @@ export function startAutofill(
   }
 
   const attachedName = adapter?.attachedName?.bind(adapter)
+  // The names of the files each file field was given on this page.
+  const placed = new Map<string, Set<string>>()
 
   /**
-   * Attaches the resume PDF. Like a write, it marks the field ours first, so
-   * the next scan does not take our file for the user's.
+   * Attaches the resume PDF. A file it put in place stays ours even when the
+   * page has not shown it yet, so a later scan never takes it for the
+   * user's. Scans wait for this request, so the mark still comes first.
    */
   const attach = async ({
     fieldId,
@@ -274,15 +286,17 @@ export function startAutofill(
     const field = fields.find(({ descriptor }) => descriptor.id === fieldId)
     if (!field) return { result: "failed" }
     if (owner.isOwned(fieldId)) return { result: "skipped" }
-    // A file we attached earlier stays ours when this one does not land.
-    const ours = owner.isOurs(fieldId)
-    owner.markOurs(fieldId)
+    const names = placed.get(fieldId) ?? new Set<string>()
     const result = await attachFile(
       field,
       { name: fileName, base64, previous },
-      { setFiles: options.setFiles, attachedName, ours }
+      { setFiles: options.setFiles, attachedName, placed: names }
     ).catch((): AttachResult => "failed")
-    if (result !== "attached" && !ours) owner.release(fieldId)
+    if (result !== "skipped") {
+      owner.markOurs(fieldId)
+      names.add(fileName)
+      placed.set(fieldId, names)
+    }
     return { result }
   }
 

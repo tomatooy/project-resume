@@ -151,11 +151,15 @@ function byIds(node: Element, ids: string | null): Element[] {
   })
 }
 
+/** Each label is clipped, so the joined text is clipped again. */
 const labelsOf = (node: Element, attribute: string): string =>
-  byIds(node, node.getAttribute(attribute))
-    .map(labelText)
-    .filter((text) => text !== "")
-    .join(" ")
+  clip(
+    byIds(node, node.getAttribute(attribute))
+      .map(labelText)
+      .filter((text) => text !== "")
+      .join(" "),
+    LIMITS.label
+  )
 
 /** A `label[for]` names only the first element with that id. */
 function forLabel(control: HTMLElement): HTMLLabelElement | null {

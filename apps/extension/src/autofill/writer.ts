@@ -24,7 +24,9 @@ export async function writeAll(
     }
     owner.markOurs(id)
     const outcome = await handle.write(fill).catch((): WriteOutcome => "failed")
-    if (outcome !== "written") owner.release(id)
+    // A failed write may leave part of its value, or land late; either is
+    // ours, not the user's. Skipped and unmatched leave the field as it was.
+    if (outcome === "skipped" || outcome === "unmatched") owner.release(id)
     results.set(id, outcome)
   }
   // fromEntries keeps an id such as "__proto__" as a plain key.

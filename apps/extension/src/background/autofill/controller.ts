@@ -110,15 +110,27 @@ async function readPosting(
   return session !== null && session.postingKey === key ? session : null
 }
 
-/** Claims the tab's one pass, or gives null while another runs. */
-async function claimPass(tabId: number): Promise<Pass | null> {
+const hasForm = (session: AutofillSession | null): session is AutofillSession =>
+  session?.form === true && session.postingKey !== null
+
+/**
+ * Claims the tab's one pass, or gives null while another runs. An automatic
+ * pass that finds one running is noted instead, and runs when that one ends:
+ * its fields appeared during that pass, which never sees them.
+ */
+async function claimPass(tabId: number, auto: boolean): Promise<Pass | null> {
   const now = Date.now()
-  const { before, after } = await updateSession(tabId, (session) =>
-    session?.form && session.postingKey !== null && canRunPass(session, now)
-      ? { ...session, running: now }
-      : session
-  )
-  const page = after !== null && after !== before ? pageOf(after) : null
+  const { before, after } = await updateSession(tabId, (session) => {
+    if (!hasForm(session)) return session
+    if (canRunPass(session, now))
+      return { ...session, running: now, rerun: false }
+    return auto && !session.rerun ? { ...session, rerun: true } : session
+  })
+  // The reducer is pure, so `before` tells whether it claimed.
+  const page =
+    hasForm(before) && canRunPass(before, now) && after !== null
+      ? pageOf(after)
+      : null
   return after !== null && page !== null
     ? { session: after, page, claim: now }
     : null
@@ -126,19 +138,24 @@ async function claimPass(tabId: number): Promise<Pass | null> {
 
 async function withPass(
   tabId: number,
-  task: (pass: Pass) => Promise<void>
+  task: (pass: Pass) => Promise<void>,
+  auto = false
 ): Promise<void> {
-  const pass = await claimPass(tabId)
+  const pass = await claimPass(tabId, auto)
   if (!pass) return
   try {
     await task(pass)
   } finally {
     // A pass taken as lost may have been claimed again meanwhile.
-    await updateSession(tabId, (session) =>
-      session?.running === pass.claim ? { ...session, running: null } : session
+    const { before } = await updateSession(tabId, (session) =>
+      session?.running === pass.claim
+        ? { ...session, running: null, rerun: false }
+        : session
     )
     // Each pass may change the group and the quota.
     await syncOverlay(tabId)
+    if (before?.running === pass.claim && before.rerun)
+      await run(tabId, "auto").catch(() => {})
   }
 }
 
@@ -601,7 +618,7 @@ async function runPass(tabId: number, pass: Pass, mode: Mode): Promise<void> {
 
 /** One autofill pass: every field for Autofill, new ones for `auto`. */
 export function run(tabId: number, mode: Mode): Promise<void> {
-  return withPass(tabId, (pass) => runPass(tabId, pass, mode))
+  return withPass(tabId, (pass) => runPass(tabId, pass, mode), mode === "auto")
 }
 
 /** A new pick fills only empty fields and replaces the attached file (spec 6.2). */
