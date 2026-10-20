@@ -109,7 +109,7 @@ const key = (tabId: number) => `tab:${tabId}`
 const queues = new Map<number, Promise<unknown>>()
 
 /** Runs storage work for one tab in order, so read-modify-write never races. */
-function queued<T>(tabId: number, task: () => Promise<T>): Promise<T> {
+export function queued<T>(tabId: number, task: () => Promise<T>): Promise<T> {
   const next = (queues.get(tabId) ?? Promise.resolve()).then(task, task)
   queues.set(tabId, next)
   const done = () => {

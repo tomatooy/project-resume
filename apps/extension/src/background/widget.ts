@@ -12,6 +12,7 @@ import {
   type TabEvent,
   type View,
 } from "./tab-state"
+import { forgetAutofill, moveAutofill } from "./autofill/session"
 
 const WidgetMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("widget-state") }),
@@ -192,8 +193,10 @@ export function registerWidget() {
   })
   chrome.tabs.onRemoved.addListener((tabId) => {
     void forgetTab(tabId).catch(() => {})
+    void forgetAutofill(tabId).catch(() => {})
   })
   chrome.tabs.onReplaced.addListener((added, removed) => {
     void moveTab(removed, added).catch(() => {})
+    void moveAutofill(removed, added).catch(() => {})
   })
 }
