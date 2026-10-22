@@ -18,11 +18,6 @@ export function sameDocument(
   return left.frameId === right.frameId && left.documentId === right.documentId
 }
 
-export function scanUrl(url: string): string {
-  const parsed = new URL(url)
-  return parsed.origin + parsed.pathname
-}
-
 /** Chrome's live frame URLs also follow navigation inside an embed. */
 export async function autofillFrames(tabId: number): Promise<AutofillFrame[]> {
   try {

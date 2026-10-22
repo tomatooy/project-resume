@@ -1,5 +1,5 @@
 import type { StartResult } from "@workspace/resume-core/contracts"
-import { createElement, type JSX, useEffect, useRef } from "react"
+import { useEffect, useRef } from "react"
 import type { AutofillAction, AutofillView } from "../../lib/autofill-view"
 
 /** Bytes per `fromCharCode` call, well under the argument limit. */
@@ -19,14 +19,13 @@ function toBase64(bytes: Uint8Array): string {
 export async function renderResumeBase64(
   document: StartResult["document"]
 ): Promise<string> {
-  const { pdf, ResumeDocument } = await import("@workspace/resume-render")
-  // The element JSX would give, which `pdf` takes.
-  const element: JSX.Element = createElement(ResumeDocument, {
-    resume: document.data,
+  const { renderPreview } = await import("@workspace/resume-preview/render")
+  const blob = await renderPreview({
+    doc: document.data,
     templateId: document.templateId,
     options: document.templateOptions,
+    patches: [],
   })
-  const blob = await pdf(element).toBlob()
   return toBase64(new Uint8Array(await blob.arrayBuffer()))
 }
 

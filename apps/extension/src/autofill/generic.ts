@@ -16,7 +16,7 @@ import {
   uniqueIds,
 } from "./dom"
 import { hasValueNow } from "./drivers"
-import type { ScannedField } from "./types"
+import type { LiveField, ScannedField } from "./types"
 
 type Native = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
 type Group = {
@@ -132,11 +132,10 @@ type Draft = Omit<FieldDescriptor, "id"> & {
   idFrom: HTMLElement
   name?: string
 }
-type Live = Omit<ScannedField, "descriptor">
-type Built = Live & { draft: Draft }
+type Built = LiveField & { draft: Draft }
 
 /** Value presence comes from the drivers, as vendor widgets' does. */
-const finish = (field: Live, draft: Omit<Draft, "hasValue">): Built => ({
+const finish = (field: LiveField, draft: Omit<Draft, "hasValue">): Built => ({
   ...field,
   draft: { ...draft, hasValue: hasValueNow(field) },
 })

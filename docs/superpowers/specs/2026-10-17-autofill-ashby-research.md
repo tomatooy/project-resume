@@ -442,3 +442,30 @@ applicant is Hispanic or Latino. The rules in `packages/autofill/src/eeo.ts`:
 
 With the default Profile, where every EEO answer is "decline", all three
 questions fill.
+
+## 14. School search and committed selections
+
+Observed in the user's browser on 2026-10-22 on the [Quora application](https://jobs.ashbyhq.com/quora/5494e6a1-a973-46af-b9f3-57208eb91b52/application?gh_src=fa1aa7222).
+
+- The school entry has `data-field-path="_systemfield_education_history"`.
+  Its input is `input[role=combobox]`, with placeholder `Search schools...`.
+  Search results are portal `div[role=option]` elements in the listbox named
+  by the input's `aria-controls` while it is expanded.
+- Typing `New York University` opens search results. Moving focus with Tab
+  without choosing a result clears the query. A highlighted result can have
+  `aria-selected="true"` before any school has been committed.
+- A result contains a name/country row followed by a domain. Its first name
+  span is at `:scope > div > div > span`; hashed CSS classes are unnecessary.
+  The matching result renders `New York University`, `United States`, and
+  `nyu.edu`. Other results include NYU campuses and unrelated York schools.
+- Clicking that exact result closes the menu, removes `aria-controls`, sets
+  `aria-expanded="false"`, and leaves only `New York University` in the
+  input. The selected value survives moving focus with Tab.
+- The previous generic label reader included the country and domain in both
+  matching and confirmation. The school adapter now marks this field as a
+  search, matches one exact normalized school name, and rejects duplicate
+  names or missing matches. Search writes confirm that the menu is closed
+  and the selected label remains after blur.
+
+The browser exploration used normal UI input and clicks. It did not rebuild
+or run the patched extension, or submit the application.

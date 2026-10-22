@@ -35,13 +35,15 @@ import {
   listVersions,
   renameResume,
   restoreVersion,
+  saveAutofillProfile,
   searchResumes,
   setSkillEnabled,
   updateUserSkill,
 } from "./api"
-import type { ChatHistory } from "./types"
+import { ApiError, type ChatHistory } from "./types"
 import type { ResumeState } from "@/features/resume/store"
 import { UserSkillInputSchema, type SkillDraft } from "@workspace/resume-core"
+import type { Profile } from "@workspace/autofill"
 
 export function cacheWorkspaceResume(
   client: QueryClient,
@@ -438,6 +440,36 @@ async function clearChatConversation(
     suggestions: {},
   })
   return result
+}
+
+/* --------------------------------------------------- autofill mutations */
+
+/**
+ * The first save of the Profile, from a resume or from empty fields. The saved
+ * Profile goes straight into the cache, so the page shows its sections; when
+ * another tab created one first, the cache reloads that one.
+ */
+export function useCreateAutofillProfile() {
+  const queryClient = useQueryClient()
+  const { queryKey } = autofillProfileQuery()
+  return useMutation({
+    mutationFn: async (load: () => Promise<Profile>) => {
+      const profile = await load()
+      const saved = await saveAutofillProfile({ profile, expectedRevision: 0 })
+      return { profile, ...saved }
+    },
+    onSuccess: ({ profile, revision, updatedAt }) =>
+      queryClient.setQueryData(queryKey, {
+        profile,
+        revision,
+        updatedAt,
+        exists: true,
+      }),
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === "CONFLICT")
+        void queryClient.refetchQueries({ queryKey, exact: true })
+    },
+  })
 }
 
 /* ------------------------------------------------------ skill mutations */

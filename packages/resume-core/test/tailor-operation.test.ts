@@ -5,7 +5,7 @@ const identity = {
   platform: "linkedin",
   externalJobId: "123456",
 } satisfies import("../src").JobIdentity
-async function setup() {
+async function setup(instructions?: string) {
   const ports = inMemoryPorts()
   const services = createServices(ports)
   const base = await services.resumes.create({ title: "Base" })
@@ -15,12 +15,42 @@ async function setup() {
     sourceUrl: "https://www.linkedin.com/jobs/view/123456",
     jobText: "A detailed description for an engineering position. ".repeat(8),
     idempotencyKey: crypto.randomUUID(),
+    instructions,
   }
   const found = await services.operations.admit(input)
   if (found.kind !== "bound") throw new Error("Missing admission")
   return { ports, services, base, input, op: found.operation }
 }
 describe("durable tailoring", () => {
+  it("keeps admitted instructions through fresh services, retries, and idempotent replay", async () => {
+    const { services, ports, input, op } = await setup(
+      "Do not include a summary."
+    )
+    expect(op.instructions).toBe("Do not include a summary.")
+    await services.operations.admit({ ...input, instructions: "Changed later" })
+    const later = createServices(ports)
+    await later.operations.parse(op.id)
+    await later.operations.generate(op.id)
+    expect(ports.resumeTailor.calls[0]?.instructions).toBe(
+      "Do not include a summary."
+    )
+    await later.operations.cancel(op.id)
+    const retry = await later.operations.retry({
+      ...identity,
+      expectedOperationId: op.id,
+      idempotencyKey: crypto.randomUUID(),
+    })
+    if (retry.kind !== "bound") throw new Error("Missing retry")
+    await later.operations.generate(retry.operation.id)
+    expect(ports.resumeTailor.calls[1]?.instructions).toBe(
+      "Do not include a summary."
+    )
+    await later.operations.complete(retry.operation.id)
+    expect(
+      (await later.resumes.get(op.resumeId)).data.basics.summary
+    ).toBeUndefined()
+  })
+
   it("leases one dispatch across simultaneous recovery requests", async () => {
     const { services, ports, op } = await setup()
     const claims = await Promise.all(

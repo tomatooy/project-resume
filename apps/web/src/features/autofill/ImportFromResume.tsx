@@ -1,5 +1,5 @@
 import { FileTextIcon } from "@phosphor-icons/react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   emptyProfile,
   type Profile,
@@ -10,8 +10,11 @@ import { type ReactNode, useState } from "react"
 import { toast } from "sonner"
 
 import { LoadMore } from "@/features/shell/LoadMore"
-import { saveAutofillProfile } from "@/lib/api"
-import { autofillProfileQuery, resumeQuery, useResumes } from "@/lib/queries"
+import {
+  resumeQuery,
+  useCreateAutofillProfile,
+  useResumes,
+} from "@/lib/queries"
 import { ApiError } from "@/lib/types"
 import { CONFLICT_NOTICE } from "./use-profile-autosave"
 
@@ -25,32 +28,16 @@ const NOTE = "text-[12px] leading-[1.55] text-muted-foreground"
 export function ImportFromResume() {
   const client = useQueryClient()
   const [picking, setPicking] = useState(false)
-  const create = useMutation({
-    mutationFn: async (load: () => Promise<Profile>) => {
-      const profile = await load()
-      const saved = await saveAutofillProfile({ profile, expectedRevision: 0 })
-      return { profile, ...saved }
-    },
-    onSuccess: ({ profile, revision, updatedAt }) =>
-      client.setQueryData(autofillProfileQuery().queryKey, {
-        profile,
-        revision,
-        updatedAt,
-        exists: true,
-      }),
-    onError: (error) => {
-      if (error instanceof ApiError && error.code === "CONFLICT") {
-        // Another tab saved a Profile first: show that one instead.
-        toast(CONFLICT_NOTICE)
-        void client.refetchQueries({
-          queryKey: autofillProfileQuery().queryKey,
-          exact: true,
-        })
-        return
-      }
-      toast.error(error.message)
-    },
-  })
+  const create = useCreateAutofillProfile()
+  const start = (load: () => Promise<Profile>) =>
+    create.mutate(load, {
+      onError: (error) => {
+        if (error instanceof ApiError && error.code === "CONFLICT")
+          // Another tab saved a Profile first; the page reloads that one.
+          toast(CONFLICT_NOTICE)
+        else toast.error(error.message)
+      },
+    })
 
   return (
     <div className="mt-7 rounded-[10px] border border-border bg-background p-4">
@@ -72,7 +59,7 @@ export function ImportFromResume() {
           variant="outline"
           size="sm"
           disabled={create.isPending}
-          onClick={() => create.mutate(async () => emptyProfile)}
+          onClick={() => start(async () => emptyProfile)}
         >
           Start blank
         </Button>
@@ -81,7 +68,7 @@ export function ImportFromResume() {
         <ResumeChoices
           disabled={create.isPending}
           onPick={(id) =>
-            create.mutate(async () => {
+            start(async () => {
               const resume = await client.fetchQuery(resumeQuery(id))
               return profileFromResume(emptyProfile, resume.data)
             })

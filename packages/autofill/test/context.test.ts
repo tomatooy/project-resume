@@ -2,7 +2,12 @@ import type { Resume } from "@workspace/resume-schema"
 import { fid, minimal, onePage } from "@workspace/resume-schema/fixtures"
 import { describe, expect, it } from "vitest"
 
-import { type AiJob, applicantContext, type Json } from "../src/context"
+import {
+  type AiJob,
+  applicantContext,
+  compactJson,
+  type Json,
+} from "../src/context"
 import { sampleProfile } from "../src/fixtures"
 
 /** One property of a JSON object, or undefined. */
@@ -33,7 +38,7 @@ const job: AiJob = {
 }
 
 describe("applicantContext", () => {
-  it("keeps EEO and salary out of AI context", () => {
+  it("keeps salary out of AI context", () => {
     const json = JSON.stringify(
       applicantContext({
         profile: {
@@ -47,7 +52,25 @@ describe("applicantContext", () => {
         today: new Date(2026, 9, 18),
       })
     )
-    expect(json).not.toMatch(/eeo|salary|150000|decline/i)
+    expect(json).not.toMatch(/salary|150000/i)
+  })
+
+  it("includes saved demographic answers as Profile evidence", () => {
+    const eeo = {
+      ...sampleProfile.eeo,
+      race: ["asian", "white"],
+      veteran: "not-protected",
+    } satisfies typeof sampleProfile.eeo
+    expect(
+      applicantContext({
+        ...input,
+        profile: { ...sampleProfile, eeo },
+      })
+    ).toHaveProperty(["profile", "eeo"], eeo)
+    expect(applicantContext(input)).toHaveProperty(
+      ["profile", "eeo"],
+      sampleProfile.eeo
+    )
   })
 
   it("keeps the other preferences without the salary currency or period", () => {
@@ -65,29 +88,24 @@ describe("applicantContext", () => {
       },
     })
     expect(context).toHaveProperty(["profile", "preferences"], {
-      startKind: null,
-      startDate: "",
-      noticeWeeks: null,
       relocation: "yes",
-      workModes: [],
       cities: ["Austin"],
     })
   })
 
-  it("passes the rest of the Profile, Notes, page and date", () => {
+  it("preserves Notes verbatim and excludes job and page metadata", () => {
     expect(applicantContext(input)).toMatchObject({
       today: "2026-10-18",
       profile: {
-        personal: sampleProfile.personal,
-        contact: sampleProfile.contact,
-        links: sampleProfile.links,
-        workAuth: sampleProfile.workAuth,
-        other: sampleProfile.other,
+        personal: compactJson(sampleProfile.personal),
+        contact: compactJson(sampleProfile.contact),
+        links: compactJson(sampleProfile.links),
+        workAuth: compactJson(sampleProfile.workAuth),
       },
       notes: "## Logistics\n- Lives in SF.",
-      job: null,
-      page: { company: "Acme", title: "Backend Engineer" },
     })
+    expect(applicantContext(input)).not.toHaveProperty("page")
+    expect(applicantContext(input)).not.toHaveProperty("job")
   })
 
   it("gives each kind of resume item without node ids", () => {
@@ -124,7 +142,6 @@ describe("applicantContext", () => {
       field: "Computer Science",
       start: "2014-08",
       end: "2019-06",
-      bullets: [],
     })
     expect(context).toHaveProperty(["resume", "sections", 3, "items", 0], {
       label: "Languages",
@@ -158,7 +175,7 @@ describe("applicantContext", () => {
     expect(
       prop(applicantContext({ ...input, resume: talks }), "resume")
     ).toStrictEqual({
-      basics: { name: "Dana Okonjo", email: "dana@okonjo.dev", links: [] },
+      basics: { name: "Dana Okonjo", email: "dana@okonjo.dev" },
       sections: [
         {
           title: "Talks",
@@ -168,7 +185,6 @@ describe("applicantContext", () => {
               title: "Ledgers at scale",
               subtitle: "GopherCon",
               start: "2024-05",
-              bullets: [],
             },
           ],
         },
@@ -183,10 +199,22 @@ describe("applicantContext", () => {
     )
   })
 
-  it("cuts the job description to 8,000 characters", () => {
-    expect(applicantContext({ ...input, job })).toHaveProperty("job", {
-      ...job,
-      description: "d".repeat(8_000),
-    })
+  it("never includes imported job context", () => {
+    const context = applicantContext({ ...input, job })
+    expect(context).not.toHaveProperty("job")
+    expect(JSON.stringify(context)).not.toContain(job.description.slice(0, 100))
+  })
+
+  it("preserves false and zero while removing missing values", () => {
+    expect(
+      compactJson({
+        zero: 0,
+        no: false,
+        blank: " ",
+        absent: null,
+        array: [],
+        nested: { blank: "" },
+      })
+    ).toEqual({ zero: 0, no: false })
   })
 })

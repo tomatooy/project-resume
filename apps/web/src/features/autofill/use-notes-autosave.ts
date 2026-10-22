@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query"
 import type { NotesState } from "@workspace/resume-core"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 
 import { AutoSaver } from "@/features/resume/auto-saver"
 import { restoreAutofillNoteVersion, saveAutofillNotes } from "@/lib/api"
@@ -9,6 +9,7 @@ import { ApiError } from "@/lib/types"
 
 import { createEditSession, notesWriter } from "./notes-session"
 import { CONFLICT_NOTICE } from "./use-profile-autosave"
+import { useSaverLifecycle } from "./use-saver-lifecycle"
 
 export type NotesAutosave = {
   content: string
@@ -85,19 +86,10 @@ export function useNotesAutosave(state: NotesState): NotesAutosave {
     return { saver, show, reload }
   })
 
-  useEffect(() => {
-    const { saver } = notes
-    saver.activate()
-    const warnOnLeave = (event: BeforeUnloadEvent) => {
-      if (doc.current.content !== doc.current.saved) event.preventDefault()
-    }
-    window.addEventListener("beforeunload", warnOnLeave)
-    return () => {
-      window.removeEventListener("beforeunload", warnOnLeave)
-      void saver.flush()
-      saver.dispose()
-    }
-  }, [notes])
+  useSaverLifecycle(
+    notes.saver,
+    () => doc.current.content !== doc.current.saved
+  )
 
   const update = useCallback(
     (next: string) => {

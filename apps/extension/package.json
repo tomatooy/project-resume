@@ -23,7 +23,9 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "tailwindcss": "^4",
-    "zod": "^4.5.4"
+    "zod": "^4.5.4",
+    "@workspace/resume-preview": "workspace:*",
+    "@phosphor-icons/react": "^2.1.10"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4",

@@ -1,13 +1,17 @@
 import {
+  applicantEvidence,
   type Json,
+  notesOf,
   NoteMergeProposalSchema,
   ProfileFieldKeySchema,
+  relevantEvidence,
 } from "@workspace/autofill"
 import type {
   AutofillModels,
   ModelField,
   ModelUsage,
   NumberedQuestion,
+  ShortTextOutput,
 } from "@workspace/resume-core"
 import { Output, generateText } from "ai"
 import { z } from "zod"
@@ -21,6 +25,7 @@ import {
   SHORT_TEXT_PROMPT,
   dataBlock,
 } from "../prompts/autofill"
+import { beforeDeadline } from "./deadline"
 
 /*
  * Output schemas stay flat for the reason `job.ts` gives: objects of strings,
@@ -36,6 +41,7 @@ const ShortTextSchema = z.object({
       value: z.string(),
       evidence: z.array(z.string()),
       applicant: z.boolean(),
+      blocked: z.boolean(),
     })
   ),
 })
@@ -66,6 +72,7 @@ const MergeSchema = z.object({
 const DraftSchema = z.object({ text: z.string() })
 
 const SourceSchema = z.enum(["resume", "profile", "notes"])
+type Source = z.infer<typeof SourceSchema>
 
 const unique = <T>(values: T[]): T[] => [...new Set(values)]
 
@@ -144,40 +151,140 @@ export function createAutofillText(
   }
 
   return {
-    async shortText({ signal, context, fields }) {
-      const prompt = [
-        records(context),
-        section(
-          "Fields:",
-          fields.map((field) =>
-            fieldBlock(
-              field,
-              field.maxLength === undefined
-                ? field.control
-                : `${field.control}, at most ${field.maxLength} characters`
-            )
-          )
-        ),
-      ].join("\n\n")
-      const { output, usage } = await ask(
-        ShortTextSchema,
-        SHORT_TEXT_PROMPT,
-        prompt,
-        signal
+    async shortText({ signal, deadline, context, fields }) {
+      const evidence = applicantEvidence(context)
+      const notes = notesOf(context)
+      const sent = new Map(
+        fields.map((field) => [
+          field.key,
+          {
+            profile: relevantEvidence(evidence.profile, field).map(
+              ({ ref, value }) => ({ ref, value })
+            ),
+            resume: relevantEvidence(evidence.resume, field).map(
+              ({ ref, value }) => ({ ref, value })
+            ),
+          },
+        ])
       )
-      return {
-        answers: output.answers.map((answer) => ({
-          key: answer.key,
-          value: orNull(answer.value),
-          evidence: unique(
-            answer.evidence.flatMap((source) => {
-              const known = SourceSchema.safeParse(source.trim().toLowerCase())
-              return known.success ? [known.data] : []
-            })
+      const focused: Json = Object.fromEntries(sent)
+      /**
+       * The sources an answer cites. The model may name a source or cite a
+       * ref it was sent for that field, as in `resume.sections.1.items.0`,
+       * or a part of one. The Notes are sent whole, so any `notes.` ref
+       * counts. A ref that was not sent for the field is dropped.
+       */
+      const sourcesOf = (
+        key: string,
+        cited: string[],
+        allowed: Source[]
+      ): Source[] => {
+        const given = sent.get(key)
+        const refs = [...(given?.profile ?? []), ...(given?.resume ?? [])].map(
+          ({ ref }) => ref.toLowerCase()
+        )
+        return unique(
+          cited.flatMap((entry) => {
+            const name = entry.trim().toLowerCase()
+            const source = SourceSchema.safeParse(name.split(".", 1)[0])
+            if (!source.success || !allowed.includes(source.data)) return []
+            const known =
+              name === source.data ||
+              source.data === "notes" ||
+              refs.some((ref) => name === ref || name.startsWith(`${ref}.`))
+            return known ? [source.data] : []
+          })
+        )
+      }
+      const read = async (
+        context: Json,
+        allowed: Source[]
+      ): Promise<ShortTextOutput> => {
+        const prompt = [
+          records(context),
+          section(
+            "Fields:",
+            fields.map((field) =>
+              fieldBlock(
+                field,
+                field.maxLength === undefined
+                  ? field.control
+                  : `${field.control}, at most ${field.maxLength} characters`
+              )
+            )
           ),
-          applicant: answer.applicant,
-        })),
-        usage,
+        ].join("\n\n")
+        const { output, usage } = await beforeDeadline(
+          { signal, deadline: deadline - 50 },
+          (call) => ask(ShortTextSchema, SHORT_TEXT_PROMPT, prompt, call.signal)
+        )
+        return {
+          answers: output.answers.map((answer) => ({
+            key: answer.key,
+            value: orNull(answer.value),
+            evidence: sourcesOf(answer.key, answer.evidence, allowed),
+            applicant: answer.applicant,
+            blocked: answer.blocked,
+          })),
+          usage,
+        }
+      }
+      const empty = (): ShortTextOutput => ({
+        answers: [],
+        usage: { inputTokens: 0, outputTokens: 0 },
+      })
+      const [noted, recorded] = await Promise.allSettled([
+        notes.trim() ? read({ notes }, ["notes"]) : Promise.resolve(empty()),
+        evidence.profile.length + evidence.resume.length
+          ? read({ fields: focused }, ["profile", "resume"])
+          : Promise.resolve(empty()),
+      ])
+      const noteOutput = noted.status === "fulfilled" ? noted.value : null
+      const recordOutput =
+        recorded.status === "fulfilled" ? recorded.value : null
+      const answers: ShortTextOutput["answers"] = fields.map(({ key }) => {
+        const record = recordOutput?.answers.find(
+          (answer) => answer.key === key
+        )
+        const note = noteOutput?.answers.find((answer) => answer.key === key)
+        const missing = {
+          key,
+          value: null,
+          evidence: [],
+          applicant: false,
+          blocked: true,
+        }
+        if (
+          record?.applicant ||
+          (record?.blocked && !record.evidence.includes("resume")) ||
+          record?.evidence.includes("profile")
+        )
+          return record
+        if (evidence.profile.length > 0 && (!recordOutput || !record))
+          return missing
+        if (
+          note?.applicant ||
+          note?.blocked ||
+          (note?.value && note.evidence.includes("notes"))
+        )
+          return note
+        if (!noteOutput || (notes.trim() && !note)) return missing
+        if (!recordOutput || (evidence.resume.length > 0 && !record))
+          return missing
+        if (note?.value && note.evidence.length === 0) return missing
+        return record ?? { ...missing, blocked: false }
+      })
+      return {
+        answers,
+        degraded: !noteOutput || !recordOutput,
+        usage: {
+          inputTokens:
+            (noteOutput?.usage.inputTokens ?? 0) +
+            (recordOutput?.usage.inputTokens ?? 0),
+          outputTokens:
+            (noteOutput?.usage.outputTokens ?? 0) +
+            (recordOutput?.usage.outputTokens ?? 0),
+        },
       }
     },
 

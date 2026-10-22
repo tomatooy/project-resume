@@ -17,6 +17,7 @@ import {
   JobIdentitySchema,
   JobLookupSchema,
   ResumeSummarySchema,
+  ResumePreviewSchema,
   ResumePageInputSchema,
   ResumePageSchema,
   TailorAdmissionSchema,
@@ -44,6 +45,10 @@ export const JobPostingSchema = z.object({
 })
 export const contract = {
   resumes: {
+    preview: base
+      .route({ method: "GET", path: "/resumes/{id}/preview" })
+      .input(z.object({ id: z.uuid() }))
+      .output(ResumePreviewSchema),
     page: base
       .route({ method: "GET", path: "/resumes/page" })
       .input(ResumePageInputSchema)

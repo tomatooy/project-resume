@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import {
   queryOptions,
   type InfiniteData,
@@ -6,15 +6,77 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query"
+import { TailorInstructionsSchema } from "@workspace/resume-core/contracts"
 import type { AutofillAction } from "../lib/autofill-view"
+import { classifyPage } from "../lib/pages"
 import {
   send,
   sendResumePage,
+  sendResumePreview,
+  type PreviewRequest,
   type Snapshot,
   type Message,
 } from "../lib/messages"
 
 const key = ["extension", "current"]
+export function resumePreviewQuery(input: PreviewRequest) {
+  return queryOptions({
+    queryKey: [
+      "extension",
+      "preview",
+      input.accountId,
+      input.identity.platform,
+      input.identity.externalJobId,
+      input.resumeId,
+      input.operationId,
+    ],
+    queryFn: () => sendResumePreview(input),
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: "always",
+  })
+}
+const tailorStorageKey = (accountId: string) =>
+  `tailor-instructions:${accountId}`
+
+/** The tailor instructions this browser keeps for one account. */
+export function tailorInstructionsQuery(accountId: string | undefined) {
+  return queryOptions({
+    queryKey: ["extension", "tailor-instructions", accountId],
+    queryFn: async () => {
+      if (!accountId) return ""
+      const storageKey = tailorStorageKey(accountId)
+      const values = await chrome.storage.local.get(storageKey)
+      return TailorInstructionsSchema.parse(values[storageKey] ?? "")
+    },
+    enabled: Boolean(accountId),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  })
+}
+
+/** Saves one account's instructions; saves for an account run in order. */
+export function useSaveTailorInstructions(accountId: string | undefined) {
+  const client = useQueryClient()
+  return useMutation({
+    scope: { id: tailorStorageKey(accountId ?? "") },
+    mutationFn: async (next: { accountId: string; instructions: string }) => {
+      await chrome.storage.local.set({
+        [tailorStorageKey(next.accountId)]: TailorInstructionsSchema.parse(
+          next.instructions
+        ),
+      })
+    },
+    onSuccess: (_result, next) => {
+      client.setQueryData(
+        tailorInstructionsQuery(next.accountId).queryKey,
+        next.instructions
+      )
+    },
+  })
+}
+
 export function currentQuery() {
   return queryOptions({
     queryKey: key,
@@ -25,10 +87,16 @@ export function currentQuery() {
     refetchOnWindowFocus: "always",
   })
 }
-export function useAction() {
+export function useAction(
+  persistInstructions: (instructions: string) => Promise<void>
+) {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (message: Message) => send(message),
+    mutationFn: async (message: Message) => {
+      if (message.type === "tailor")
+        await persistInstructions(message.instructions ?? "")
+      return send(message)
+    },
     onSuccess: async (snapshot) => {
       await client.cancelQueries({ queryKey: key })
       client.setQueryData(key, snapshot)
@@ -75,18 +143,47 @@ export function useAutofillUpdates(tabId: number | null | undefined) {
   }, [client, tabId])
 }
 
-/** Reloads the panel when its own tab moves to another URL. */
-export function useRoutingRefresh(tabId: number | null | undefined) {
+function pageIdentity(page: Snapshot["page"]): string {
+  if (page.kind === "job")
+    return `${page.identity.platform}:${page.identity.externalJobId}`
+  return page.kind === "ats" ? `ats:${page.vendor}` : page.kind
+}
+
+/** Keep loaded content while following this tab's selected job or page. */
+export function useRoutingRefresh(
+  tabId: number | null | undefined,
+  page: Snapshot["page"] | undefined
+) {
   const client = useQueryClient()
+  const current = page ? pageIdentity(page) : undefined
+  const [destination, setDestination] = useState<{
+    tabId: number
+    identity: string
+  } | null>(null)
   useEffect(() => {
     if (tabId === null || tabId === undefined) return
+    let previous = current
     const changed = (id: number, change: chrome.tabs.OnUpdatedInfo) => {
-      if (id === tabId && change.url)
-        void client.resetQueries({ queryKey: key })
+      if (id !== tabId || !change.url) return
+      const next = classifyPage(change.url)
+      const identity = pageIdentity(next)
+      const route =
+        next.kind === "job" || next.kind === "select-job"
+          ? identity
+          : change.url
+      if (route === previous) return
+      previous = route
+      setDestination({ tabId, identity })
+      void client.invalidateQueries({ queryKey: key })
     }
     chrome.tabs.onUpdated.addListener(changed)
     return () => chrome.tabs.onUpdated.removeListener(changed)
-  }, [client, tabId])
+  }, [client, tabId, current])
+  return (
+    destination !== null &&
+    destination.tabId === tabId &&
+    destination.identity !== current
+  )
 }
 
 export function useServerUpdates(

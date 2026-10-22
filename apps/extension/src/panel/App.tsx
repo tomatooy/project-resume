@@ -1,6 +1,8 @@
-import { useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
+import { ArrowSquareOutIcon, FilePdfIcon } from "@phosphor-icons/react"
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
+import { cn } from "@workspace/ui/lib/utils"
 import {
   Select,
   SelectContent,
@@ -9,6 +11,8 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import { Spinner } from "@workspace/ui/components/spinner"
+import { Textarea } from "@workspace/ui/components/textarea"
+import { MAX_TAILOR_INSTRUCTIONS_CHARS } from "@workspace/resume-core/contracts"
 import {
   currentQuery,
   useAutofillAction,
@@ -20,6 +24,8 @@ import {
   useServerUpdates,
 } from "./queries"
 import { AutofillPanel } from "./autofill/AutofillPanel"
+import { TailoredPreview } from "./preview/TailoredPreview"
+import { useTailorInstructions } from "./use-tailor-instructions"
 import { ExtensionError, type Message } from "../lib/messages"
 import {
   AtsVendorSchema,
@@ -37,14 +43,20 @@ const control = (type: "panel-minimize" | "panel-close") => {
 
 export function App() {
   const state = useQuery(currentQuery())
-  const action = useAction()
   const autofill = useAutofillAction()
+  const [previewId, setPreviewId] = useState<string | null>(null)
+  const previewButton = useRef<HTMLButtonElement>(null)
   const [selection, setSelection] = useState<{
     account: string
     id: string
   } | null>(null)
   const data = state.data
-  useRoutingRefresh(data?.tabId)
+  const instructions = useTailorInstructions(
+    data?.lookup?.kind === "none" ? data.account?.id : undefined
+  )
+  const action = useAction(instructions.persist)
+  const navigated = useRoutingRefresh(data?.tabId, data?.page)
+  const changingPage = navigated && state.isFetching
   const resumes = useBaseResumes(data)
   useOperationRecovery(data)
   useAutofillUpdates(data?.tabId)
@@ -54,10 +66,41 @@ export function App() {
     data?.lookup?.kind === "bound" ? data.lookup.operation.id : undefined
   )
   const act = (message: Message) => {
-    if (!action.isPending) action.mutate(message)
+    if (!action.isPending && !changingPage) action.mutate(message)
   }
   const lookup = data?.lookup
   const page = data?.page
+  const readyPreview =
+    !state.isError &&
+    data?.account &&
+    page?.kind === "job" &&
+    lookup?.kind === "bound" &&
+    lookup.operation.status === "succeeded"
+      ? {
+          accountId: data.account.id,
+          identity: page.identity,
+          resumeId: lookup.resumeId,
+          operationId: lookup.operation.id,
+        }
+      : null
+  const readyKey = readyPreview
+    ? [
+        readyPreview.accountId,
+        readyPreview.identity.platform,
+        readyPreview.identity.externalJobId,
+        readyPreview.resumeId,
+        readyPreview.operationId,
+      ].join(":")
+    : null
+  const preview = previewId && previewId === readyKey ? readyPreview : null
+  useEffect(() => {
+    setPreviewId((current) => (current === readyKey ? current : null))
+  }, [readyKey])
+  const closePreview = () => {
+    setPreviewId(null)
+    void state.refetch()
+    requestAnimationFrame(() => previewButton.current?.focus())
+  }
   const baseId =
     resumes.rows.find(
       (r) =>
@@ -112,7 +155,7 @@ export function App() {
         </h1>
         <p>
           {category === "job"
-            ? "Your saved resume may still be processing."
+            ? "We couldn’t load your resume’s status for this job. Try again in a moment."
             : "Check your connection and try again."}
         </p>
         <Button
@@ -135,6 +178,26 @@ export function App() {
           Connect account
         </Button>
       </>
+    )
+  else if (preview)
+    content = (
+      <TailoredPreview
+        key={previewId}
+        request={preview}
+        onBack={closePreview}
+        onEdit={() =>
+          act({
+            type: "edit",
+            resumeId: preview.resumeId,
+            identity: preview.identity,
+          })
+        }
+        onConnect={() => {
+          setPreviewId(null)
+          act({ type: "connect" })
+        }}
+        editing={pending}
+      />
     )
   else if (page?.kind === "ats" && data.autofill) {
     const view = data.autofill
@@ -214,14 +277,14 @@ export function App() {
           }
         >
           {op.status === "succeeded"
-            ? "READY FOR YOUR NEXT STEP"
+            ? "SAVED TO YOUR ACCOUNT"
             : op.status === "cancelled"
               ? "CANCELLED"
               : "NEEDS ANOTHER TRY"}
         </span>
         <h1>
           {op.status === "succeeded"
-            ? "Resume is ready, now apply"
+            ? "Your tailored resume is ready"
             : op.status === "cancelled"
               ? "Your copy is saved"
               : "Could not finish tailoring"}
@@ -230,10 +293,19 @@ export function App() {
           {op.errorClass === "conflict"
             ? "Your edits are safe. Retry will use the latest saved resume."
             : op.status === "succeeded"
-              ? "Review your tailored resume in VS:Résumé."
+              ? "Review your PDF, download it, or make a few final edits."
               : "You can retry with the saved job description, or edit your copy."}
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {op.status === "succeeded" && (
+            <Button
+              ref={previewButton}
+              className="flex-1"
+              onClick={() => setPreviewId(readyKey)}
+            >
+              <FilePdfIcon /> Preview resume
+            </Button>
+          )}
           {lookup.canRetry && (
             <Button
               disabled={pending}
@@ -250,7 +322,7 @@ export function App() {
           )}
           <Button
             disabled={pending}
-            variant={op.status === "succeeded" ? "default" : "outline"}
+            variant="outline"
             onClick={() =>
               act({
                 type: "edit",
@@ -259,7 +331,13 @@ export function App() {
               })
             }
           >
-            Edit resume
+            {op.status === "succeeded" ? (
+              <>
+                <ArrowSquareOutIcon /> Edit in app
+              </>
+            ) : (
+              "Edit resume"
+            )}
           </Button>
         </div>
       </>
@@ -320,14 +398,51 @@ export function App() {
             </Button>
           )}
         </div>
+        <div className="space-y-2">
+          <label htmlFor="tailor-instructions" className="text-xs font-medium">
+            Additional instructions
+            <span className="ml-1 font-normal text-muted-foreground">
+              (optional)
+            </span>
+          </label>
+          <Textarea
+            id="tailor-instructions"
+            value={instructions.value}
+            onChange={(event) => instructions.change(event.target.value)}
+            placeholder="For example: Don’t include a summary. Focus on my backend experience."
+            maxLength={MAX_TAILOR_INSTRUCTIONS_CHARS}
+            rows={3}
+            className="field-sizing-fixed min-h-24 max-h-48 resize-y text-sm"
+            disabled={pending || instructions.loading}
+            aria-describedby="tailor-instructions-help"
+          />
+          <p id="tailor-instructions-help" className="text-xs">
+            Instructions save automatically in this browser. Edit or clear
+            anytime.
+          </p>
+          {instructions.error && (
+            <div className="flex items-center gap-2" role="alert">
+              <p className="text-xs text-warning">{instructions.error}</p>
+              <Button size="xs" variant="ghost" onClick={instructions.retry}>
+                Try again
+              </Button>
+            </div>
+          )}
+        </div>
         <Button
           className="w-full"
-          disabled={!baseId || pending}
+          disabled={
+            !baseId ||
+            pending ||
+            instructions.loading ||
+            Boolean(instructions.error)
+          }
           onClick={() => {
             if (page?.kind === "job")
               act({
                 type: "tailor",
                 sourceResumeId: baseId,
+                instructions: instructions.value,
                 identity: page.identity,
               })
           }}
@@ -347,8 +462,18 @@ export function App() {
       </>
     )
   return (
-    <main className="flex min-h-dvh w-full flex-col border-l border-border bg-card text-foreground">
-      <header className="border-b border-border bg-card p-5">
+    <main
+      className={cn(
+        "flex w-full flex-col border-l border-border bg-card text-foreground",
+        preview ? "h-dvh min-h-0 overflow-hidden" : "min-h-dvh"
+      )}
+    >
+      <header
+        className={cn(
+          "shrink-0 border-b border-border bg-card",
+          preview ? "px-4 py-3" : "p-5"
+        )}
+      >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 font-heading text-lg tracking-tight text-foreground">
             <img
@@ -405,10 +530,19 @@ export function App() {
             </Button>
           </div>
         </div>
-        <p className="mt-2 text-xs">Your next role, with a resume that fits.</p>
+        {!preview && (
+          <p className="mt-2 text-xs">
+            Your next role, with a resume that fits.
+          </p>
+        )}
       </header>
-      <section className="space-y-5 p-5" aria-live="polite">
-        {(category === "job" || category === "ats") && (
+      <section
+        className={preview ? "flex min-h-0 flex-1 flex-col" : "space-y-5 p-5"}
+        aria-live={preview ? "off" : "polite"}
+        aria-busy={changingPage}
+        inert={changingPage}
+      >
+        {!preview && (category === "job" || category === "ats") && (
           <div className="text-muted-foreground text-[11px] font-medium uppercase tracking-widest">
             {category === "job" ? "Resume tailoring" : "Autofill"}
           </div>
@@ -423,7 +557,7 @@ export function App() {
           </p>
         )}
       </section>
-      {data?.account && (
+      {data?.account && !preview && (
         <footer className="mt-auto flex items-center justify-between gap-2 border-t border-border bg-card px-5 py-4">
           <span className="truncate text-xs text-muted-foreground">
             {data.account.email}

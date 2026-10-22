@@ -193,10 +193,8 @@ export function Questions({
   onOpenProfile: (section: ProfileSection) => void
 }) {
   const draft = useDraft(view.draft, onAction)
-  // Company-specific items sort last; the sort keeps the server's order otherwise.
-  const questions = [...view.questions].sort(
-    (a, b) => Number(a.companySpecific) - Number(b.companySpecific)
-  )
+  // Already in answer order (`openQuestions`), so the numbers match a reply.
+  const { questions } = view
   const canSave =
     !disabled && !limited && view.ran && draft.text.trim().length > 0
   if (questions.length === 0 && !view.notes) return null

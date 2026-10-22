@@ -20,7 +20,7 @@ vi.mock("@/lib/api", () => ({
  */
 vi.mock("../resume/preview/preview-context", async () => {
   const { useStore } = await import("@tanstack/react-store")
-  const { createPreviewStore } = await import("../resume/preview/preview-store")
+  const { createPreviewStore } = await import("@workspace/resume-preview")
   const store = createPreviewStore()
   store.setState((state) => ({ ...state, pageCount: 1, stale: false }))
   return { usePreview: useStore.bind(null, store) }

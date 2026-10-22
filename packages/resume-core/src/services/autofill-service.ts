@@ -5,9 +5,9 @@ import {
   type Fill,
   missingAnswers,
   plainQuestions,
-  resumeFileName,
   ruleFills,
 } from "@workspace/autofill"
+import { resumeFileName } from "@workspace/resume-schema"
 
 import type {
   AiRequest,
@@ -37,6 +37,7 @@ import type { AutofillProcedure, Quota } from "../domain/suggestion"
 import type { AutofillApplicationRepository } from "../ports/autofill-application-repository"
 import type {
   AutofillModels,
+  FillFromAnswerOutput,
   JudgeOutput,
   ModelCall,
   ModelUsage,
@@ -52,7 +53,7 @@ import {
   ANSWER_MERGE_MS,
   aiFields,
   answerFills,
-  answerInput,
+  answerInputs,
   answerTargets,
   draftable,
   draftLimit,
@@ -75,9 +76,6 @@ import type { VersionService } from "./version-service"
 /** How many recent origin links the company rule looks through. */
 const ORIGINS_SCANNED = 50
 
-/** The judge sees no page text (spec 12.1): its answers fill fields directly. */
-const NO_PAGE = { company: null, title: null }
-
 const NO_USAGE: ModelUsage = { inputTokens: 0, outputTokens: 0 }
 /** What a call that had nothing to ask returns, without being made. */
 const NOTHING_JUDGED: JudgeOutput = {
@@ -97,6 +95,9 @@ type Metered<T> = { value: T; failure: ErrorClass | null }
 
 /** Adds a call's tokens to the run's usage and passes its output on. */
 type Count = <T extends { usage: ModelUsage }>(output: T) => T
+
+/** Which models are configured, read once per request. */
+type Ready = ReturnType<AutofillModels["ready"]>
 
 type AnswerFills = { fills: Fill[]; unmatched: string[] }
 
@@ -181,7 +182,7 @@ export class AutofillService {
       input.resumeId,
       { label: `Autofill: ${named || "application"}`, createdBy: "system" }
     )
-    // The job target is kept only when its description reaches AI.
+    // Keep the selected application link; its description never reaches AI.
     const origin = input.useJob
       ? await this.deps.jobTargets.findOrigin(resume.id)
       : null
@@ -210,14 +211,16 @@ export class AutofillService {
 
   /**
    * AI answers for the fields rules left (spec 12), with one run row per
-   * request (spec 13). A model that is not configured degrades to plain
-   * questions without a run. A failed or late judge or short text call keeps
-   * what finished and turns the rest into plain questions (spec 4).
+   * request (spec 13). With neither model configured it degrades to plain
+   * questions without a run; with one, the fields the other would answer are
+   * asked. A failed or late judge or short text call keeps what finished and
+   * turns the rest into plain questions (spec 4).
    */
   async infer(input: InferInput): Promise<InferResult> {
     const started = Date.now()
     await this.deps.runs.assertWithinHourlyLimit("autofill")
-    const keyed = keyFields(aiFields(input.page.vendor, input.fields))
+    const { vendor } = input.page
+    const keyed = keyFields(vendor, aiFields(vendor, input.fields))
     const page = keyed
       .filter(({ lane }) => lane === "page")
       .map(({ field }) => field.id)
@@ -230,7 +233,7 @@ export class AutofillService {
     }
     const { models } = this.deps
     const ready = models.ready()
-    if (!ready.judge || !ready.text) {
+    if (!ready.judge && !ready.text) {
       return this.respond(input, {
         fills: [],
         write: [],
@@ -245,7 +248,7 @@ export class AutofillService {
       input.resumeId,
       "autofill.infer",
       started,
-      (count) => this.answerFields(input, keyed, context, started, count)
+      (count) => this.answerFields(keyed, context, { ready, started, count })
     )
     return this.respond(input, result)
   }
@@ -253,54 +256,67 @@ export class AutofillService {
   /**
    * The judge and short text in parallel until `JUDGE_MS`, the tiers, then
    * the question list until `INFER_MS`. Both deadlines count from `started`,
-   * the start of the request.
+   * the start of the request. A call whose model is not configured is not
+   * made, and its fields are asked as after a failed call, without failing
+   * the run.
    */
   private async answerFields(
-    input: InferInput,
     keyed: KeyedField[],
     context: ContextInput,
-    started: number,
-    count: Count
+    meter: { ready: Ready; started: number; count: Count }
   ): Promise<Metered<Omit<InferResult, "quota">>> {
     const { models } = this.deps
+    const { ready, started, count } = meter
     const asks = modelInputs(keyed)
     const { judge } = asks
     const step = deadlineAt(started + JUDGE_MS)
-    const [judged, short] = await Promise.allSettled([
-      judge.choices.length + judge.multi.length + judge.open.length > 0
-        ? within(step.call.signal, () =>
-            models.judge({
-              ...step.call,
-              context: applicantContext({ ...context, page: NO_PAGE }),
-              ...judge,
-            })
-          ).then(count)
-        : NOTHING_JUDGED,
-      asks.short.length > 0
-        ? within(step.call.signal, () =>
-            models.shortText({
-              ...step.call,
-              context: applicantContext(context),
-              fields: asks.short,
-            })
-          ).then(count)
-        : NOTHING_ANSWERED,
-    ])
+    const judging = async (): Promise<JudgeOutput | null> => {
+      if (judge.choices.length + judge.multi.length + judge.open.length === 0)
+        return NOTHING_JUDGED
+      if (!ready.judge) return null
+      return within(step.call.signal, () =>
+        models.judge({
+          ...step.call,
+          context: applicantContext(context),
+          ...judge,
+        })
+      ).then(count)
+    }
+    const answering = async (): Promise<ShortTextOutput | null> => {
+      if (asks.short.length === 0) return NOTHING_ANSWERED
+      if (!ready.text) return null
+      return within(step.call.signal, () =>
+        models.shortText({
+          ...step.call,
+          context: applicantContext(context),
+          fields: asks.short,
+        })
+      ).then(count)
+    }
+    const [judged, short] = await Promise.allSettled([judging(), answering()])
     step.clear()
 
     const failed = judged.status === "rejected" || short.status === "rejected"
-    const failure = failed ? stepFailure(step.call.signal) : null
-    const { fills, write, page, ask } = settle(
-      keyed,
-      judged.status === "fulfilled" ? judged.value : null,
-      short.status === "fulfilled" ? short.value : null
+    let failure = failed ? stepFailure(step.call.signal) : null
+    const judgedOutput = judged.status === "fulfilled" ? judged.value : null
+    const shortOutput = short.status === "fulfilled" ? short.value : null
+    const { fills, write, page, ask } = settle(keyed, judgedOutput, shortOutput)
+    // Null is a call that failed, or one a missing model could not make.
+    const degraded =
+      judgedOutput === null ||
+      shortOutput === null ||
+      Boolean(judgedOutput?.degraded || shortOutput?.degraded)
+    if (
+      degraded &&
+      !failure &&
+      (judgedOutput?.degraded || shortOutput?.degraded)
     )
-    const degraded = failure !== null
+      failure = stepFailure(step.call.signal)
     const value = { fills, write, page, questions: [], degraded }
     if (ask.length === 0) return { value, failure }
-    if (failure) {
+    if (failure || !ready.text) {
       const questions = plainQuestions(fieldsOf(keyed), ask)
-      return { value: { ...value, questions }, failure }
+      return { value: { ...value, questions, degraded: true }, failure }
     }
 
     // A failed or late question list degrades to plain questions and keeps
@@ -309,8 +325,8 @@ export class AutofillService {
     const output = await within(listed.call.signal, () =>
       models.questions({
         ...listed.call,
-        context: applicantContext(context),
-        company: input.page.company,
+        context: {},
+        company: null,
         fields: questionFields(keyed, ask),
       })
     )
@@ -320,7 +336,10 @@ export class AutofillService {
     const questions = output
       ? questionList(keyed, ask, output.questions)
       : plainQuestions(fieldsOf(keyed), ask)
-    return { value: { ...value, questions, degraded: !output }, failure }
+    return {
+      value: { ...value, questions, degraded: degraded || !output },
+      failure,
+    }
   }
 
   /**
@@ -441,7 +460,12 @@ export class AutofillService {
     return this.respond(input, { text })
   }
 
-  /** Fills from the user's text until `ANSWER_FILL_MS`; a failed call fills nothing. */
+  /**
+   * Fills from the user's text until `ANSWER_FILL_MS`: the judge decides the
+   * closed fields from the reply by option, and the fill model writes the
+   * search and text values, in parallel. A failed call fills none of its
+   * fields, and without a configured judge the closed fields stay open.
+   */
   private async fillFromAnswer(
     text: string,
     context: ContextInput,
@@ -449,23 +473,43 @@ export class AutofillService {
     targets: KeyedField[],
     meter: { started: number; count: Count }
   ): Promise<Metered<AnswerFills>> {
-    const none: AnswerFills = { fills: [], unmatched: [] }
-    if (targets.length === 0) return { value: none, failure: null }
+    const { models } = this.deps
+    const asks = answerInputs(readable, targets)
     const step = deadlineAt(meter.started + ANSWER_FILL_MS)
-    const output = await within(step.call.signal, () =>
-      this.deps.models.fillFromAnswer({
-        ...step.call,
-        context: applicantContext(context),
-        text,
-        ...answerInput(readable, targets),
-      })
-    )
-      .then(meter.count)
-      .catch(() => null)
+    const judging = async (): Promise<JudgeOutput | null> => {
+      const { choices, multi } = asks.judge
+      if (choices.length + multi.length === 0 || !models.ready().judge)
+        return null
+      return within(step.call.signal, () =>
+        models.judge({
+          ...step.call,
+          context: applicantContext(context),
+          reply: { text },
+          ...asks.judge,
+        })
+      ).then(meter.count)
+    }
+    const writing = async (): Promise<FillFromAnswerOutput | null> => {
+      if (asks.fill.fields.length === 0) return null
+      return within(step.call.signal, () =>
+        models.fillFromAnswer({
+          ...step.call,
+          context: applicantContext(context),
+          text,
+          ...asks.fill,
+        })
+      ).then(meter.count)
+    }
+    const [judged, written] = await Promise.allSettled([judging(), writing()])
     step.clear()
-    if (!output) return { value: none, failure: stepFailure(step.call.signal) }
-    const value = answerFills(targets, readable, output.answers)
-    return { value, failure: null }
+    const failed = judged.status === "rejected" || written.status === "rejected"
+    const value = answerFills(
+      readable,
+      targets,
+      judged.status === "fulfilled" ? judged.value : null,
+      written.status === "fulfilled" ? written.value : null
+    )
+    return { value, failure: failed ? stepFailure(step.call.signal) : null }
   }
 
   /**
@@ -558,27 +602,19 @@ export class AutofillService {
 
   /**
    * What AI may know about the applicant (spec 12.3): the Profile, the
-   * resume, the Notes and, only when `useJob`, the origin job.
+   * resume and complete Notes. Imported job context is never fetched for AI.
    */
   private async contextInput(input: AiRequest): Promise<ContextInput> {
-    const [{ profile }, record, notes, origin] = await Promise.all([
+    const [{ profile }, record, notes] = await Promise.all([
       this.deps.profiles.get(),
       this.deps.resumes.findById(input.resumeId),
       this.deps.notes.get(),
-      input.useJob ? this.deps.jobTargets.findOrigin(input.resumeId) : null,
     ])
     if (!record) throw new AppError("NOT_FOUND", "Resume not found")
     return {
       profile,
       resume: record.data,
       notes: notes.content,
-      job: origin && {
-        company: origin.company,
-        title: origin.title,
-        requirements: origin.requirements,
-        description: origin.rawText,
-      },
-      page: { company: input.page.company, title: input.page.title },
       today: this.deps.clock(),
     }
   }

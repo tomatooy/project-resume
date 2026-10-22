@@ -24,6 +24,15 @@ export function clampZoom(zoom: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom))
 }
 
+/** The zoom buttons: the next step up, or the zoom itself at the top. */
+export function nextZoomStep(zoom: number): number {
+  return ZOOM_STEPS.find((step) => step > zoom) ?? zoom
+}
+
+export function previousZoomStep(zoom: number): number {
+  return [...ZOOM_STEPS].reverse().find((step) => step < zoom) ?? zoom
+}
+
 export function createPreviewStore(): Store<PreviewState> {
   return new Store<PreviewState>({
     blob: null,

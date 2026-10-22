@@ -36,6 +36,7 @@
     "@tanstack/store": "^0.11.1",
     "@workspace/agent": "workspace:*",
     "@workspace/autofill": "workspace:*",
+    "@workspace/openai": "workspace:*",
     "@workspace/resume-core": "workspace:*",
     "@workspace/resume-render": "workspace:*",
     "@workspace/resume-schema": "workspace:*",
@@ -55,7 +56,8 @@
     "@workspace/api": "workspace:*",
     "@orpc/server": "^1.13.0",
     "@orpc/openapi": "^1.13.0",
-    "@orpc/zod": "^1.13.0"
+    "@orpc/zod": "^1.13.0",
+    "@workspace/resume-preview": "workspace:*"
   },
   "devDependencies": {
     "@ai-sdk/provider": "4.0.10",

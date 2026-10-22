@@ -5,7 +5,7 @@ import {
   AssistantRuntime,
   type AssistantApi,
 } from "@/features/chat/assistant-runtime"
-import { createPreviewStore } from "@/features/resume/preview/preview-store"
+import { createPreviewStore } from "@workspace/resume-preview"
 import { ResumeSession } from "@/features/resume/store"
 import type { ChatHistory, ResumeRecord } from "@/lib/types"
 import { BLANK_SKILL, SkillEditor } from "./skill-editor"

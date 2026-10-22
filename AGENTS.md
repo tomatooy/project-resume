@@ -63,29 +63,53 @@ conversations, suggestions, versions, and memory all hang off it.
 
 ## Monorepo overview
 
-Bun workspaces + Turborepo.
+Bun workspaces + Turborepo. Workspaces are `apps/*`, `packages/*`, and
+`supabase`.
 
-- `apps/web`: the app (TanStack Start + Vite 8 + React 19 + TypeScript 6).
+- `apps/web`: the app (TanStack Start + Vite 8 + React 19 + TypeScript 6). It
+  also hosts the Worker API the extension calls at `/api/v1`.
+- `apps/extension`: the Chrome MV3 extension (side panel, job capture,
+  tailoring, autofill). See `docs/extension/README.md`.
 - `packages/resume-schema`: the Zod document schema, node ids, the patch
   contract (`applyPatches` / `validatePatches`), fixtures, migrate, diff, hash,
-  and format helpers. Deps: `zod` + `nanoid` only. No React, no Supabase, no
-  AI SDK.
+  and format helpers (including `resumeFileName`). Deps: `zod` + `nanoid`
+  only. No React, no Supabase, no AI SDK.
 - `packages/resume-render`: react-pdf templates and fonts. Depends on
   `resume-schema`. Re-exports `pdf` and `usePDF` so the app never imports
   `@react-pdf/renderer` directly.
+- `packages/resume-preview`: the browser preview pipeline shared by the web
+  editor and the extension's tailored preview (`PdfEngine`, `PdfViewer`, the
+  preview store and zoom steps, the pdf.js worker setup, the render queue).
+- `packages/resume-core`: the domain layer (types, ports, services, in-memory
+  doubles). See its README.
+- `packages/autofill`: browser-safe autofill logic (field descriptors, the
+  Profile, classification, rules, notes). Shared by the web app, the server,
+  and the extension.
+- `packages/agent`: everything that touches the AI SDK (prompts, tools, the
+  run loop, models).
+- `packages/api`: the browser-safe oRPC contract and client for `/api/v1`,
+  shared by the Worker and the extension.
+- `packages/typesafe`: server-side Jev decisions through `@typesafe-ai/sdk`.
 - `packages/ui`: shadcn on Base UI components, the `cn` helper, and the
   `globals.css` design tokens. Import via `@workspace/ui/components/*`,
   `@workspace/ui/lib/utils`, and `@workspace/ui/globals.css`.
-- `packages/eslint-config`, `packages/typescript-config`: shared config
-  (legacy; the app is moving off eslint).
+- `supabase` (`@workspace/supabase`): migrations, generated database types,
+  database tests, and the local Supabase scripts.
 
 Dependency direction (arrows point at dependencies):
 
 ```text
-apps/web -> packages/ui
-apps/web -> packages/resume-schema
-apps/web -> packages/resume-render -> packages/resume-schema
-packages/resume-schema -> (nothing internal)
+apps/web       -> agent, api, autofill, resume-core, resume-preview,
+                  resume-render, resume-schema, supabase, typesafe, ui
+apps/extension -> api, autofill, resume-core, resume-preview, resume-render,
+                  resume-schema, ui
+agent          -> autofill, resume-core, resume-schema, typesafe
+api            -> resume-core
+resume-core    -> autofill, resume-schema
+autofill       -> resume-schema
+resume-preview -> resume-render, resume-schema, ui
+resume-render  -> resume-schema
+resume-schema, typesafe, ui -> (nothing internal)
 ```
 
 ## Architecture: target vs current
@@ -130,7 +154,7 @@ The current code implements that target end to end:
   the run loop (`turn.ts`), the summarizer, and message conversion. Its entry
   point and `resume-schema`'s are curated by hand; add an export only when a
   consumer outside the package needs it. Dependency direction is `web -> agent
-  -> resume-core -> resume-schema`.
+  -> resume-core -> autofill -> resume-schema`.
 - The assistant is `POST /api/chat` (`server/chat/handle-chat.ts`) consumed by
   `useChat` (`features/chat/use-assistant.ts`). The handler opens the run
   and streams; what happens once the turn ends (transcript row, run row, log
@@ -254,19 +278,25 @@ Server state (TanStack Query):
   to `lisbon` on unknown ids.
 - Naming trap: `@react-pdf/renderer` and `react-pdf` both export `Document` and
   `Page`. The renderer is imported only inside `packages/resume-render`; the
-  viewer only inside `features/resume/preview/PdfViewer.tsx`. `resume-render`
-  re-exports `pdf` and `usePDF`; the app imports those, never the renderer.
-- Pipeline: `PdfEngine` (lazy, client-only, mounted by `PreviewProvider`) ->
-  300ms debounce -> `ResumeDocument` -> `usePDF` -> blob -> `PdfViewer` (lazy,
-  pdf.js). The previous blob is kept while a new render is in flight so the
-  viewer never blanks. `previewPatches` (a hovered suggestion) are applied to a
-  copy before rendering.
+  viewer only inside `packages/resume-preview/src/PdfViewer.tsx`.
+  `resume-render` re-exports `pdf` and `usePDF`; the apps import those, never
+  the renderer.
+- Pipeline (`packages/resume-preview`, shared by the web editor and the
+  extension's tailored preview): `PdfEngine` (lazy, client-only, mounted by
+  `PreviewProvider`) -> 300ms debounce -> `ResumeDocument` -> `usePDF` -> blob
+  -> `PdfViewer` (lazy, pdf.js). The previous blob is kept while a new render
+  is in flight so the viewer never blanks. The web wrapper
+  (`features/resume/preview/preview-context.tsx`) feeds the session's document
+  in; `previewPatches` (a hovered suggestion) are applied to a copy before
+  rendering. Zoom steps come from the package (`nextZoomStep`,
+  `previousZoomStep`).
 - `checkFit` (`preview/check-fit.tsx`) renders a one-off blob with
   `pdf().toBlob()` off the main pane and reads the page count back with pdf.js;
   the assistant's page-target skill uses it. It never throws; a failed render
   returns `ok: false`.
 - Download reuses the preview blob (export is free); the filename is
-  `${slug(basics.name)}-resume.pdf`.
+  `resumeFileName(basics.name)` from `resume-schema`, the same name the
+  extension uses for a tailored PDF and an autofill attachment.
 
 ## Chat / assistant (`features/chat`)
 
@@ -356,12 +386,14 @@ Server state (TanStack Query):
 - Typecheck: `bun run typecheck`
 - Format: `bun run format`
 - Check/fix (Biome): `bun run check`
-- Tests (`resume-schema`, `resume-render`, `resume-core`, and `agent` carry
-  Vitest suites): `cd packages/resume-schema && bun test` (and the same for the
-  other three), or `bun run test` at the root.
+- Tests (every app and package except `resume-preview` and `ui` carries a
+  Vitest suite): `bun run test` inside one workspace, or `bun run test` at the
+  root.
 
 ## Verifying changes
 
+- **Do not write tests unless the user explicitly asks for them.** Use existing
+  tests and static checks to verify changes.
 - **Do not use browser automation to verify UI changes.** No Claude in Chrome
   (`mcp__claude-in-chrome__*`), Puppeteer, Playwright, headless Chrome, or
   Chrome DevTools MCP to visually confirm a change. The user verifies UI
@@ -381,7 +413,11 @@ Server state (TanStack Query):
   functions map to these.
 - Privacy: resume data is sensitive. Never write document content, message
   content, or patch text to logs, traces, or analytics (see
-  `over-all-design.md` section 9).
+  `over-all-design.md` section 9). The one exception is the dev-only autofill
+  trace: the extension's `src/autofill/debug.ts` (on only in an unpacked
+  build) and the web server's `src/server/autofill-trace.ts` (on only under
+  `vite dev`). Neither runs in a store install or a deployed Worker, and both
+  log an error as its class, never its message.
 - Design-sync artifacts: `.design-sync/`, `.ds-sync/`, `ds-bundle/`, and
   `packages/ui/.ds-css/` are generated by the claude.ai/design sync tooling.
   Do not hand-edit them.

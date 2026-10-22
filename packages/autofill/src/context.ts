@@ -28,15 +28,34 @@ export type ContextInput = {
   profile: Profile
   resume: Resume | null
   notes: string
-  job: AiJob | null
-  page: { company: string | null; title: string | null }
+  /** Legacy callers may pass these; neither is serialized. */
+  job?: AiJob | null
+  page?: { company: string | null; title: string | null }
   today: Date
 }
 
-/** Characters of the job description that reach AI. */
-export const JOB_DESCRIPTION_MAX = 8_000
+/** Prune missing values without losing explicit negatives or zero. */
+export function compactJson(value: Json): Json | undefined {
+  if (value === null || (typeof value === "string" && value.trim() === ""))
+    return undefined
+  if (Array.isArray(value)) {
+    const values = value.flatMap((item) => {
+      const compact = compactJson(item)
+      return compact === undefined ? [] : [compact]
+    })
+    return values.length ? values : undefined
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value).flatMap(([key, item]) => {
+      const compact = compactJson(item)
+      return compact === undefined ? [] : [[key, compact]]
+    })
+    return entries.length ? Object.fromEntries(entries) : undefined
+  }
+  return value
+}
 
-/** The Profile without EEO and salary, which only rules use (spec 12.3). */
+/** Salary stays with rules; other Profile answers are available to AI. */
 function profileJson(profile: Profile): JsonObject {
   const { startKind, startDate, noticeWeeks, relocation, workModes, cities } =
     profile.preferences
@@ -53,6 +72,7 @@ function profileJson(profile: Profile): JsonObject {
       workModes,
       cities,
     },
+    eeo: profile.eeo,
     other: profile.other,
   }
 }
@@ -130,26 +150,16 @@ function resumeJson({ basics, sections }: Resume): JsonObject {
 }
 
 /**
- * What every AI pass knows about the applicant: the Profile (without EEO and
- * salary), the resume, the whole Notes text, the job and the page.
+ * Applicant records only. Imported job and page metadata never enter AI state.
+ * Notes remain verbatim; structured records lose only empty values and node ids.
  */
 export function applicantContext(input: ContextInput): Json {
-  const { job } = input
   return {
     today: isoDate(input.today),
-    profile: profileJson(input.profile),
-    resume: input.resume && resumeJson(input.resume),
+    profile: compactJson(profileJson(input.profile)) ?? {},
+    resume: input.resume
+      ? (compactJson(resumeJson(input.resume)) ?? null)
+      : null,
     notes: input.notes,
-    job: job && {
-      company: job.company,
-      title: job.title,
-      requirements: {
-        mustHaves: job.requirements.mustHaves,
-        niceToHaves: job.requirements.niceToHaves,
-        keywords: job.requirements.keywords,
-      },
-      description: job.description.slice(0, JOB_DESCRIPTION_MAX),
-    },
-    page: { company: input.page.company, title: input.page.title },
   }
 }

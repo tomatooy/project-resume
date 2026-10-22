@@ -29,34 +29,53 @@ const POPOVER_WIDTH = 360
 /** The popover keeps this far from the viewport's left edge. */
 const MARGIN = 8
 
+/*
+ * Neither the page's styles nor the app's palette reach the closed shadow
+ * root, so the overlay keeps its own light palette, named by the roles in
+ * docs/design/style-colors.md. Rules below use only these.
+ */
+const PALETTE = `
+  --foreground: #18181b;
+  --muted-foreground: #52525b;
+  --card: #fff;
+  --muted: #fafafa;
+  --accent: #f4f4f5;
+  --border: #e4e4e7;
+  --input: #d4d4d8;
+  --primary: #18181b;
+  --primary-foreground: #fff;
+  --warning: #b45309;
+`
+
 const CSS = `
 .anchor {
+  ${PALETTE}
   position: absolute;
   transform: translateX(-100%);
   font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: #18181b;
+  color: var(--foreground);
   color-scheme: light;
 }
 .anchor.open { z-index: 1; }
 button { margin: 0; font: inherit; border-radius: 6px; cursor: pointer; }
 button:disabled { cursor: default; opacity: 0.5; }
 button:focus-visible, .instruction:focus-visible {
-  outline: 2px solid #18181b;
+  outline: 2px solid var(--foreground);
   outline-offset: 2px;
 }
 .write {
   display: block;
   padding: 3px 10px;
-  border: 1px solid #d4d4d8;
+  border: 1px solid var(--input);
   border-radius: 999px;
-  background: #fff;
-  color: #18181b;
+  background: var(--card);
+  color: var(--foreground);
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 6%, transparent);
 }
-.write:hover:not(:disabled), .secondary:hover:not(:disabled) { background: #f4f4f5; }
+.write:hover:not(:disabled), .secondary:hover:not(:disabled) { background: var(--accent); }
 .popover {
   position: absolute;
   top: calc(100% + 6px);
@@ -67,10 +86,10 @@ button:focus-visible, .instruction:focus-visible {
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border: 1px solid #e4e4e7;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.14);
+  background: var(--card);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--foreground) 14%, transparent);
   text-align: left;
 }
 .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -79,20 +98,20 @@ button:focus-visible, .instruction:focus-visible {
   padding: 0 6px;
   border: 0;
   background: transparent;
-  color: #52525b;
+  color: var(--muted-foreground);
   font-size: 18px;
   line-height: 1;
 }
-.close:hover { color: #18181b; }
-.status { margin: 0; color: #52525b; font-size: 12px; }
-.status.warn { color: #b45309; }
+.close:hover { color: var(--foreground); }
+.status { margin: 0; color: var(--muted-foreground); font-size: 12px; }
+.status.warn { color: var(--warning); }
 .draft {
   max-height: 240px;
   overflow: auto;
   padding: 8px;
-  border: 1px solid #e4e4e7;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fafafa;
+  background: var(--muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -101,9 +120,9 @@ button:focus-visible, .instruction:focus-visible {
   width: 100%;
   min-height: 52px;
   padding: 6px 8px;
-  border: 1px solid #d4d4d8;
+  border: 1px solid var(--input);
   border-radius: 6px;
-  background: #fff;
+  background: var(--card);
   color: inherit;
   font: inherit;
   font-size: 12px;
@@ -111,9 +130,9 @@ button:focus-visible, .instruction:focus-visible {
 }
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
 .primary, .secondary { padding: 6px 12px; font-size: 12px; font-weight: 500; }
-.primary { border: 1px solid #18181b; background: #18181b; color: #fff; }
-.primary:hover:not(:disabled) { background: #27272a; }
-.secondary { border: 1px solid #d4d4d8; background: #fff; color: #18181b; }
+.primary { border: 1px solid var(--primary); background: var(--primary); color: var(--primary-foreground); }
+.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 92%, var(--primary-foreground)); }
+.secondary { border: 1px solid var(--input); background: var(--card); color: var(--foreground); }
 [hidden] { display: none !important; }
 `
 

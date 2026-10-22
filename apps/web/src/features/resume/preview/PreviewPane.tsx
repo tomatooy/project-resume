@@ -37,13 +37,21 @@ import {
   usePreviewStore,
   usePreviewDemand,
 } from "./preview-context"
-import { clampZoom, ZOOM_MAX, ZOOM_MIN, ZOOM_STEPS } from "./preview-store"
+import {
+  clampZoom,
+  nextZoomStep,
+  previousZoomStep,
+  ZOOM_MAX,
+  ZOOM_MIN,
+} from "@workspace/resume-preview"
 import { TemplateThumb } from "./TemplateThumb"
 import { usePinchZoom } from "./use-pinch-zoom"
 import { useTemplateThumbs } from "./use-template-thumbs"
 
 const PdfViewer = lazy(() =>
-  import("./PdfViewer").then((m) => ({ default: m.PdfViewer }))
+  import("@workspace/resume-preview/viewer").then((m) => ({
+    default: m.PdfViewer,
+  }))
 )
 
 const PAGE_LABEL: Record<PageSize, string> = {
@@ -264,7 +272,7 @@ export function PreviewPane({
               label="Zoom out"
               className="rounded-full"
               disabled={zoom <= ZOOM_MIN}
-              onClick={() => setZoom(previousStep(zoom))}
+              onClick={() => setZoom(previousZoomStep(zoom))}
             >
               <MinusIcon />
             </IconButton>
@@ -275,7 +283,7 @@ export function PreviewPane({
               label="Zoom in"
               className="rounded-full"
               disabled={zoom >= ZOOM_MAX}
-              onClick={() => setZoom(nextStep(zoom))}
+              onClick={() => setZoom(nextZoomStep(zoom))}
             >
               <PlusIcon />
             </IconButton>
@@ -382,12 +390,4 @@ function TemplateMenu({
       </div>
     </div>
   )
-}
-
-function nextStep(zoom: number): number {
-  return ZOOM_STEPS.find((step) => step > zoom) ?? zoom
-}
-
-function previousStep(zoom: number): number {
-  return [...ZOOM_STEPS].reverse().find((step) => step < zoom) ?? zoom
 }

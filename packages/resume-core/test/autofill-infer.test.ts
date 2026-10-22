@@ -2,6 +2,7 @@ import {
   applicantContext,
   type FieldDescriptor,
   plainQuestions,
+  ProfileSchema,
 } from "@workspace/autofill"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -62,6 +63,41 @@ const community = field(
 const team = field("team", "Team you are most excited about", "select", {
   optionsPending: true,
 })
+
+const race = field(
+  "9fe919b5-6e70-4cd8-b5be-943d2e1cea10",
+  "What race and/or ethnic identities do you identify with? (please select all that apply)",
+  "checkboxes",
+  {
+    required: false,
+    section: "Voluntary Self-Identification",
+    options: [
+      "American Indian or Alaskan Native",
+      "Black of African or African-American descent",
+      "East Asian",
+      "Hispanic or Latinx",
+      "Middle Eastern or North African",
+      "Native Hawaiian or Other Pacific Islander",
+      "South Asian",
+      "Southeast Asian",
+      "White or Caucasian",
+      "My ethnicity is not listed",
+      "I prefer not to say",
+    ].map((label, i) => ({ id: `#${i + 1}`, label })),
+  }
+)
+const veteran = field(
+  "9a75853e-b4fa-4e72-b488-dbe18ce37afc",
+  "US candidates only: Are you a veteran/have you served in the military?",
+  "radio",
+  {
+    required: false,
+    section: "Voluntary Self-Identification",
+    options: ["Yes", "No", "Not applicable", "I prefer not to say"].map(
+      (label, i) => ({ id: `#${i + 1}`, label })
+    ),
+  }
+)
 
 /** Infers through the contract, so a shape the schemas refuse fails here. */
 async function infer(
@@ -137,6 +173,194 @@ afterEach(() => {
 })
 
 describe("AutofillService.infer", () => {
+  it("routes Ashby demographic choices through the ordinary judge pipeline", async () => {
+    const judge = vi.fn(
+      judgeBy({
+        choices: {
+          [veteran.label]: { option: 1, applicant: false, confidence: 0.95 },
+        },
+        multi: {
+          [race.label]: [
+            0.01, 0.01, 0.95, 0.01, 0.01, 0.01, 0.01, 0.01, 0.9, 0.01, 0.01,
+          ],
+        },
+      })
+    )
+    const s = await session({ judge })
+    const profile = ProfileSchema.parse({
+      eeo: { race: ["asian", "white"], veteran: "not-protected" },
+    })
+    await s.h.autofillProfileService.save({ profile, expectedRevision: 0 })
+    const notes =
+      "- Identifies as East Asian and White.\n- Has never served in the military."
+    await s.h.autofillNotesService.save({
+      content: notes,
+      expectedRevision: 0,
+      snapshot: false,
+    })
+    const page: InferInput["page"] = {
+      ...PAGE,
+      vendor: "ashby",
+      postingKey: "ashby:example:posting",
+      url: "https://jobs.ashbyhq.com/example/posting",
+    }
+    const fields = [race, veteran]
+    const plan = await s.h.autofillService.plan({
+      page,
+      fields,
+      resumeId: s.resumeId,
+      linkedin: null,
+    })
+    expect(plan.fills).toEqual([])
+    expect(plan.classes).toEqual(
+      fields.map(({ id }) => ({
+        fieldId: id,
+        key: null,
+        zone: "normal",
+        route: "ai",
+      }))
+    )
+
+    const result = await infer(s, fields, { page })
+
+    const input = judge.mock.calls[0]?.[0]
+    expect(input?.context).toHaveProperty(["profile", "eeo"], profile.eeo)
+    expect(input?.context).toHaveProperty("notes", notes)
+    expect(input?.choices).toEqual([
+      {
+        key: "f2",
+        label: veteran.label,
+        options: veteran.options?.map(({ label }) => label),
+      },
+    ])
+    expect(input?.multi).toEqual([
+      {
+        key: "f1",
+        label: race.label,
+        options: race.options?.map(({ label }) => label),
+      },
+    ])
+    expect(result.fills).toEqual([
+      {
+        fieldId: race.id,
+        source: "ai",
+        kind: "options",
+        optionIds: ["#3", "#9"],
+        labels: ["East Asian", "White or Caucasian"],
+      },
+      {
+        fieldId: veteran.id,
+        source: "ai",
+        kind: "options",
+        optionIds: ["#2"],
+        labels: ["No"],
+      },
+    ])
+    expect(result.page).toEqual([])
+    expect(result.questions).toEqual([])
+  })
+
+  it("asks about uncertain demographic choices in the usual question flow", async () => {
+    const s = await session({
+      judge: judgeBy({
+        choices: {
+          [veteran.label]: { option: null, applicant: false, confidence: 0.2 },
+        },
+        multi: { [race.label]: race.options?.map(() => 0.2) ?? [] },
+      }),
+    })
+
+    const result = await infer(s, [race, veteran])
+
+    expect(result.fills).toEqual([])
+    expect(result.page).toEqual([])
+    expect(asked(result)).toEqual([race.id, veteran.id])
+  })
+
+  it.each([
+    { support: 0.95, contradiction: 0.02, blocked: false, fills: 1 },
+    { support: 0.89, contradiction: 0.02, blocked: false, fills: 0 },
+    { support: 0.95, contradiction: 0.11, blocked: false, fills: 0 },
+    { support: 0.95, contradiction: 0.02, blocked: true, fills: 0 },
+  ])(
+    "gates a weak choice with separate evidence checks: $support / $contradiction / $blocked",
+    async ({ support, contradiction, blocked, fills }) => {
+      const s = await session({
+        judge: judgeBy({
+          choices: {
+            [api.label]: {
+              option: 0,
+              applicant: false,
+              confidence: 0.52,
+              blocked,
+              verification: { support, contradiction },
+            },
+          },
+        }),
+      })
+      const result = await infer(s, [api])
+      expect(result.fills).toHaveLength(fills)
+      expect(result.questions).toHaveLength(1 - fills)
+    }
+  )
+
+  it("preserves usable fills and records a failed verification batch as degraded", async () => {
+    const judging = judgeBy({
+      choices: {
+        [api.label]: { option: 0, applicant: false, confidence: 0.95 },
+      },
+    })
+    const s = await session({
+      judge: async (input) => ({ ...(await judging(input)), degraded: true }),
+    })
+    const result = await infer(s, [api])
+    expect(result.fills).toHaveLength(1)
+    expect(result.degraded).toBe(true)
+    expect(only(s.h.db.runs)).toMatchObject({
+      status: "failed",
+      errorClass: "model",
+    })
+  })
+
+  it.each(["select", "checkboxes"] satisfies FieldDescriptor["control"][])(
+    "uses a supported Notes preference ahead of a low-probability guess for %s",
+    async (control) => {
+      const source = field("source", "How did you hear about us?", control, {
+        options: [
+          { id: "board", label: "Job board" },
+          { id: "social", label: "Social media (LinkedIn, Instagram, X etc)" },
+        ],
+      })
+      const s = await session({
+        judge: async () => ({
+          choices: {
+            f1: {
+              option: null,
+              applicant: false,
+              confidence: 0.96,
+              probabilities: [0.02, 0.01],
+            },
+          },
+          multi: { f1: [0.02, 0.01] },
+          preferences: { f1: { option: 1, support: 0.95 } },
+          open: {},
+          usage: USAGE,
+        }),
+      })
+      const result = await infer(s, [source])
+      expect(result.fills).toEqual([
+        {
+          fieldId: "source",
+          kind: "options",
+          source: "ai",
+          optionIds: ["social"],
+          labels: ["Social media (LinkedIn, Instagram, X etc)"],
+        },
+      ])
+      expect(asked(result)).toEqual([])
+    }
+  )
+
   it("fills a choice at confidence 0.8 or more", async () => {
     const at = (confidence: number) =>
       session({
@@ -162,6 +386,78 @@ describe("AutofillService.infer", () => {
     expect(asked(unsure)).toEqual(["api"])
   })
 
+  it.each([
+    {
+      name: "explicit answer",
+      option: 0,
+      applicant: false,
+      preferred: 1,
+      support: 0.95,
+      fills: ["Yes"],
+      page: [],
+      questions: [],
+    },
+    {
+      name: "applicant-only answer",
+      option: null,
+      applicant: true,
+      preferred: 1,
+      support: 0.95,
+      fills: [],
+      page: ["api"],
+      questions: [],
+    },
+    {
+      name: "uncertain preference",
+      option: null,
+      applicant: false,
+      preferred: 1,
+      support: 0.79,
+      fills: [],
+      page: [],
+      questions: ["api"],
+    },
+    {
+      name: "invalid preference option",
+      option: null,
+      applicant: false,
+      preferred: 9,
+      support: 0.95,
+      fills: [],
+      page: [],
+      questions: ["api"],
+    },
+  ])(
+    "keeps the $name when Notes has a fallback",
+    async ({
+      option,
+      applicant,
+      preferred,
+      support,
+      fills,
+      page,
+      questions,
+    }) => {
+      const s = await session({
+        judge: async () => ({
+          choices: { f1: { option, applicant, confidence: 0.95 } },
+          preferences: { f1: { option: preferred, support } },
+          multi: {},
+          open: {},
+          usage: USAGE,
+        }),
+      })
+      const result = await infer(s, [api])
+      expect(
+        result.fills.flatMap((fill) =>
+          fill.kind === "options" ? fill.labels : []
+        )
+      ).toEqual(fills)
+      expect(result.page).toEqual(page)
+      expect(asked(result)).toEqual(questions)
+    }
+  )
+
   it("sends a choice only the applicant can make to the page", async () => {
     const s = await session({
       judge: judgeBy({
@@ -178,14 +474,54 @@ describe("AutofillService.infer", () => {
     expect(asked(result)).toEqual([])
   })
 
-  it("fills a multi-select only when every option is settled", async () => {
+  it("fills supported tools even when another option is uncertain", async () => {
+    const tools = field(
+      "tools",
+      "Please select all of the tools you have hands on experience with? This must be hands on experience only.",
+      "checkboxes",
+      {
+        options: [
+          { id: "terraform", label: "Terraform" },
+          { id: "ansible", label: "Ansible" },
+          { id: "puppet", label: "Puppet" },
+          { id: "docker", label: "Docker" },
+          { id: "kubernetes", label: "Kubernetes" },
+          { id: "github-ci", label: "GitHub CI" },
+          { id: "jenkins", label: "Jenkins" },
+          { id: "chef", label: "Chef" },
+        ],
+      }
+    )
+    const s = await session({
+      judge: judgeBy({
+        multi: {
+          [tools.label]: [0.97, 0.04, 0.04, 0.96, 0.59, 0.93, 0.04, 0.04],
+        },
+      }),
+    })
+
+    const result = await infer(s, [tools])
+
+    expect(result.fills).toEqual([
+      {
+        fieldId: "tools",
+        source: "ai",
+        kind: "options",
+        optionIds: ["terraform", "docker", "github-ci"],
+        labels: ["Terraform", "Docker", "GitHub CI"],
+      },
+    ])
+    expect(asked(result)).toEqual([])
+  })
+
+  it("selects only supported multi-select options and asks when none qualify", async () => {
     const at = async (yes: number[]) =>
       infer(
         await session({ judge: judgeBy({ multi: { [langs.label]: yes } }) }),
         [langs]
       )
 
-    expect((await at([0.8, 0.2])).fills).toEqual([
+    expect((await at([0.6, 0.2])).fills).toEqual([
       {
         fieldId: "langs",
         source: "ai",
@@ -194,20 +530,24 @@ describe("AutofillService.infer", () => {
         labels: ["Python"],
       },
     ])
-    expect((await at([0.9, 0.95])).fills).toEqual([
+    expect((await at([0.6, 0.78])).fills).toEqual([
       expect.objectContaining({
         optionIds: ["#1", "#2"],
         labels: ["Python", "Go"],
       }),
     ])
-    // Undecided, nothing selected, or not one probability per option.
     for (const yes of [
       [0.9, 0.5],
-      [0.1, 0.1],
-      [0.79, 0.1],
-      [0.9, 0.21],
-      [0.9],
+      [0.6, 0.59],
     ]) {
+      const result = await at(yes)
+      expect(result.fills).toEqual([
+        expect.objectContaining({ optionIds: ["#1"], labels: ["Python"] }),
+      ])
+      expect(asked(result)).toEqual([])
+    }
+    // No supported selection, or an incomplete model response.
+    for (const yes of [[0.1, 0.1], [0.59, 0.1], [0.5, 0.36], [0.9]]) {
       const result = await at(yes)
       expect(result.fills).toEqual([])
       expect(asked(result)).toEqual(["langs"])
@@ -322,7 +662,7 @@ describe("AutofillService.infer", () => {
     }
   })
 
-  it("never sends forbidden, EEO or salary fields to a model", async () => {
+  it("keeps consent and salary on the page while sending gender to the judge", async () => {
     const gender = field("gender", "Gender", "select", {
       options: [
         { id: "#1", label: "Female" },
@@ -374,14 +714,15 @@ describe("AutofillService.infer", () => {
       ...questions.mock.calls.flatMap(([input]) => input.fields),
     ].map(({ label }) => label)
     expect(sent).toContain(api.label)
+    expect(sent).toContain(gender.label)
     const touched = [
       ...result.fills.map(({ fieldId }) => fieldId),
       ...result.write,
       ...result.page,
       ...asked(result),
     ]
-    expect(touched).toEqual(["api", "favorite"])
-    for (const forbidden of [gender, salary, privacy]) {
+    expect(touched).toEqual(["gender", "api", "favorite"])
+    for (const forbidden of [salary, privacy]) {
       expect(sent).not.toContain(forbidden.label)
     }
   })
@@ -551,16 +892,11 @@ describe("AutofillService.infer", () => {
 
     await infer(s, [api, favorite])
 
-    // Jev's state is the applicant alone (spec 12.1); DeepSeek sees the page.
-    expect(judge.mock.calls[0]?.[0].context).toMatchObject({
-      page: { company: null, title: null },
-    })
-    expect(shortText.mock.calls[0]?.[0].context).toMatchObject({
-      page: { company: "Stripe", title: "Software Engineer" },
-    })
+    expect(judge.mock.calls[0]?.[0].context).not.toHaveProperty("page")
+    expect(shortText.mock.calls[0]?.[0].context).not.toHaveProperty("page")
   })
 
-  it("gives the models the job description only when asked", async () => {
+  it("never gives models imported job context, including legacy useJob requests", async () => {
     const shortText = vi.fn(shortBy({}))
     const s = await session({ shortText })
     const target = await s.h.jobTargets.create({
@@ -586,15 +922,8 @@ describe("AutofillService.infer", () => {
     await infer(s, [favorite])
     await infer(s, [favorite], { useJob: true })
 
-    expect(shortText.mock.calls[0]?.[0].context).toMatchObject({ job: null })
-    expect(shortText.mock.calls[1]?.[0].context).toMatchObject({
-      job: {
-        company: "Stripe",
-        title: "Software Engineer",
-        requirements: { mustHaves: ["TypeScript"] },
-        description: target.rawText,
-      },
-    })
+    for (const [input] of shortText.mock.calls)
+      expect(input.context).not.toHaveProperty("job")
   })
 
   it("builds the question list from the model", async () => {
@@ -662,8 +991,8 @@ describe("AutofillService.infer", () => {
       },
     ])
     expect(questions.mock.calls[0]?.[0]).toMatchObject({
-      context: { page: { company: "Stripe", title: "Software Engineer" } },
-      company: "Stripe",
+      context: {},
+      company: null,
       fields: [
         { label: api.label, options: ["Yes", "No"] },
         { label: build.label, options: [] },
@@ -917,8 +1246,9 @@ describe("AutofillService.infer", () => {
     })
   })
 
-  it("degrades without a run row when a model is not configured", async () => {
+  it("degrades without a run row only when neither model is configured", async () => {
     for (const ready of [
+      { judge: false, text: false },
       { judge: false, text: true },
       { judge: true, text: false },
     ]) {
@@ -936,8 +1266,8 @@ describe("AutofillService.infer", () => {
       expect(result.questions).toEqual(
         plainQuestions([api, favorite], ["api", "favorite"])
       )
-      expect(s.h.db.runs).toEqual([])
-      expect(judge).not.toHaveBeenCalled()
+      expect(s.h.db.runs).toHaveLength(ready.judge || ready.text ? 1 : 0)
+      expect(judge).toHaveBeenCalledTimes(ready.judge ? 1 : 0)
       expect(only(s.h.db.autofillApplications).counts).toEqual(COUNTS)
     }
   })
@@ -1009,11 +1339,11 @@ describe("AutofillService.infer", () => {
   })
 
   it("spends nothing when no field needs AI", async () => {
-    const gender = field("gender", "Gender", "select", { options: YES_NO })
+    const consent = field("consent", "I consent", "select", { options: YES_NO })
     const judge = vi.fn(judgeBy({}))
     const s = await session({ judge })
 
-    const result = await infer(s, [gender, team, { ...api, hasValue: true }])
+    const result = await infer(s, [consent, team, { ...api, hasValue: true }])
 
     expect(result).toEqual({
       fills: [],
@@ -1136,7 +1466,7 @@ describe("AutofillService.infer", () => {
     expect(asked(long)).toEqual(["summary"])
   })
 
-  it("keeps a vendor's EEO fields from models whatever their label", async () => {
+  it("passes vendor demographic fields to the judge with their original labels", async () => {
     // Greenhouse's race question, labeled in Spanish.
     const race = field("race", "Raza", "select", { options: YES_NO })
     const judge = vi.fn(judgeBy({}))
@@ -1145,9 +1475,10 @@ describe("AutofillService.infer", () => {
     const result = await infer(s, [race, api])
 
     expect(judge.mock.calls[0]?.[0].choices.map(({ label }) => label)).toEqual([
+      race.label,
       api.label,
     ])
-    expect(asked(result)).toEqual(["api"])
+    expect(asked(result)).toEqual(["race", "api"])
   })
 
   it("calls only the models a request needs", async () => {

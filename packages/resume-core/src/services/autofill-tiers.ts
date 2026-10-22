@@ -6,7 +6,6 @@ import {
   type Fill,
   LIMITS,
   type Option,
-  pickOption,
   plainQuestions,
   type Question,
 } from "@workspace/autofill"
@@ -27,9 +26,26 @@ import type {
 
 /** A closed answer fills at this confidence or above (spec 12.1). */
 export const CHOICE_MIN = 0.8
-/** A multi-select option is settled at MULTI_YES or above, or at MULTI_NO or below. */
-export const MULTI_YES = 0.8
+/** Evidence checks are Noul probabilities, separate from choice confidence. */
+export const SUPPORT_MIN = 0.9
+export const CONTRADICTION_MAX = 0.1
+
+export function verifiedChoice(
+  verdict: JudgeOutput["choices"][string]
+): boolean {
+  return Boolean(
+    verdict.verification &&
+      verdict.verification.support >= SUPPORT_MIN &&
+      verdict.verification.contradiction <= CONTRADICTION_MAX
+  )
+}
+/** Notes preferences need both applicability and no explicit answer. */
+export const PREFERENCE_MIN = 0.8
+/** Per-option thresholds for confident selection or rejection. */
+export const MULTI_YES = 0.6
 export const MULTI_NO = 0.2
+/** A reply must clearly address the field before being called unmatched. */
+const ANSWERED_MIN = 0.8
 /**
  * Yes probabilities that make a field an open question: above TEXTAREA_OPEN
  * for a textarea, LINE_OPEN or above for a single-line input.
@@ -59,8 +75,18 @@ const CHECK_OPTIONS = ["Yes", "No"]
  */
 type Lane = "choice" | "check" | "multi" | "search" | "text" | "page"
 
-/** A field AI may see, with the key models know it by. */
-export type KeyedField = { key: string; field: FieldDescriptor; lane: Lane }
+/**
+ * A field AI may see, with the key models know it by. `guess` marks a "how
+ * did you hear about us" choice or multi-select: a wrong answer there costs
+ * little, so it takes the judge's likeliest option instead of becoming a
+ * question (spec 5.4).
+ */
+export type KeyedField = {
+  key: string
+  field: FieldDescriptor
+  lane: Lane
+  guess: boolean
+}
 
 /** Where each field AI saw ends up, by field id in page order. */
 export type Settled = {
@@ -76,7 +102,7 @@ type Outcome = Fill | "write" | "page" | "ask"
 
 /**
  * The fields AI may see: empty, and in the normal zone by the server's own
- * classifier, so forbidden, EEO, salary, write and file fields never reach a
+ * classifier, so forbidden, salary, write and file fields never reach a
  * model whatever the extension sent.
  */
 export function aiFields(
@@ -119,12 +145,17 @@ const mayBeOpen = (field: FieldDescriptor): boolean =>
   field.control === "text" || field.control === "textarea"
 
 /** Keys are positions (`f1`, `f2`, ...), so page ids never reach a model. */
-export function keyFields(fields: FieldDescriptor[]): KeyedField[] {
-  return fields.map((field, i) => ({
-    key: `f${i + 1}`,
-    field,
-    lane: laneOf(field),
-  }))
+export function keyFields(
+  vendor: AutofillVendor,
+  fields: FieldDescriptor[]
+): KeyedField[] {
+  return fields.map((field, i) => {
+    const lane = laneOf(field)
+    const guess =
+      (lane === "choice" || lane === "multi") &&
+      classifyField(vendor, field).key === "source.how-heard"
+    return { key: `f${i + 1}`, field, lane, guess }
+  })
 }
 
 const modelField = ({ key, field }: KeyedField): ModelField => ({
@@ -147,12 +178,15 @@ export function modelInputs(keyed: KeyedField[]): {
   const short: ShortTextInput["fields"] = []
   for (const item of keyed) {
     const { field, lane } = item
+    const judged = {
+      ...modelField(item),
+      ...(item.guess ? { guess: true } : {}),
+    }
     if (lane === "choice" || lane === "check") {
       const options = lane === "check" ? CHECK_OPTIONS : labels(field)
-      choices.push({ ...modelField(item), options })
+      choices.push({ ...judged, options })
     }
-    if (lane === "multi")
-      multi.push({ ...modelField(item), options: labels(field) })
+    if (lane === "multi") multi.push({ ...judged, options: labels(field) })
     if (lane === "text" && mayBeOpen(field)) {
       open.push({
         ...modelField(item),
@@ -204,7 +238,7 @@ export function settle(
 }
 
 function outcomeOf(
-  { key, field, lane }: KeyedField,
+  { key, field, lane, guess }: KeyedField,
   judged: JudgeOutput | null,
   answer: ShortAnswer | undefined
 ): Outcome {
@@ -212,10 +246,32 @@ function outcomeOf(
     case "page":
       return "page"
     case "choice":
-    case "check":
-      return choiceOutcome(field, lane, judged?.choices[key])
-    case "multi":
-      return multiOutcome(field, judged?.multi[key])
+    case "check": {
+      const verdict = judged?.choices[key]
+      if (verdict?.blocked || verdict?.unmatched) return "ask"
+      const outcome = choiceOutcome(field, lane, verdict)
+      if (typeof outcome !== "string" || outcome === "page") return outcome
+      const preference = judged?.preferences?.[key]
+      if (preference && preference.support >= PREFERENCE_MIN) {
+        const preferred = choiceOutcome(field, lane, {
+          option: preference.option,
+          confidence: preference.support,
+          applicant: false,
+        })
+        if (typeof preferred !== "string") return preferred
+      }
+      return guess ? guessChoice(field, verdict) : outcome
+    }
+    case "multi": {
+      const yes = judged?.multi[key]
+      const outcome = multiOutcome(field, yes)
+      if (typeof outcome !== "string") return outcome
+      const preference = judged?.preferences?.[key]
+      const option = preference && field.options?.[preference.option]
+      if (option && preference.support >= PREFERENCE_MIN)
+        return optionsFill(field, [option])
+      return guess ? guessMulti(field, yes) : outcome
+    }
     case "search":
       return shortOutcome(answer, (value) => searchFill(field, value))
     case "text":
@@ -249,7 +305,12 @@ function choiceOutcome(
   if (!verdict) return "ask"
   const { option, applicant, confidence } = verdict
   if (applicant) return "page"
-  if (option === null || !(confidence >= CHOICE_MIN)) return "ask"
+  if (
+    verdict.blocked ||
+    option === null ||
+    !(confidence >= CHOICE_MIN || verifiedChoice(verdict))
+  )
+    return "ask"
   if (lane === "check") {
     return option === 0 || option === 1
       ? { ...base(field), kind: "check", checked: option === 0 }
@@ -259,16 +320,68 @@ function choiceOutcome(
   return chosen ? optionsFill(field, [chosen]) : "ask"
 }
 
-/** Filled only when every option is settled and at least one is chosen. */
+/** Uncertain options do not block the supported selections. */
 function multiOutcome(
   field: FieldDescriptor,
   yes: number[] | undefined
 ): Outcome {
   const options = field.options ?? []
   if (!yes || yes.length !== options.length) return "ask"
-  if (!yes.every((p) => p >= MULTI_YES || p <= MULTI_NO)) return "ask"
   const chosen = options.filter((_, i) => (yes[i] ?? 0) >= MULTI_YES)
   return chosen.length > 0 ? optionsFill(field, chosen) : "ask"
+}
+
+/**
+ * The index of the highest probability above zero, the first on a tie, or -1
+ * when there is none.
+ */
+export function likeliest(probabilities: readonly number[]): number {
+  let best = -1
+  let top = 0
+  for (const [i, p] of probabilities.entries()) {
+    if (p > top) {
+      best = i
+      top = p
+    }
+  }
+  return best
+}
+
+function likeliestFill(
+  field: FieldDescriptor,
+  probabilities: number[]
+): Outcome {
+  const chosen = (field.options ?? [])[likeliest(probabilities)]
+  return chosen ? optionsFill(field, [chosen]) : "ask"
+}
+
+/**
+ * A "how did you hear" choice: what `choiceOutcome` fills, else the option
+ * the judge found likeliest, however unsure. With no answer, or no option
+ * above zero, it is asked.
+ */
+function guessChoice(
+  field: FieldDescriptor,
+  verdict: Verdict | undefined
+): Outcome {
+  const outcome = choiceOutcome(field, "choice", verdict)
+  if (typeof outcome !== "string" || !verdict?.probabilities) return outcome
+  return likeliestFill(field, verdict.probabilities)
+}
+
+/**
+ * A "how did you hear" multi-select: the options at MULTI_YES or above, else
+ * the likeliest one, however unsure. Options left unanswered still make it a
+ * question.
+ */
+function guessMulti(
+  field: FieldDescriptor,
+  yes: number[] | undefined
+): Outcome {
+  const options = field.options ?? []
+  if (!yes || yes.length !== options.length) return "ask"
+  const sure = options.filter((_, i) => (yes[i] ?? 0) >= MULTI_YES)
+  return sure.length > 0 ? optionsFill(field, sure) : likeliestFill(field, yes)
 }
 
 /** A textarea is open above TEXTAREA_OPEN, a single-line input from LINE_OPEN. */
@@ -285,6 +398,7 @@ function shortOutcome(
 ): Outcome {
   if (!answer) return "ask"
   if (answer.applicant) return "page"
+  if (answer.blocked) return "ask"
   const value = answer.value?.trim() ?? ""
   if (value === "" || answer.evidence.length === 0) return "ask"
   return fill(value) ?? "ask"
@@ -383,10 +497,9 @@ export type ReadableQuestion = { number: number; question: Question }
 
 /**
  * The questions a model may read (spec 12.3): every field a question names is
- * in the normal zone, judged both from the request's descriptor, which
- * carries the section, and from the label the question itself carries, which
- * still holds when the field is gone. So EEO, salary and other forbidden text
- * never reaches a model. Each keeps its number in the request's list.
+ * in the normal zone, checked against both the request's descriptor and the
+ * question's original label, which remains when the field is gone.
+ * Each keeps its number in the request's list.
  */
 export function readableQuestions(
   vendor: AutofillVendor,
@@ -416,7 +529,9 @@ export function readableQuestions(
 /**
  * The fields an answer may fill: those AI may see that a readable question
  * names, keyed as infer keys them. Closed fields whose options never loaded
- * stay on the page.
+ * stay on the page, and the rest keep their lanes: the judge decides choices,
+ * checkboxes and multi-selects from the reply, and the fill model writes
+ * search and text values.
  */
 export function answerTargets(
   vendor: AutofillVendor,
@@ -428,54 +543,92 @@ export function answerTargets(
       question.original.map(({ fieldId }) => fieldId)
     )
   )
-  return keyFields(aiFields(vendor, fields)).filter(
+  return keyFields(vendor, aiFields(vendor, fields)).filter(
     ({ field, lane }) => named.has(field.id) && lane !== "page"
   )
 }
 
-/** What the fill model reads: every readable question and the targets. */
-export function answerInput(
+/**
+ * What the models read about the reply, split as `modelInputs` splits infer.
+ * The judge gets each closed target with the question it was asked as. The
+ * fill model gets the search and text targets and every readable question, so
+ * numbers in the reply resolve.
+ */
+export function answerInputs(
   readable: ReadableQuestion[],
   targets: KeyedField[]
-): Pick<FillFromAnswerInput, "questions" | "fields"> {
-  const keys = new Map(targets.map(({ key, field }) => [field.id, key]))
-  return {
-    questions: readable.map(({ number, question }) => ({
-      number,
-      text: question.text,
-      options: question.options ?? [],
-      keys: question.original.flatMap(({ fieldId }) => keys.get(fieldId) ?? []),
-    })),
-    fields: targets.map((item) => ({
+): {
+  judge: Pick<JudgeInput, "choices" | "multi" | "open">
+  fill: Pick<FillFromAnswerInput, "questions" | "fields">
+} {
+  const choices: JudgeItem[] = []
+  const multi: JudgeItem[] = []
+  const typed: KeyedField[] = []
+  for (const item of targets) {
+    const { field, lane } = item
+    if (lane === "page") continue
+    if (lane === "search" || lane === "text") {
+      typed.push(item)
+      continue
+    }
+    const asked = readable.find(({ question }) =>
+      question.original.some(({ fieldId }) => fieldId === field.id)
+    )
+    const judged: JudgeItem = {
       ...modelField(item),
-      control: item.field.control,
-      options: item.lane === "check" ? CHECK_OPTIONS : labels(item.field),
-    })),
+      options: lane === "check" ? CHECK_OPTIONS : labels(field),
+      ...(asked
+        ? { asked: { number: asked.number, text: asked.question.text } }
+        : {}),
+    }
+    if (lane === "multi") multi.push(judged)
+    else choices.push(judged)
+  }
+  const keys = new Map(typed.map(({ key, field }) => [field.id, key]))
+  return {
+    judge: { choices, multi, open: [] },
+    fill: {
+      questions: readable.map(({ number, question }) => ({
+        number,
+        text: question.text,
+        options: question.options ?? [],
+        keys: question.original.flatMap(
+          ({ fieldId }) => keys.get(fieldId) ?? []
+        ),
+      })),
+      fields: typed.map((item) => ({
+        ...modelField(item),
+        control: item.field.control,
+        options: labels(item.field),
+      })),
+    },
   }
 }
 
 /**
- * Fills from the fill model's answers. A closed field takes only page
- * options: one for a choice or checkbox, one answer per chosen option for a
- * multi-select. A closed answer that matches no option marks every question
- * naming its field unmatched. Search and text values pass the infer checks,
+ * Fills from what the models made of the reply, in page order, as `settle`
+ * does for infer. A null output is a call that failed or was not made, and
+ * its fields stay open. Closed fields fill by option index: a choice or
+ * checkbox at CHOICE_MIN, a multi-select with the options at MULTI_YES or
+ * above. One the reply answers with something no option says marks every
+ * question naming it unmatched. Search and text values pass the infer checks,
  * and one that fails them is left open.
  */
 export function answerFills(
-  targets: KeyedField[],
   readable: ReadableQuestion[],
-  answers: FillFromAnswerOutput["answers"]
+  targets: KeyedField[],
+  judged: JudgeOutput | null,
+  written: FillFromAnswerOutput | null
 ): { fills: Fill[]; unmatched: string[] } {
-  const given = new Map<string, string[]>()
-  for (const { key, value } of answers) {
+  const given = new Map<string, string>()
+  for (const { key, value } of written?.answers ?? []) {
     const text = value?.trim() ?? ""
-    if (text !== "") given.set(key, [...(given.get(key) ?? []), text])
+    if (text !== "" && !given.has(key)) given.set(key, text)
   }
   const fills: Fill[] = []
   const missed = new Set<string>()
   for (const item of targets) {
-    const values = given.get(item.key)
-    const fill = values ? answerFill(item, values) : null
+    const fill = replyOutcome(item, judged, given.get(item.key))
     if (fill === "unmatched") missed.add(item.field.id)
     else if (fill) fills.push(fill)
   }
@@ -487,48 +640,37 @@ export function answerFills(
   return { fills, unmatched }
 }
 
-/** `values` are the field's trimmed, non-empty answers in model order. */
-function answerFill(
-  { field, lane }: KeyedField,
-  values: string[]
+/** `value` is the fill model's first non-empty value for the field. */
+function replyOutcome(
+  { key, field, lane }: KeyedField,
+  judged: JudgeOutput | null,
+  value: string | undefined
 ): Fill | "unmatched" | null {
-  const first = values[0] ?? ""
   switch (lane) {
     case "choice":
-    case "check":
-    case "multi":
-      return closedFill(field, lane, values)
+    case "check": {
+      const verdict = judged?.choices[key]
+      if (verdict?.unmatched) return "unmatched"
+      const outcome = choiceOutcome(field, lane, verdict)
+      return typeof outcome === "string" ? null : outcome
+    }
+    case "multi": {
+      const yes = judged?.multi[key]
+      if (!yes) return null
+      const chosen = (field.options ?? []).filter(
+        (_, i) => (yes[i] ?? 0) >= MULTI_YES
+      )
+      if (chosen.length > 0) return optionsFill(field, chosen)
+      const addressed = judged?.addressed?.[key] ?? 0
+      return addressed >= ANSWERED_MIN ? "unmatched" : null
+    }
     case "search":
-      return searchFill(field, first)
+      return value === undefined ? null : searchFill(field, value)
     case "text":
-      return textFill(field, first)
+      return value === undefined ? null : textFill(field, value)
     case "page":
       return null
   }
-}
-
-function closedFill(
-  field: FieldDescriptor,
-  lane: "choice" | "check" | "multi",
-  values: string[]
-): Fill | "unmatched" {
-  const options =
-    lane === "check"
-      ? CHECK_OPTIONS.map((label) => ({ label }))
-      : (field.options ?? [])
-  const picked = values
-    .map((value) => pickOption(options, [value]))
-    .filter((index) => index !== null)
-  if (picked.length < values.length) return "unmatched"
-  const chosen = [...new Set(picked)].sort((a, b) => a - b)
-  if (lane !== "multi" && chosen.length !== 1) return "unmatched"
-  if (lane === "check") {
-    return { ...base(field), kind: "check", checked: chosen[0] === 0 }
-  }
-  return optionsFill(
-    field,
-    chosen.flatMap((i) => field.options?.[i] ?? [])
-  )
 }
 
 /** A draft's length limit, in characters or words. */

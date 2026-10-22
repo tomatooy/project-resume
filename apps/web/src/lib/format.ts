@@ -27,9 +27,6 @@ export function absoluteTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
-/** Filename-safe slug for downloads; shared with autofill's resume file name. */
-export { slug } from "@workspace/autofill"
-
 export function pluralize(
   count: number,
   one: string,

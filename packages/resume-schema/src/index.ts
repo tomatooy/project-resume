@@ -82,7 +82,7 @@ export {
   structuralReason,
   validatePatches,
 } from "./patch"
-export { formatRange, formatYearMonth } from "./format"
+export { formatRange, formatYearMonth, resumeFileName } from "./format"
 export { canonicalJson, contentHash } from "./hash"
 export { type FieldChange, type NodeDiff, diffDocuments } from "./diff"
 export { migrateResume } from "./migrate"

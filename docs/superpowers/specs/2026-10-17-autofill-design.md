@@ -1,6 +1,7 @@
 # Job application autofill
 
-Date: 2026-10-17. Status: approved, not implemented.
+Date: 2026-10-17. Status: approved. Implemented for Greenhouse and Ashby;
+Lever waits for DOM fixtures (2).
 
 ## 1. Goal
 
@@ -14,23 +15,29 @@ merged into Notes for later applications. Long written questions get a
 
 This replaces the "Autofill is coming soon" placeholder from
 `2026-10-17-extension-panel-states-design.md` (section 5, item 6) for
-Greenhouse, Lever and Ashby. The other vendors keep the placeholder.
+Greenhouse and Ashby, and later for Lever (2). The other vendors keep the
+placeholder.
 
 ## 2. Scope
 
 In v1:
 
 - Greenhouse classic (`boards.greenhouse.io`, `boards.eu.greenhouse.io`) and
-  new (`job-boards.greenhouse.io`, `job-boards.eu.greenhouse.io`), Lever
-  (`jobs.lever.co`, `jobs.eu.lever.co`) and Ashby (`jobs.ashbyhq.com`).
+  new (`job-boards.greenhouse.io`, `job-boards.eu.greenhouse.io`), and Ashby
+  (`jobs.ashbyhq.com`).
+- Greenhouse and Ashby forms embedded in a frame on a company career site. A
+  frame counts only by its own URL, as Chrome reports it (15.1).
 - On those pages, standard HTML controls that the vendor adapter does not
   recognize go through a generic extractor.
 - US applicants only. Generated text and all UI copy are in English.
 
+Deferred: Lever (`jobs.lever.co`, `jobs.eu.lever.co`). Its adapter and rules
+are written from DOM fixtures, which do not exist yet (19); until then Lever
+pages keep the placeholder.
+
 Not in v1:
 
 - Workday, SmartRecruiters and iCIMS (they keep the placeholder).
-- ATS forms embedded in iframes on company career sites.
 - Cover letter file upload.
 - Streaming generation.
 - Learning from edits the user makes on the page.
@@ -58,7 +65,9 @@ No vendor API is called, and the page's own job description is not read.
    `plan` runs rules only. The page-load scan never opens widgets, so fields
    with `optionsPending` count as "may fill". The panel shows the field count,
    how many fields rules can fill, the chosen resume and its job description status, missing
-   Profile answers, and an earlier fill of the same posting.
+   Profile answers, and an earlier fill of the same posting. The earlier fill
+   is the one the first `start` found: `start` then writes this session's own
+   record, so the service worker keeps the first answer in the session.
 2. **Autofill (1 quota unit).** First, if the scan has closed widgets whose
    options are not in the DOM (`optionsPending`, for example Greenhouse's
    react-select), the content script reads them in one batch: it opens each
@@ -74,8 +83,9 @@ No vendor API is called, and the page's own job description is not read.
 3. **Results.** AI values are written and the panel groups every field (6.4).
 4. **Answer (1 unit).** The user answers in the panel's text box and clicks
    **Save and fill again**. One request merges the text into Notes and fills
-   the fields that are still empty, using the text, the question list and
-   Notes.
+   the fields that are still empty: Jev picks the options of closed fields
+   from the text (12.1), and DeepSeek writes text fields using the text, the
+   question list and Notes.
 5. **New fields (1 unit per AI pass).** After the first Autofill, a debounced
    `MutationObserver` rescans the form. New fields go through rules first;
    `infer` runs only when rules leave some open. At most 5 automatic passes per
@@ -97,23 +107,27 @@ No vendor API is called, and the page's own job description is not read.
   value we did not write, for example from the vendor's own resume autofill,
   which sets values without trusted events. User-owned fields are never
   written again, by later passes or after a reload.
+- An optional field the Profile answers (route `skip`) is left empty when the
+  Profile has no value for it: it goes neither to AI nor to the question list,
+  and no panel group lists it. A required one goes through AI and the
+  questions as usual. Resume facts and "How did you hear about us" never skip.
 
 ### 5.2 Tiers
 
 | Tier | When | Result |
 |---|---|---|
 | Rules | A rule resolves the field from the Profile or resume | Filled; listed under **Filled** |
-| AI, confident | Jev picks a page option with confidence ≥ 0.8, or DeepSeek returns an answer with evidence from the sources, and the field is outside the forbidden zone | Filled; listed under **AI filled, please check** |
-| AI, unsure | Any other AI result | Becomes a question |
+| AI, confident | Jev single-choice confidence ≥ 0.8 or multi-select yes probability ≥ 0.6, or DeepSeek returns an answer with evidence from the sources, and the field is outside the forbidden zone | Filled; listed under **AI filled, please check** |
+| AI, unsure | Any other AI result | Becomes a question, except "How did you hear about us" (5.4) |
 | Forbidden zone | 5.3 | Rules from the Profile only; otherwise **Fill these on the page** |
 
 ### 5.3 Forbidden zone
 
-- Topics: legal attestations and consent, criminal history, EEO, salary,
+- Topics: legal attestations and consent, criminal history, salary,
   relatives at the company, signature, and ID numbers.
-- Detected by rules: keyword lists plus each vendor's EEO block.
-- EEO and salary come only from the Profile, mapped to page options by
-  per-vendor rules, never through AI. The other topics have no Profile value
+- Detected by rules: keyword lists in the field label.
+- Salary comes only from the Profile, mapped to page options by
+  rules, never through AI. The other topics have no Profile value
   and always go to **Fill these on the page**.
 - If one slips past the rules, the AI may only answer "needs the applicant",
   which moves it to **Fill these on the page**.
@@ -126,14 +140,19 @@ No vendor API is called, and the page's own job description is not read.
 - Searchable dropdowns (remote or very long option lists such as school or
   location): rules supply a query, the driver types it, waits for options and
   fuzzy-matches them against the target value. No match leaves the field open.
-- Race: several races chosen in the Profile become "Two or more races" on a
-  single-select page; without such an option the field goes to **Fill these on
-  the page**.
-- AI multi-select: an option is selected when Jev's yes probability is ≥ 0.8.
-  The field is filled only when every option is decided (≥ 0.8 or ≤ 0.2) and
-  at least one is selected; otherwise it becomes a question.
+- Demographic questions use the same single-choice and multi-select Jev
+  pipeline as other closed questions. Saved Profile answers are available as
+  ordinary evidence. An uncertain result becomes a question.
+- AI multi-select: an option is selected when Jev's yes probability is ≥ 0.6.
+  Select supported options independently; uncertain options stay unselected
+  and do not block the others. The field becomes a question only when no
+  option qualifies or the model response is incomplete. These fills remain
+  under **AI filled, please check**.
 - "How did you hear about us": LinkedIn when the tab was opened from a LinkedIn
-  job page (15.2); otherwise AI with Notes.
+  job page (15.2); otherwise AI with Notes. A wrong answer here costs little,
+  so an unsure AI answer is not asked: a single-select takes the option Jev
+  found likeliest, and a multi-select takes its options at ≥ 0.6, else the
+  likeliest one. It becomes a question only when Jev gives no usable answer.
 - Widgets are driven only with synthetic DOM events from the content script
   (focus, `mousedown`, `click`, the native value setter with `input` and
   `change`, `Escape`). No `chrome.debugger` input and no visible cursor. The
@@ -183,7 +202,10 @@ Already filled (1) ›
 
 ### 6.2 Resume choice
 
-`plan` computes the default once, when the session starts:
+`plan` computes the default once, when the session starts. The service
+worker keeps that first pick in the session and sends it with later plans, so
+a rescan never switches resumes, and the panel still names the rule that chose
+it:
 
 1. The tab was opened from a LinkedIn job page: that job's tailored resume
    (the binding `jobs.lookup` already resolves).
@@ -236,7 +258,7 @@ In order:
      removes its item.
    - The draft text survives reloads (15.2) until a request succeeds.
 2. **Fill these on the page.** Forbidden-zone fields rules could not fill, plus
-   file inputs other than the resume. Profile-backed items (EEO, salary) carry
+   file inputs other than the resume. Profile-backed salary items carry
    **Set in Profile ›**.
 3. **Write with AI.** Fields that need a written answer (7).
 4. **AI filled, please check.** Each item has **Clear**, which empties the
@@ -246,12 +268,14 @@ In order:
    **Overwrite** where rules have a value.
 
 Clicking any item scrolls the page to its field and focuses it. Nothing is
-marked on the page itself apart from the Write with AI buttons.
+marked on the page itself apart from the Write with AI buttons. Fields that
+skip (5.1) appear in no group.
 
 ### 6.5 States
 
-- **No form.** "No application form detected". On Lever and Ashby posting
-  pages the panel links to the form (`/apply`, `/application`).
+- **No form.** "No application form detected". On Ashby posting pages the
+  panel links to the form (`/application`); Lever's `/apply` comes with its
+  adapter (2).
 - **Missing Profile answers.** "Your profile is missing 2 common answers. Set
   in Profile ›". It never blocks autofill. Common answers: legal first and last
   name, email, phone, city, state, and the three work authorization questions.
@@ -379,7 +403,7 @@ Fields (US only):
 | Links | LinkedIn, GitHub, portfolio, website, plus an "other" list of label and URL |
 | Work authorization | Authorized to work in the US (yes/no); needs sponsorship now (yes/no); needs sponsorship in the future (yes/no); status (Citizen, Permanent resident, H-1B, F-1 OPT, F-1 STEM OPT, or Other with text); status expiry (optional) |
 | Preferences | Salary (minimum, optional maximum, currency default USD, per year or per hour); start (a date or a notice period in weeks); open to relocation (yes/no); work mode (remote, hybrid, onsite; multi-select); preferred cities |
-| EEO | Gender (Male, Female, Non-binary, Decline); Hispanic or Latino (Yes, No, Decline); race (the five EEO-1 categories, multi-select, or Decline); veteran (Protected, Not protected, Decline); disability (Yes, No, Decline). Every EEO field defaults to Decline; vendor rules map the wording |
+| EEO | Gender (Male, Female, Non-binary, Decline); Hispanic or Latino (Yes, No, Decline); race (the five EEO-1 categories, multi-select, or Decline); veteran (Protected, Not protected, Decline); disability (Yes, No, Decline). Every EEO field defaults to Decline; Jev reads these answers as ordinary Profile evidence |
 | Other | 18 or older, willing to undergo a background check, driver's license (yes/no each); languages, each with a level (native, fluent, professional, basic) |
 
 - From the resume instead: current company and title, school, degree, major,
@@ -411,12 +435,12 @@ Fields (US only):
 | Layer | Lives in | Does | Ships with |
 |---|---|---|---|
 | Vendor adapter | `apps/extension/src/autofill/vendors/` | Finds the form, reads fields, page company, title and posting key, writes values, drives custom widgets | Extension release |
-| Semantic rules | `packages/autofill` | Maps fields to canonical keys (vendor field keys, label dictionary), option synonyms, per-vendor EEO option tables, forbidden-zone detection, value formatting | Worker deploy |
+| Semantic rules | `packages/autofill` | Maps fields to canonical keys (vendor field keys, label dictionary), option synonyms, forbidden-zone detection, value formatting | Worker deploy |
 
 - Rules are TypeScript data and functions, tested against fixtures saved from
   real ATS pages.
 - Canonical keys cover names, contact, address, links, work authorization,
-  preferences, EEO, other Profile fields, resume-derived facts (current
+  preferences, other Profile fields, resume-derived facts (current
   company and title, school, degree, major, graduation date, years of
   experience), the resume file, and "how did you hear".
 - Posting keys come from the URL: Greenhouse board and job ID, Lever company
@@ -431,8 +455,14 @@ Through `@workspace/typesafe` (`systemOne`):
 
 - One `choice` per closed field. Criteria keys are `o1`, `o2`, and so on,
   described by the page's option labels, plus `insufficient`. The field is
-  filled when the chosen key is an option and `confidence` is ≥ 0.8.
-- One `noul` per option of a multi-select (5.4).
+  filled when the chosen key is an option and `confidence` is ≥ 0.8. "How did
+  you hear about us" also uses each option's probability (5.4).
+- One `noul` per option of a multi-select (5.4), with the full option list so
+  an ordered Notes preference can select its first available match.
+  Direct Notes answers count independently, even when another named answer
+  is absent from the options or a general resume skills list differs.
+  Explicit Profile answers retain priority. Job requirements are never
+  evidence of the applicant's experience.
 - One `noul` per textarea that label rules did not settle, and per single-line
   text input that rules did not fill: "is this an open-ended question that
   needs a written answer?", judged from the label and help text. For a
@@ -443,9 +473,35 @@ Through `@workspace/typesafe` (`systemOne`):
   appears only in question instructions and criteria descriptions.
 - Retries are cut to fit the deadline (`maxRetries: 1`, short backoff, no long
   `Retry-After` waits), and requests abort at the `infer` deadline.
+- Instructions say the Profile wins over Notes and Notes over the resume, and
+  that no personal trait (pronouns, gender, age, race and the like) is ever
+  inferred from a name or another indirect clue. Empty Profile values fall
+  through to Notes. Explicit answers remain ahead of fallback preferences.
+- Notes written with `fallback order` or `preference order` and an arrow chain
+  (`A -> B -> C`) get a resolved candidate before judging. Code takes the
+  first available exact or unambiguous whole-phrase match and preserves the
+  original note. Two independent `noul` questions in the same request check
+  whether an explicit answer exists and whether the note applies to this field.
+  Use the candidate only when the probability of no explicit answer and of
+  applicability are both at least 0.8. A supported preference comes after a
+  confident factual answer and before a how-heard guess. Original choice
+  probabilities are preserved; Notes support is reported separately. Later
+  fallback entries are alternatives, including on multi-selects. Conflicting
+  notes and ambiguous earlier matches produce no resolved preference.
+  Reply mode does not resolve saved preferences, and applicant-only choices
+  stay on the page.
+- **Save and fill again** sends the closed fields its questions name in a
+  second request. The `state` is the user's text with the applicant context
+  beside it, each instruction names the numbered question the field was asked
+  as, and the text decides. Criteria are the options, `insufficient` (the text
+  does not answer) and `none` (it answers with something no option says,
+  which marks the question unmatched). A multi-select adds one `noul`: does
+  the text answer it at all?
 - `TYPESAFE_API_KEY` becomes required (env example, Wrangler notes, README). A
-  missing key logs a fixed configuration error class and `infer` degrades to
-  rules and plain questions.
+  missing key logs a fixed configuration error class. `infer` then runs
+  DeepSeek alone: the fields Jev would decide, and the text fields it would
+  check for open questions, are asked. Follow-up answers leave closed fields
+  empty.
 
 ### 12.2 DeepSeek
 
@@ -462,8 +518,9 @@ output, no agent loop and no tools:
 
 ### 12.3 Context and untrusted text
 
-- All Profile, resume and Notes data may go to DeepSeek and TypeSafe. EEO and
-  salary stay out of AI context because only rules use them.
+- Profile, resume and Notes data may go to DeepSeek and TypeSafe, including
+  saved demographic answers. Salary stays out of AI context because only
+  rules use it.
 - Page text (labels, help text, options, company and title) is untrusted.
   Prompts place it in delimited data blocks and tell the model to treat it as
   data. Closed answers must be page options.
@@ -608,9 +665,13 @@ previous text, writes, and prunes snapshots to 20 in one transaction.
 
 ### 15.1 Content script
 
-- A new classic content script, `autofill.js`, on the Greenhouse, Lever and
-  Ashby hosts. Top frame only in v1, but its state and messages are keyed by
-  frame so embedded forms can come later. Its match list derives from
+- A new classic content script, `autofill.js`, on the Greenhouse and Ashby
+  hosts, in every frame, so it also runs in their forms embedded on company
+  career sites. The service worker picks one frame per tab from
+  `webNavigation.getAllFrames`: the top frame first, then the session's
+  current document, then a single embed. Several new embeds never take over a
+  session, and messages and writes target the picked frame's `documentId`.
+  Its match list derives from
   `pages.ts`, and the manifest test checks it as it does the widget host's. It
   is injected into open tabs on install and update like the widget host.
 - The widget host is unchanged and still hosts the panel and widget frames.
@@ -645,7 +706,9 @@ previous text, writes, and prunes snapshots to 20 in one transaction.
 ### 15.3 Messages and trust
 
 - Content script messages are validated with Zod and accepted only from the
-  top frame of the tab they describe. They can report scans and field events,
+  frame the service worker picked for the tab they describe (15.1), matched on
+  the sender's `frameId` and `documentId`, which Chrome supplies and the page
+  cannot forge. They can report scans and field events,
   and ask for a draft for a field in the Write with AI list; nothing else.
 - Panel messages keep the existing `trustedPanel` check. The panel snapshot
   gains an `autofill` view for application pages.
@@ -664,6 +727,10 @@ previous text, writes, and prunes snapshots to 20 in one transaction.
   drafts, and Profile data. Server logs keep the existing request line
   (procedure and latency) and fixed error classes. Run rows store no input. The
   extension logs no field data.
+- One exception, for local debugging: a step-by-step trace prints labels,
+  options, values, Notes and answers to the console of an unpacked extension
+  build (never a Web Store install) and to the web dev server's terminal (only
+  under `vite dev`, never a build). It prints errors as their class only.
 - What the page can see: the values we write, and the draft and optional
   instruction inside the overlay; the draft is written for that page anyway.
   The Profile, Notes and tokens never enter the page.
@@ -699,8 +766,8 @@ previous text, writes, and prunes snapshots to 20 in one transaction.
 4. Backend: services, ports, adapters, AI calls, `autofill.*` procedures.
 5. Extension: content script with the generic extractor, session, panel, PDF
    attach, overlay.
-6. Vendor adapters and rules from the DOM fixtures: Greenhouse and Ashby, then
-   Lever.
+6. Vendor adapters and rules from the DOM fixtures: Greenhouse and Ashby.
+   Lever follows once its fixtures exist (19).
 7. Docs and release: README, env docs, privacy policy, store disclosures.
 
 Steps 1 to 5 do not depend on the fixtures.
@@ -708,7 +775,7 @@ Steps 1 to 5 do not depend on the fixtures.
 ## 19. Open items
 
 - DOM fixtures: Greenhouse classic, Greenhouse new and Ashby are coming from
-  the user; Lever is still needed.
+  the user. Lever is still needed, and Lever support waits for it (2).
 - Jev size limits and latency are undocumented; measure them and tune the
   15-second deadline and batching.
 - Custom widgets on Greenhouse new and Ashby may need per-widget drivers;

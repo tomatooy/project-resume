@@ -1,6 +1,8 @@
 import {
   ResumePageSchema,
+  ResumePreviewSchema,
   ResumePageInputSchema,
+  TailorInstructionsSchema,
 } from "@workspace/resume-core/contracts"
 import { z } from "zod"
 import {
@@ -40,6 +42,7 @@ export const MessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("tailor"),
     sourceResumeId: z.uuid(),
+    instructions: TailorInstructionsSchema.optional(),
     identity: JobIdentitySchema,
   }),
   z.object({
@@ -70,7 +73,7 @@ export const ReplySchema = z.discriminatedUnion("ok", [
   z.object({
     ok: z.literal(false),
     message: z.string(),
-    code: z.enum(["capture", "auth", "unavailable"]),
+    code: z.enum(["capture", "auth", "unavailable", "not-found", "changed"]),
     retryAfterSeconds: z.number().optional(),
     page: PageSchema.optional(),
   }),
@@ -78,7 +81,7 @@ export const ReplySchema = z.discriminatedUnion("ok", [
 export class ExtensionError extends Error {
   constructor(
     message: string,
-    readonly code: "capture" | "auth" | "unavailable",
+    readonly code: "capture" | "auth" | "unavailable" | "not-found" | "changed",
     readonly retryAfterSeconds?: number,
     readonly page?: z.infer<typeof PageSchema>
   ) {
@@ -101,6 +104,32 @@ export const ResumePageMessageSchema = ResumePageInputSchema.extend({
   type: z.literal("resume-page"),
   accountId: z.string(),
 })
+
+export const ResumePreviewMessageSchema = z.object({
+  type: z.literal("resume-preview"),
+  accountId: z.string(),
+  identity: JobIdentitySchema,
+  resumeId: z.uuid(),
+  operationId: z.uuid(),
+})
+export type PreviewRequest = Omit<
+  z.infer<typeof ResumePreviewMessageSchema>,
+  "type"
+>
+
+export async function sendResumePreview(input: PreviewRequest) {
+  const reply = z
+    .discriminatedUnion("ok", [
+      z.object({ ok: z.literal(true), preview: ResumePreviewSchema }),
+      ReplySchema.options[1],
+    ])
+    .parse(
+      await chrome.runtime.sendMessage({ ...input, type: "resume-preview" })
+    )
+  if (!reply.ok)
+    throw new ExtensionError(reply.message, reply.code, reply.retryAfterSeconds)
+  return reply.preview
+}
 export async function sendResumePage(accountId: string, cursor?: string) {
   const reply = z
     .discriminatedUnion("ok", [

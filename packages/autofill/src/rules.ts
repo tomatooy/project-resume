@@ -1,7 +1,6 @@
 import type { Resume } from "@workspace/resume-schema"
 
 import { classifyField } from "./classify"
-import { eeoFill } from "./eeo"
 import { type ResumeFacts, resumeFacts } from "./facts"
 import {
   type AutofillVendor,
@@ -71,10 +70,9 @@ type Answer = {
   many?: readonly (readonly string[])[]
   /** A number to find among range options such as "3-5 years". */
   range?: number
+  rangeUnit?: "weeks"
   /** What to type into a search box, and the result to pick. */
   search?: { query: string; target: string }
-  /** EEO answers fill only through the synonym tables. */
-  eeo?: true
 }
 
 type Data = {
@@ -296,7 +294,15 @@ function salary(prefs: Profile["preferences"]): Answer | null {
 function start(prefs: Profile["preferences"], today: Date): Answer | null {
   const text = formatStart(prefs, "text", today)
   const date = formatStart(prefs, "date", today)
-  return text === null || date === null ? null : { text, date }
+  return text === null || date === null
+    ? null
+    : {
+        text,
+        date,
+        ...(prefs.startKind === "notice" && prefs.noticeWeeks !== null
+          ? { range: prefs.noticeWeeks, rangeUnit: "weeks" }
+          : {}),
+      }
 }
 
 type WorkMode = Profile["preferences"]["workModes"][number]
@@ -364,8 +370,6 @@ function years(value: number | null | undefined): Answer | null {
   return { text: String(value), number: String(value), range: value }
 }
 
-const eeo: Rule = () => ({ eeo: true })
-
 const ANSWERS: Record<CanonicalKey, Rule> = {
   "name.full": ({ identity }) => plain(fullName(identity.first, identity.last)),
   "name.first": ({ identity }) => plain(identity.first),
@@ -405,11 +409,6 @@ const ANSWERS: Record<CanonicalKey, Rule> = {
   "pref.relocation": ({ profile }) => yesNo(profile.preferences.relocation),
   "pref.workMode": ({ profile }) => workModes(profile.preferences.workModes),
   "pref.cities": ({ profile }) => cities(profile.preferences.cities),
-  "eeo.gender": eeo,
-  "eeo.hispanic": eeo,
-  "eeo.race": eeo,
-  "eeo.veteran": eeo,
-  "eeo.disability": eeo,
   "other.adult": ({ profile }) => yesNo(profile.other.adult),
   "other.backgroundCheck": ({ profile }) =>
     yesNo(profile.other.backgroundCheck),
@@ -514,7 +513,15 @@ function pickOptions(
   const labels = options.map(({ label }) => label)
   let index = pickOption(options, answer.choices ?? [answer.text ?? ""])
   if (index === null && answer.range !== undefined) {
-    index = matchNumberRange(answer.range, labels)
+    if (answer.rangeUnit === "weeks") {
+      const weeks = answer.range
+      const matches = labels.flatMap((label, i) =>
+        /\bweeks?\b/i.test(label) && matchNumberRange(weeks, [label]) === 0
+          ? [i]
+          : []
+      )
+      index = matches.length === 1 ? (matches[0] ?? null) : null
+    } else index = matchNumberRange(answer.range, labels)
   }
   if (index === null && answer.search) {
     index = searchMatch(answer.search.target, labels)
@@ -523,17 +530,8 @@ function pickOptions(
 }
 
 /** The rule fill a control takes from an answer, or null when none fits. */
-function valueFill(
-  field: FieldDescriptor,
-  key: CanonicalKey,
-  answer: Answer,
-  profile: Profile
-): Fill | null {
+function valueFill(field: FieldDescriptor, answer: Answer): Fill | null {
   const base: Base = { fieldId: field.id, source: "rule" }
-  if (answer.eeo) {
-    const picked = eeoFill(field, key, profile.eeo)
-    return picked && { ...base, kind: "options", ...picked }
-  }
   switch (field.control) {
     case "checkbox":
       return answer.yesNo
@@ -567,15 +565,13 @@ function valueFill(
 
 function ruleFill(
   field: FieldDescriptor,
-  key: CanonicalKey | null,
   zone: Zone,
-  answer: Answer | null,
-  profile: Profile
+  answer: Answer | null
 ): Fill | null {
   if (zone === "resume-file") {
     return { kind: "resume-file", fieldId: field.id, source: "rule" }
   }
-  return key && answer ? valueFill(field, key, answer, profile) : null
+  return answer ? valueFill(field, answer) : null
 }
 
 /** Keys the Profile answers; resume facts and how-heard come from elsewhere. */
@@ -619,7 +615,7 @@ export function ruleFills(
   for (const field of fields) {
     const { key, zone, anchor } = classifyField(ctx.vendor, field)
     const answer = key ? ANSWERS[key](data, normalizeText(field.label)) : null
-    const fill = ruleFill(field, key, zone, answer, ctx.profile)
+    const fill = ruleFill(field, zone, answer)
     const route = routeOf(field, key, zone, answer, fill)
     if (fill && route === "filled") result.overwrites.push(fill)
     else if (fill) result.fills.push(fill)

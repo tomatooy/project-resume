@@ -1,5 +1,7 @@
 import type { Fill } from "@workspace/autofill/fields"
 import { z } from "zod"
+import { trace } from "../../autofill/debug"
+import { scanUrl } from "../../autofill/posting-url"
 import {
   type ContentMessage,
   ContentMessageSchema,
@@ -11,7 +13,6 @@ import {
   type AutofillFrame,
   frameVisible,
   sameDocument,
-  scanUrl,
   updateDetectionBadge,
 } from "./frames"
 import { draft, run, syncOverlay, writeFills } from "./controller"
@@ -57,14 +58,7 @@ async function restoreFills(
   session: AutofillSession,
   restore: Fill[]
 ): Promise<void> {
-  await writeFills(
-    tabId,
-    session,
-    fieldsToFill(
-      session,
-      restore.filter(({ kind }) => kind !== "resume-file")
-    )
-  )
+  await writeFills(tabId, session, fieldsToFill(session, restore))
   if (!restore.some(({ kind }) => kind === "resume-file")) return
   const document = await readDocument(tabId)
   if (!document) return
@@ -97,9 +91,20 @@ async function takeScan(
   if (!after) return
   // The reducer is pure, so the same inputs give its lists again.
   const { added, restore } = applyScan(before, scan, frame, now)
+  const labelOf = (id: string): string =>
+    scan.fields.find((field) => field.id === id)?.label ?? id
+  trace(
+    `2. worker got the scan: ${scan.fields.length} fields, ${added.length} new${added.length > 0 ? " (new fields get an automatic pass once Autofill has run)" : ""}`,
+    { new: added.map(labelOf), restored: restore.length }
+  )
   const fresh = before === null || before.postingKey !== scan.postingKey
   if (fresh && scan.postingKey !== null) {
     const linkedin = await takeOrigin(tabId)
+    trace(
+      linkedin
+        ? "this posting was opened from LinkedIn, so how-did-you-hear rules answer LinkedIn"
+        : "this posting was not opened from LinkedIn, so how-did-you-hear goes to AI"
+    )
     if (linkedin)
       await updateSession(tabId, (current) =>
         current?.postingKey === scan.postingKey && current.linkedin === null

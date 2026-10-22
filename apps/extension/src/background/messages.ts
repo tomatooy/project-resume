@@ -7,6 +7,9 @@ import { config } from "../lib/config"
 import {
   MessageSchema,
   ResumePageMessageSchema,
+  ResumePreviewMessageSchema,
+  ExtensionError,
+  type PreviewRequest,
   type Message,
   type Snapshot,
 } from "../lib/messages"
@@ -35,6 +38,26 @@ export async function trustedPanel(
 }
 const isNotFound = (error: unknown) =>
   z.object({ code: z.literal("NOT_FOUND") }).safeParse(error).success
+
+/** A failed preview as the code and line the panel shows. */
+function previewFailure(error: unknown): {
+  code: ExtensionError["code"]
+  message: string
+} {
+  if (error instanceof ExtensionError)
+    return { code: error.code, message: error.message }
+  if (z.object({ code: z.literal("UNAUTHENTICATED") }).safeParse(error).success)
+    return {
+      code: "auth",
+      message: "Connect your account again to preview this resume.",
+    }
+  if (isNotFound(error))
+    return { code: "not-found", message: "This resume is no longer available." }
+  return {
+    code: "unavailable",
+    message: "Could not load the preview. Check your connection and try again.",
+  }
+}
 
 export async function snapshot(tabId?: number): Promise<Snapshot> {
   const { tab, page } = await activePage(tabId)
@@ -219,6 +242,7 @@ async function execute(
       await api.jobs.tailor({
         ...message.identity,
         sourceResumeId: message.sourceResumeId,
+        instructions: message.instructions,
         sourceUrl: fetched.data.url,
         jobText: fetched.data.text,
         idempotencyKey: request.key,
@@ -253,6 +277,50 @@ const untrusted = {
   code: "unavailable",
   message: "Open VS:Résumé from the toolbar to continue.",
 }
+
+export async function resumePreviewForJob(
+  input: PreviewRequest,
+  tabId?: number
+) {
+  const verify = async () => {
+    if ((await account())?.id !== input.accountId)
+      throw new ExtensionError(
+        "Connect your account again to preview this resume.",
+        "auth"
+      )
+    const { page } = await activePage(tabId)
+    if (
+      page.kind !== "job" ||
+      page.identity.platform !== input.identity.platform ||
+      page.identity.externalJobId !== input.identity.externalJobId
+    )
+      throw new ExtensionError(
+        "The selected job changed. Open its resume again.",
+        "changed"
+      )
+    const found = await api.jobs.lookup(input.identity)
+    if (
+      found.kind !== "bound" ||
+      found.resumeId !== input.resumeId ||
+      found.operation.id !== input.operationId ||
+      found.operation.status !== "succeeded"
+    )
+      throw new ExtensionError(
+        "This tailored resume is no longer available for this job.",
+        "changed"
+      )
+  }
+  await verify()
+  const preview = await api.resumes.preview({ id: input.resumeId })
+  // Reads may finish after navigation, rebinding or an account switch.
+  await verify()
+  if ((await account())?.id !== input.accountId)
+    throw new ExtensionError(
+      "Connect your account again to preview this resume.",
+      "auth"
+    )
+  return preview
+}
 async function pageOf(tabId?: number) {
   try {
     return (await activePage(tabId)).page
@@ -264,12 +332,27 @@ export function registerMessages() {
   chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
     if (!panelSender(sender)) return false
     const pageRequest = ResumePageMessageSchema.safeParse(raw)
+    const previewRequest = ResumePreviewMessageSchema.safeParse(raw)
     const parsed = MessageSchema.safeParse(raw)
-    if (!pageRequest.success && !parsed.success) return false
+    if (!pageRequest.success && !previewRequest.success && !parsed.success)
+      return false
     const tabId = sender.tab?.id
     void (async () => {
       if (!(await trustedPanel(sender).catch(() => false))) {
         respond(untrusted)
+        return
+      }
+      if (previewRequest.success) {
+        try {
+          const preview = await resumePreviewForJob(previewRequest.data, tabId)
+          if (!(await trustedPanel(sender))) {
+            respond(untrusted)
+            return
+          }
+          respond({ ok: true, preview })
+        } catch (error) {
+          respond({ ok: false, ...previewFailure(error) })
+        }
         return
       }
       if (pageRequest.success) {

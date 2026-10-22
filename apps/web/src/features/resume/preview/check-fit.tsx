@@ -3,7 +3,7 @@ import type { Resume, ResumePatch } from "@workspace/resume-schema"
 import { pdf, ResumeDocument } from "@workspace/resume-render"
 import type { TemplateId, TemplateOptions } from "@workspace/resume-render"
 
-import { pdfjs } from "./pdfjs"
+import { pdfjs } from "@workspace/resume-preview/pdfjs"
 
 export type CheckFitInput = {
   resume: Resume

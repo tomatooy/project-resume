@@ -2,8 +2,11 @@ import type { VendorAdapter } from "../types"
 import { ashby } from "./ashby"
 import { greenhouse } from "./greenhouse"
 
-/** Adapters by exact page host. `pages.ts` lists the same hosts but loads Zod. */
-const HOSTS = new Map<string, VendorAdapter>([
+/**
+ * Adapters by exact page host. `pages.ts` lists the same hosts but loads Zod;
+ * a test keeps the two lists equal.
+ */
+export const HOSTS: ReadonlyMap<string, VendorAdapter> = new Map([
   ["boards.greenhouse.io", greenhouse],
   ["job-boards.greenhouse.io", greenhouse],
   ["boards.eu.greenhouse.io", greenhouse],

@@ -3,6 +3,9 @@
 Read `AGENTS.md` in this repo first. It is the full baseline guidance
 (architecture, conventions, commands) and applies to Claude Code as written.
 
+Do not write tests unless the user explicitly asks for them. Use existing tests
+and static checks to verify changes.
+
 ## Never use browser automation
 
 Do not use Claude in Chrome (`mcp__claude-in-chrome__*`), Puppeteer,

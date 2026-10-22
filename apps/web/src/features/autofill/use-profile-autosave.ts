@@ -1,12 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { type Profile, ProfileSchema } from "@workspace/autofill"
 import type { ProfileState } from "@workspace/resume-core"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 
 import { AutoSaver, type SaveResult } from "@/features/resume/auto-saver"
 import { saveAutofillProfile } from "@/lib/api"
 import { autofillProfileQuery } from "@/lib/queries"
 import { ApiError } from "@/lib/types"
+
+import { useSaverLifecycle } from "./use-saver-lifecycle"
 
 export const CONFLICT_NOTICE =
   "This page changed somewhere else. We loaded the latest version."
@@ -112,18 +114,7 @@ export function useProfileAutosave(state: ProfileState): ProfileAutosave {
     })
   })
 
-  useEffect(() => {
-    saver.activate()
-    const warnOnLeave = (event: BeforeUnloadEvent) => {
-      if (doc.current.profile !== doc.current.saved) event.preventDefault()
-    }
-    window.addEventListener("beforeunload", warnOnLeave)
-    return () => {
-      window.removeEventListener("beforeunload", warnOnLeave)
-      void saver.flush()
-      saver.dispose()
-    }
-  }, [saver])
+  useSaverLifecycle(saver, () => doc.current.profile !== doc.current.saved)
 
   const update = useCallback(
     (next: Profile) => {

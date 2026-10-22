@@ -53,20 +53,21 @@ function Group({
       {listed ? (
         <h2 className="font-medium text-sm">{title}</h2>
       ) : (
-        <button
-          type="button"
+        <Button
+          variant="link"
+          size="xs"
           aria-expanded={open}
-          className="font-medium text-sm hover:underline"
+          className="h-auto p-0 text-foreground text-sm"
           onClick={() => setOpen(!open)}
         >
-          {title}{" "}
+          {title}
           <span
             aria-hidden="true"
             className={open ? "inline-block rotate-90" : "inline-block"}
           >
             ›
           </span>
-        </button>
+        </Button>
       )}
       {open && (
         <ul className="space-y-1">
@@ -75,15 +76,17 @@ function Group({
               key={item.fieldId}
               className="flex items-center justify-between gap-2"
             >
-              <button
-                type="button"
-                className="min-w-0 truncate text-left text-muted-foreground text-sm hover:text-foreground hover:underline"
+              <Button
+                variant="link"
+                size="xs"
+                className="h-auto min-w-0 justify-start p-0 font-normal text-muted-foreground text-sm hover:text-foreground"
                 onClick={() =>
                   onAction({ kind: "focus", fieldId: item.fieldId })
                 }
               >
-                {item.label} <span aria-hidden="true">›</span>
-              </button>
+                <span className="truncate">{item.label}</span>
+                <span aria-hidden="true">›</span>
+              </Button>
               <span className="flex shrink-0 gap-1">
                 {group === "page" && item.anchor !== null && (
                   <Button

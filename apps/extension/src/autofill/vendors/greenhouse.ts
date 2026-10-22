@@ -12,28 +12,16 @@ import {
 } from "../dom"
 import { hasValueNow } from "../drivers"
 import { scanGeneric } from "../generic"
-import type { PageInfo, ScannedField, VendorAdapter } from "../types"
-import { humanizeSlug, siteName, titleCompany } from "./page-info"
-
-type Live = Omit<ScannedField, "descriptor">
+import { greenhousePosting } from "../posting-url"
+import type { LiveField, PageInfo, ScannedField, VendorAdapter } from "../types"
+import { pageInfo, siteName, TITLE_MAX, titleCompany } from "./page-info"
 
 const CLASSIC_ID = "application_form"
 /** The phone box's country flag picker, which has its own search box. */
 const FLAG_PICKER = ".iti__dropdown-content"
-const POSTING_PATH = /^\/([^/]+)\/jobs\/(\d+)\/?$/
 const TITLE_PATTERNS = [/^Job Application for (?<title>.+) at (?<company>.+)$/]
 const JOB_ALERT = /Interested in building your career at (.+?)\?/
 const KEY_MAX = 300
-const TITLE_MAX = 300
-const COMPANY_MAX = 200
-
-/** The board and job of a posting path; classic boards use the same path. */
-function postingPath(url: URL): { board: string; jobId: string } | null {
-  const match = POSTING_PATH.exec(url.pathname)
-  const board = match?.[1]
-  const jobId = match?.[2]
-  return board && jobId ? { board, jobId } : null
-}
 
 /** react-select also points `aria-describedby` at its placeholder. */
 const isDescription = (id: string): boolean => id.endsWith("-description")
@@ -95,7 +83,12 @@ function reactSelects(form: Element): ScannedField[] {
       continue
     const combo = reactSelectParts(input)
     if (!combo) continue
-    const live: Live = { element: input, kind: "combo", choices: [], combo }
+    const live: LiveField = {
+      element: input,
+      kind: "combo",
+      choices: [],
+      combo,
+    }
     const container = combo.opener.parentElement ?? combo.opener
     const help = helpFor(input, isDescription)
     found.push({
@@ -167,27 +160,27 @@ function alertCompany(doc: Document): string | null {
   return company || null
 }
 
-/**
- * The company comes from the page when it names one; the board slug is a
- * weak guess, shown but not used to match the job (spec 6.3).
- */
 function page(doc: Document, url: URL): PageInfo {
-  const title = titleOf(doc)
-  const company =
+  const posting = greenhousePosting(url)
+  // Form-only embeds omit the job heading.
+  const embeddedTitle = posting?.embedded
+    ? TITLE_PATTERNS[0]?.exec(doc.title.trim())?.groups?.title
+    : null
+  const title =
+    titleOf(doc) || (embeddedTitle && clip(embeddedTitle, TITLE_MAX)) || null
+  return pageInfo(
     siteName(doc, "Greenhouse") ??
-    titleCompany(doc, title, TITLE_PATTERNS) ??
-    alertCompany(doc)
-  if (company)
-    return { company: clip(company, COMPANY_MAX), companyWeak: false, title }
-  const board = postingPath(url)?.board
-  const slug = board ? clip(humanizeSlug(board), COMPANY_MAX) : ""
-  return { company: slug || null, companyWeak: slug !== "", title }
+      titleCompany(doc, title, TITLE_PATTERNS) ??
+      alertCompany(doc),
+    posting?.board,
+    title
+  )
 }
 
 export const greenhouse: VendorAdapter = {
   vendor: "greenhouse",
   postingKey: (url) => {
-    const path = postingPath(url)
+    const path = greenhousePosting(url)
     return path
       ? clip(`greenhouse:${path.board.toLowerCase()}:${path.jobId}`, KEY_MAX)
       : null

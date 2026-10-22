@@ -238,6 +238,10 @@ export class InMemoryTailorOperationRepository
         status: "queued",
         expectedRevision: resume.revision,
         inputVersionId: version.version.id,
+        instructions:
+          "expectedOperationId" in input
+            ? (old?.instructions ?? "")
+            : (input.instructions ?? ""),
         idempotencyKey: input.idempotencyKey,
         deadline: new Date(this.db.now().getTime() + ATTEMPT_MS).toISOString(),
         errorClass: null,

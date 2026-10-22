@@ -10,6 +10,7 @@ const mock = vi.hoisted(() => ({
   retry: vi.fn(),
   page: vi.fn(),
   summary: vi.fn(),
+  preview: vi.fn(),
   storageGet: vi.fn(),
 }))
 vi.mock("../src/lib/auth", () => ({
@@ -28,6 +29,7 @@ vi.mock("../src/lib/api", () => ({
     resumes: {
       page: mock.page,
       summary: mock.summary,
+      preview: mock.preview,
     },
   },
 }))
@@ -39,6 +41,7 @@ const {
   registerMessages,
   trustedPanel,
   resumePageForAccount,
+  resumePreviewForJob,
   snapshot,
 } = await import("../src/background/messages")
 const identity = {
@@ -49,7 +52,12 @@ const sourceResumeId = "00000000-0000-4000-8000-000000000001"
 const text =
   "Build software and collaborate with the engineering team. ".repeat(8)
 const url = "https://www.linkedin.com/jobs/view/123456/"
-const message: Message = { type: "tailor", identity, sourceResumeId }
+const message: Message = {
+  type: "tailor",
+  identity,
+  sourceResumeId,
+  instructions: "Do not include a summary.",
+}
 function page(jobId = identity.externalJobId, tabId = 1) {
   return {
     tab: { id: tabId },
@@ -90,6 +98,12 @@ function stubPanelChrome(
       id: "extension",
       getURL: (path: string) => `chrome-extension://extension/${path}`,
       onMessage: { addListener: onMessage },
+    },
+    webNavigation: {
+      getFrame: async () => ({
+        documentId: "host-document",
+        documentLifecycle: "active",
+      }),
     },
     storage: {
       local: { get: mock.storageGet, set: vi.fn(), remove: vi.fn() },
@@ -168,6 +182,7 @@ it("trusts an embedded panel only where its tab shows the panel", async () => {
     ats: "panel",
     manual: "https://example.test/a",
     blocked: false,
+    hostDocumentId: "host-document",
   }
   expect(await trustedPanel(other)).toBe(true)
   expect(await trustedPanel(sender)).toBe(false)
@@ -207,6 +222,7 @@ it("fetches through the shared API and submits its canonical URL and text", asyn
   expect(mock.tailor).toHaveBeenCalledWith({
     ...identity,
     sourceResumeId,
+    instructions: message.instructions,
     sourceUrl: url,
     jobText: text,
     idempotencyKey: expect.any(String),
@@ -317,4 +333,86 @@ it("discards a page when the account changes during loading", async () => {
   await expect(
     resumePageForAccount({ type: "resume-page", accountId: "account" })
   ).rejects.toThrow("Account changed")
+})
+
+const previewRequest = {
+  accountId: "account",
+  identity,
+  resumeId: sourceResumeId,
+  operationId: sourceResumeId,
+}
+const ready = {
+  kind: "bound",
+  resumeId: sourceResumeId,
+  operation: { id: sourceResumeId, status: "succeeded" },
+}
+
+it("reads a ready preview for its own tab through the authenticated API", async () => {
+  mock.lookup.mockResolvedValue(ready)
+  mock.preview.mockResolvedValue({ id: sourceResumeId })
+  expect(await resumePreviewForJob(previewRequest, 1)).toEqual({
+    id: sourceResumeId,
+  })
+  expect(mock.preview).toHaveBeenCalledExactlyOnceWith({ id: sourceResumeId })
+  expect(mock.activePage).toHaveBeenCalledWith(1)
+})
+
+it.each(["queued", "running", "failed", "cancelled"])(
+  "does not read an unfinished tailored copy (%s)",
+  async (status) => {
+    mock.lookup.mockResolvedValue({
+      ...ready,
+      operation: { ...ready.operation, status },
+    })
+    await expect(resumePreviewForJob(previewRequest, 1)).rejects.toMatchObject({
+      code: "changed",
+    })
+    expect(mock.preview).not.toHaveBeenCalled()
+  }
+)
+
+it("discards a preview if the selected job changes while it loads", async () => {
+  mock.lookup.mockResolvedValue(ready)
+  mock.preview.mockImplementation(async () => {
+    mock.activePage.mockResolvedValue(page("654321"))
+    return { id: sourceResumeId }
+  })
+  await expect(resumePreviewForJob(previewRequest, 1)).rejects.toMatchObject({
+    code: "changed",
+  })
+})
+
+it("discards a preview if the account changes while it loads", async () => {
+  mock.lookup.mockResolvedValue(ready)
+  mock.preview.mockImplementation(async () => {
+    mock.account.mockResolvedValue({ id: "other" })
+    return { id: sourceResumeId }
+  })
+  await expect(resumePreviewForJob(previewRequest, 1)).rejects.toMatchObject({
+    code: "auth",
+  })
+})
+
+it("discards a preview when its job is rebound during the read", async () => {
+  mock.lookup
+    .mockResolvedValueOnce(ready)
+    .mockResolvedValue({ ...ready, resumeId: crypto.randomUUID() })
+  await expect(resumePreviewForJob(previewRequest, 1)).rejects.toMatchObject({
+    code: "changed",
+  })
+})
+
+it("keeps preview documents behind the trusted-panel check", async () => {
+  const listen = vi.fn<typeof chrome.runtime.onMessage.addListener>()
+  stubPanelChrome(listen)
+  registerMessages()
+  const reply = await new Promise((respond) => {
+    listen.mock.calls[0]?.[0](
+      { ...previewRequest, type: "resume-preview" },
+      { ...sender, tab: { ...tab, url: "https://example.test/" } },
+      respond
+    )
+  })
+  expect(reply).toMatchObject({ ok: false, code: "unavailable" })
+  expect(mock.preview).not.toHaveBeenCalled()
 })

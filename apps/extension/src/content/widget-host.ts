@@ -18,6 +18,7 @@
   let shown: View = "none"
   let wanted: View = "none"
   let position = 0.18
+  let expanded = false
   let generation = 0
   let watchedOrigin: string | null = null
   let frameVisible: boolean | null = null
@@ -36,7 +37,11 @@
     const panel = shown === "panel"
     host.style.display = shown === "none" ? "none" : "block"
     host.style.top = panel ? "0px" : `${Math.round(position * room())}px`
-    host.style.width = panel ? "min(400px, 100vw)" : "96px"
+    host.style.width = panel
+      ? expanded
+        ? "min(760px, 100vw)"
+        : "min(400px, 100vw)"
+      : "96px"
     host.style.height = panel ? "100dvh" : "88px"
   }
   const render = () => {
@@ -48,6 +53,7 @@
         ? shown
         : wanted
     if (next !== shown) {
+      expanded = false
       // A new element, because changing src adds entries to the page history.
       frame?.remove()
       frame = null
@@ -121,16 +127,36 @@
       forward({ type: "autofill-frame-change" })
     }, 300)
   }
-  const frameObserver = new MutationObserver(inspectFrames)
+  const frameObserver = new MutationObserver(() => {
+    // Document hydration can remove the host while its listeners stay alive.
+    if (!host.isConnected) {
+      if (!alive()) {
+        teardown()
+        return
+      }
+      document.documentElement?.append(host)
+    }
+    inspectFrames()
+  })
   const onMessage = (event: MessageEvent<unknown>) => {
     if (
-      shown !== "widget" ||
       event.source !== frame?.contentWindow ||
       event.origin !== extensionOrigin
     )
       return
     const data = event.data
     if (typeof data !== "object" || data === null || !("type" in data)) return
+    if (
+      shown === "panel" &&
+      data.type === "panel-resize" &&
+      "expanded" in data &&
+      typeof data.expanded === "boolean"
+    ) {
+      expanded = data.expanded
+      layout()
+      return
+    }
+    if (shown !== "widget") return
     if (
       data.type === "widget-move" &&
       "delta" in data &&
@@ -214,7 +240,7 @@
   document.addEventListener("visibilitychange", onVisibility)
   document.addEventListener(probe, onProbe)
   chrome.runtime.onMessage.addListener(onRuntime)
-  frameObserver.observe(document.documentElement, {
+  frameObserver.observe(document, {
     childList: true,
     subtree: true,
     attributes: true,

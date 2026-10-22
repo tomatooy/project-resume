@@ -6,6 +6,7 @@ export type TailorResumeInput = {
   /** The source document, ids and all. The model is not asked to keep them. */
   resume: Resume
   posting: ParsedJobPosting
+  instructions?: string
   signal?: AbortSignal
 }
 

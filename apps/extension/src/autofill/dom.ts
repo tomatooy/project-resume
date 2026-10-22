@@ -138,7 +138,8 @@ export function labelText(node: Element): string {
   return tidy(textWithBreaks(node).split("\n").join(" "))
 }
 
-function byIds(node: Element, ids: string | null): Element[] {
+/** The elements an ARIA id list names, looked up in the node's own tree. */
+export function byIds(node: Element, ids: string | null): Element[] {
   if (!ids) return []
   const root = node.getRootNode()
   const scope =

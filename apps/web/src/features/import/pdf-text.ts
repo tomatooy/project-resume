@@ -59,7 +59,7 @@ export async function extractPdfText(
   // path (ResumeRail -> ImportDialog -> use-import), so it is evaluated during
   // server rendering, and pdf.js touches DOMMatrix as it loads. Same reason
   // `useAssistant` defers `check-fit`.
-  const { pdfjs } = await import("../resume/preview/pdfjs")
+  const { pdfjs } = await import("@workspace/resume-preview/pdfjs")
   const bytes = new Uint8Array(await file.arrayBuffer())
   const task = pdfjs.getDocument({ data: bytes })
 

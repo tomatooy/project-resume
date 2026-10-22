@@ -5,7 +5,11 @@ import type {
 } from "@workspace/resume-schema"
 
 import { z } from "zod"
-import { TemplateIdSchema } from "@workspace/resume-schema"
+import {
+  ResumeSchema,
+  TemplateIdSchema,
+  TemplateOptionsSchema,
+} from "@workspace/resume-schema"
 /** The posting a resume was tailored for, as a resume list shows it. */
 export const JobBriefSchema = z.object({
   company: z.string(),
@@ -27,6 +31,18 @@ export const ResumeSummarySchema = z.object({
   job: JobBriefSchema.nullable().default(null),
 })
 export type ResumeSummary = z.infer<typeof ResumeSummarySchema>
+
+export const ResumePreviewSchema = ResumeSummarySchema.pick({
+  id: true,
+  title: true,
+  updatedAt: true,
+  templateId: true,
+}).extend({
+  data: ResumeSchema,
+  templateOptions: TemplateOptionsSchema,
+  revision: z.number().int().nonnegative(),
+})
+export type ResumePreview = z.infer<typeof ResumePreviewSchema>
 
 /**
  * Without `job`: only the summary queries read the origin link, and a record

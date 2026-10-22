@@ -56,6 +56,7 @@ export default defineConfig(({ mode }) => {
   const origin = z.url().parse(env.VITE_APP_ORIGIN)
   const supabase = z.url().parse(env.VITE_SUPABASE_URL)
   return {
+    optimizeDeps: { exclude: ["pdfjs-dist"] },
     plugins: [
       react(),
       tailwind(),

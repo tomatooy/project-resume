@@ -85,15 +85,14 @@ function Versions({
       <ul className="flex flex-col gap-0.5">
         {versions.data.map((version) => (
           <li key={version.id}>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               aria-pressed={picked === version.id}
               onClick={() => setPicked(version.id)}
               className={cn(
-                "flex w-full flex-col items-start gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors",
-                picked === version.id
-                  ? "bg-accent text-accent-foreground"
-                  : "hover:bg-muted"
+                "h-auto w-full flex-col items-start gap-0.5 rounded-md px-2.5 py-2 text-left font-normal",
+                picked === version.id &&
+                  "bg-accent text-accent-foreground hover:bg-accent"
               )}
             >
               <span className="text-[12.5px] font-medium">
@@ -105,7 +104,7 @@ function Versions({
               <span className="text-[11px] text-muted-foreground">
                 {characters(version.length)}
               </span>
-            </button>
+            </Button>
           </li>
         ))}
       </ul>

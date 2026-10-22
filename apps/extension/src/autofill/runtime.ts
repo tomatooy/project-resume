@@ -4,11 +4,13 @@ import type {
   WorkerMessage,
   WorkerReply,
 } from "../lib/autofill-protocol"
+import { fieldRow, trace, traceTable } from "./debug"
 import { isShown, LIMITS, scriptClick } from "./dom"
 import { handleFor } from "./drivers"
 import { type AttachResult, attachFile } from "./file"
 import { createOverlay } from "./overlay"
 import { createOwner } from "./owner"
+import { scanUrl } from "./posting-url"
 import type {
   FieldHandle,
   PageInfo,
@@ -120,9 +122,17 @@ export function startAutofill(
       }
     )
 
+  const labelOf = (id: string): string =>
+    fields.find(({ descriptor }) => descriptor.id === id)?.descriptor.label ??
+    id
+
   const owner = createOwner({
     debounceMs,
     report: (fieldIds) => {
+      trace(
+        "you changed these fields, so autofill leaves them alone:",
+        fieldIds.map(labelOf)
+      )
       for (let i = 0; i < fieldIds.length; i += LIMITS.fields)
         void post({
           type: "autofill-owned",
@@ -190,7 +200,7 @@ export function startAutofill(
     overlay.layout()
     return {
       type: "autofill-scan",
-      url: location.origin + location.pathname,
+      url: scanUrl(url.href),
       postingKey: key,
       page: adapter ? adapter.page(document, url) : NO_PAGE,
       form: form !== null,
@@ -211,6 +221,10 @@ export function startAutofill(
     const sent = JSON.stringify(message)
     if (!force && sent === last) return
     last = sent
+    traceTable(
+      `1. scan sent to the worker: ${message.fields.length} fields, form ${message.form ? "found" : "not found"}`,
+      message.fields.map(fieldRow)
+    )
     void post(message).then((ok) => {
       // Sent again on the next change.
       if (!ok && last === sent) last = ""
@@ -259,6 +273,13 @@ export function startAutofill(
         : null
       entries.push([id, listed])
     }
+    traceTable(
+      "read the options of closed dropdowns",
+      entries.map(([id, listed]) => ({
+        field: labelOf(id),
+        options: listed?.map(({ label }) => label).join(" | ") ?? "none",
+      }))
+    )
     return { options: Object.fromEntries(entries) }
   }
 
@@ -457,7 +478,8 @@ export function startAutofill(
     }
   }
 
-  observer.observe(document.documentElement, {
+  // Keep scanning when document hydration replaces the root element.
+  observer.observe(document, {
     childList: true,
     subtree: true,
     attributes: true,

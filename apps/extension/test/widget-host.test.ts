@@ -152,3 +152,28 @@ it("removes itself when the extension goes away", async () => {
   document.dispatchEvent(new Event("visibilitychange"))
   expect(page.host.isConnected).toBe(false)
 })
+
+it("expands only for its own panel and restores the width on reopening", async () => {
+  const page = await mount("panel")
+  const frame = page.frame()
+  page.post(
+    { type: "panel-resize", expanded: true },
+    "https://www.linkedin.com"
+  )
+  expect(page.host.style.width).toBe("min(400px, 100vw)")
+  page.post({ type: "panel-resize", expanded: true })
+  expect(page.host.style.width).toBe("min(760px, 100vw)")
+  expect(page.frame()).toBe(frame)
+  page.post({ type: "panel-resize", expanded: false })
+  expect(page.host.style.width).toBe("min(400px, 100vw)")
+  page.post({ type: "panel-resize", expanded: true })
+  page.state.view = "widget"
+  await page.ask({ type: "widget-refresh" })
+  await settle()
+  page.post({ type: "panel-resize", expanded: true })
+  expect(page.host.style.width).toBe("96px")
+  page.state.view = "panel"
+  await page.ask({ type: "widget-refresh" })
+  await settle()
+  expect(page.host.style.width).toBe("min(400px, 100vw)")
+})

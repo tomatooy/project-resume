@@ -5,6 +5,7 @@ import {
   attachFailed as failedAttach,
   canRunPass,
   type FieldState,
+  openQuestions,
   type StoredDocument,
   writeFieldIds,
 } from "./session"
@@ -117,7 +118,6 @@ export function autofillView(
   const classes = new Map(
     (plan?.classes ?? []).map((fieldClass) => [fieldClass.fieldId, fieldClass])
   )
-  const fields = new Map(session.fields.map((field) => [field.id, field]))
 
   const attach = session.attach
   const attachFailed = failedAttach(attach, now)
@@ -149,14 +149,21 @@ export function autofillView(
       ready += 1
   }
 
-  // A question stays while a field it names is on the form and empty.
-  const open = (fieldId: string) => fields.get(fieldId)?.hasValue === false
   const unmatched = new Set(session.unmatched)
-  const questions = session.questions
-    .filter(({ original }) => original.some(({ fieldId }) => open(fieldId)))
-    .map((question) => ({ ...question, unmatched: unmatched.has(question.id) }))
+  const questions = openQuestions(session).map((question) => ({
+    ...question,
+    unmatched: unmatched.has(question.id),
+  }))
 
   const resumeId = session.resumeId ?? plan?.resumeId ?? null
+  // The server calls a pick it was sent "user"; a kept default keeps its rule.
+  const pinned = session.defaultResume
+  const choice =
+    session.resumeId !== null
+      ? "user"
+      : pinned !== null && plan?.resumeId === pinned.id
+        ? pinned.choice
+        : (plan?.resumeChoice ?? null)
   return {
     vendor: session.vendor,
     company: session.page.company,
@@ -169,18 +176,13 @@ export function autofillView(
     filled: groups.ai.length + groups.filled.length,
     ran: session.started !== null,
     running: !canRunPass(session, now),
-    resume:
-      resumeId === null
-        ? null
-        : {
-            id: resumeId,
-            choice:
-              session.resumeId !== null ? "user" : (plan?.resumeChoice ?? null),
-          },
+    resume: resumeId === null ? null : { id: resumeId, choice },
     job: plan?.job ?? null,
     jobMatch: plan?.jobMatch ?? "none",
     useAnyway: session.useAnyway,
-    earlier: plan?.earlier ?? null,
+    // After the first start, the plan's record is this session's own.
+    earlier:
+      session.started === null ? (plan?.earlier ?? null) : session.earlier,
     missing: plan?.missing ?? [],
     quota: session.quota,
     degraded: session.ai.degraded,

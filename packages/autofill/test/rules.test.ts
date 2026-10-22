@@ -2,9 +2,7 @@ import type { Item, Resume } from "@workspace/resume-schema"
 import { fid, minimal, onePage } from "@workspace/resume-schema/fixtures"
 import { describe, expect, it } from "vitest"
 
-import { eeoFill } from "../src/eeo"
 import type {
-  CanonicalKey,
   Control,
   FieldClass,
   FieldDescriptor,
@@ -142,6 +140,33 @@ const ASHBY_VETERANS = [
 ]
 
 describe("ruleFills", () => {
+  it("maps notice weeks to one matching week range without an AI decision", () => {
+    const notice = field({
+      id: "notice",
+      label: "Required noticed period",
+      control: "select",
+      options: options("1-2 weeks", "2-3 weeks", "3-4 weeks", "4+ weeks"),
+    })
+    expect(
+      one(
+        notice,
+        withAnswers({ preferences: { startKind: "notice", noticeWeeks: 1 } })
+      ).fill
+    ).toEqual(picked("notice", ["#1"], ["1-2 weeks"]))
+    expect(
+      one(
+        notice,
+        withAnswers({ preferences: { startKind: "notice", noticeWeeks: 2 } })
+      ).fill
+    ).toBeNull()
+    expect(
+      one(
+        { ...notice, options: options("1-2 months", "2-3 months") },
+        withAnswers({ preferences: { startKind: "notice", noticeWeeks: 1 } })
+      ).fill
+    ).toBeNull()
+  })
+
   it("fills the Greenhouse standard fields and links (GH 10.10)", () => {
     const { fills, classes } = ruleFills(greenhouseNewFields, context())
     expect(textOf(fills)).toMatchObject({
@@ -365,7 +390,7 @@ describe("ruleFills", () => {
     expect(routeOf(classes, "question_11916358008")).toBe("ai")
   })
 
-  it("answers Ashby's EEO survey from the Profile (Ashby 13)", () => {
+  it("routes Ashby's survey choices to AI", () => {
     const question = (id: string, label: string, labels: string[]) =>
       field({
         id,
@@ -384,20 +409,8 @@ describe("ruleFills", () => {
       ),
     ]
     const { fills, classes } = ruleFills(survey, context({ vendor: "ashby" }))
-    expect(fills).toEqual([
-      picked("_systemfield_eeoc_gender", ["#3"], ["Decline to self-identify"]),
-      picked("_systemfield_eeoc_race", ["#8"], ["Decline to self-identify"]),
-      picked(
-        "_systemfield_eeoc_veteran_status",
-        ["#3"],
-        ["I decline to self-identify for protected veteran status"]
-      ),
-    ])
-    expect(classes.map((entry) => entry.route)).toEqual([
-      "rule",
-      "rule",
-      "rule",
-    ])
+    expect(fills).toEqual([])
+    expect(classes.map((entry) => entry.route)).toEqual(["ai", "ai", "ai"])
   })
 
   it("never truncates to fit maxLength", () => {
@@ -492,7 +505,7 @@ describe("ruleFills", () => {
     })
   })
 
-  it("maps EEO answers through the synonym tables", () => {
+  it("leaves demographic options to AI even when Profile answers exist", () => {
     const gender = field({
       id: "gender",
       label: "Gender",
@@ -500,8 +513,8 @@ describe("ruleFills", () => {
       options: options("Male", "Female", "Decline To Self Identify"),
     })
     expect(one(gender)).toEqual({
-      fill: picked("gender", ["#3"], ["Decline To Self Identify"]),
-      route: "rule",
+      fill: null,
+      route: "ai",
     })
 
     const race = field({
@@ -512,8 +525,8 @@ describe("ruleFills", () => {
     })
     const races = withAnswers({ eeo: { race: ["asian", "white"] } })
     expect(one(race, races)).toEqual({
-      fill: picked("race", ["#6"], ["Two or More Races"]),
-      route: "rule",
+      fill: null,
+      route: "ai",
     })
     const noTwo = {
       ...race,
@@ -521,10 +534,10 @@ describe("ruleFills", () => {
         ...RACES.filter((label) => label !== "Two or More Races")
       ),
     }
-    expect(one(noTwo, races)).toEqual({ fill: null, route: "page" })
+    expect(one(noTwo, races)).toEqual({ fill: null, route: "ai" })
   })
 
-  it("keeps the Profile section of EEO and salary fields", () => {
+  it("keeps salary linked to the Profile and treats race as an ordinary field", () => {
     const race = field({
       id: "race",
       label: "Race",
@@ -535,10 +548,9 @@ describe("ruleFills", () => {
     expect(ruleFills([race, salary], context()).classes).toEqual([
       {
         fieldId: "race",
-        key: "eeo.race",
-        zone: "forbidden",
-        anchor: "eeo",
-        route: "rule",
+        key: null,
+        zone: "normal",
+        route: "ai",
       },
       {
         fieldId: "q_salary",
@@ -550,14 +562,14 @@ describe("ruleFills", () => {
     ])
   })
 
-  it("waits for the options of an EEO question", () => {
+  it("routes unloaded demographic options through the ordinary AI path", () => {
     const veteran = field({
       id: "veteran_status",
       label: "Veteran status",
       control: "combobox",
       optionsPending: true,
     })
-    expect(one(veteran)).toEqual({ fill: null, route: "pending" })
+    expect(one(veteran)).toEqual({ fill: null, route: "ai" })
   })
 
   it("fills salary from the Profile only", () => {
@@ -1029,7 +1041,7 @@ describe("ruleFills", () => {
       context(),
       "ai",
     ],
-    ["a free-text EEO question", f("Gender"), context(), "page"],
+    ["a free-text demographic question", f("Gender"), context(), "ai"],
     [
       "a search query over maxLength",
       f("City", "combobox", { searchable: true, maxLength: 5 }),
@@ -1047,294 +1059,5 @@ describe("ruleFills", () => {
     ],
   ])("routes %s", (_, input, ctx, route) => {
     expect(one(input, ctx)).toEqual({ fill: null, route })
-  })
-})
-
-describe("eeoFill", () => {
-  const veterans = [
-    "I am not a protected veteran",
-    "I identify as one or more of the classifications of protected veteran",
-    "I don't wish to answer",
-  ]
-  const disabilities = [
-    "Yes, I have a disability (or previously had a disability)",
-    "No, I do not have a disability and have not had one in the past",
-    "I do not want to answer",
-  ]
-  const eeo = (patch: Partial<Profile["eeo"]>): Profile["eeo"] => ({
-    ...sampleProfile.eeo,
-    ...patch,
-  })
-
-  it.each<
-    [
-      string,
-      CanonicalKey,
-      Control,
-      Partial<Profile["eeo"]>,
-      string[],
-      string[] | null,
-    ]
-  >([
-    [
-      "a gender",
-      "eeo.gender",
-      "select",
-      { gender: "female" },
-      ["Male", "Female", "Decline To Self Identify"],
-      ["Female"],
-    ],
-    [
-      "non-binary",
-      "eeo.gender",
-      "radio",
-      { gender: "non-binary" },
-      ["Man", "Woman", "Non-binary", "Prefer not to say"],
-      ["Non-binary"],
-    ],
-    [
-      "a decline worded another way",
-      "eeo.gender",
-      "select",
-      {},
-      ["Male", "Female", "I don't wish to answer"],
-      ["I don't wish to answer"],
-    ],
-    [
-      "prefer not to say",
-      "eeo.gender",
-      "select",
-      {},
-      ["Man", "Woman", "Prefer not to say"],
-      ["Prefer not to say"],
-    ],
-    [
-      "Ashby's gender decline",
-      "eeo.gender",
-      "radio",
-      {},
-      ASHBY_GENDERS,
-      ["Decline to self-identify"],
-    ],
-    [
-      "a Hispanic answer",
-      "eeo.hispanic",
-      "select",
-      { hispanic: "yes" },
-      ["Yes", "No", "Decline To Self Identify"],
-      ["Yes"],
-    ],
-    [
-      "one race",
-      "eeo.race",
-      "select",
-      { race: ["black"] },
-      RACES,
-      ["Black or African American"],
-    ],
-    [
-      "one race with a qualifier",
-      "eeo.race",
-      "select",
-      { race: ["asian"], hispanic: "no" },
-      ["White (Not Hispanic or Latino)", "Asian (Not Hispanic or Latino)"],
-      ["Asian (Not Hispanic or Latino)"],
-    ],
-    [
-      "no race that answers an undisclosed Hispanic question",
-      "eeo.race",
-      "radio",
-      { race: ["asian"] },
-      ASHBY_RACES,
-      null,
-    ],
-    [
-      "Ashby's race decline",
-      "eeo.race",
-      "radio",
-      {},
-      ASHBY_RACES,
-      ["Decline to self-identify"],
-    ],
-    [
-      "two or more races, not Hispanic or Latino",
-      "eeo.race",
-      "radio",
-      { race: ["asian", "white"], hispanic: "no" },
-      ASHBY_RACES,
-      ["Two or More Races (Not Hispanic or Latino)"],
-    ],
-    [
-      "Hispanic or Latino over a race on a single choice",
-      "eeo.race",
-      "radio",
-      { race: ["white"], hispanic: "yes" },
-      ASHBY_RACES,
-      ["Hispanic or Latino"],
-    ],
-    [
-      "Hispanic or Latino with a race decline",
-      "eeo.race",
-      "radio",
-      { hispanic: "yes" },
-      ASHBY_RACES,
-      ["Hispanic or Latino"],
-    ],
-    [
-      "Hispanic or Latino beside each race on a multi-select",
-      "eeo.race",
-      "checkboxes",
-      { race: ["asian"], hispanic: "yes" },
-      ["Hispanic or Latino", "Asian", "White", "Decline to self-identify"],
-      ["Hispanic or Latino", "Asian"],
-    ],
-    [
-      "Hispanic or Latino alone on a multi-select",
-      "eeo.race",
-      "checkboxes",
-      { hispanic: "yes" },
-      ["Hispanic or Latino", "Asian", "White", "Decline to self-identify"],
-      ["Hispanic or Latino"],
-    ],
-    [
-      "a race when the options have no Hispanic answer",
-      "eeo.race",
-      "select",
-      { race: ["white"], hispanic: "yes" },
-      RACES,
-      ["White"],
-    ],
-    [
-      "each race on a multi-select",
-      "eeo.race",
-      "checkboxes",
-      { race: ["asian", "white"] },
-      RACES,
-      ["Asian", "White"],
-    ],
-    [
-      "no race answer that leaves one out",
-      "eeo.race",
-      "checkboxes",
-      { race: ["asian", "pacific-islander"] },
-      ["Asian", "White"],
-      null,
-    ],
-    [
-      "a race decline",
-      "eeo.race",
-      "select",
-      {},
-      RACES,
-      ["Decline To Self Identify"],
-    ],
-    [
-      "a protected veteran",
-      "eeo.veteran",
-      "select",
-      { veteran: "protected" },
-      veterans,
-      [veterans[1] ?? ""],
-    ],
-    [
-      "a protected veteran, short form",
-      "eeo.veteran",
-      "select",
-      { veteran: "protected" },
-      ["I am a protected veteran", "I am not a protected veteran"],
-      ["I am a protected veteran"],
-    ],
-    [
-      "not a protected veteran",
-      "eeo.veteran",
-      "select",
-      { veteran: "not-protected" },
-      veterans,
-      [veterans[0] ?? ""],
-    ],
-    [
-      "Ashby's protected veteran",
-      "eeo.veteran",
-      "radio",
-      { veteran: "protected" },
-      ASHBY_VETERANS,
-      [ASHBY_VETERANS[0] ?? ""],
-    ],
-    [
-      "Ashby's veteran decline",
-      "eeo.veteran",
-      "radio",
-      {},
-      ASHBY_VETERANS,
-      ["I decline to self-identify for protected veteran status"],
-    ],
-    [
-      "no veteran answer from a bare yes",
-      "eeo.veteran",
-      "select",
-      { veteran: "protected" },
-      ["Yes", "No"],
-      null,
-    ],
-    [
-      "a disability",
-      "eeo.disability",
-      "select",
-      { disability: "yes" },
-      disabilities,
-      [disabilities[0] ?? ""],
-    ],
-    [
-      "no disability",
-      "eeo.disability",
-      "select",
-      { disability: "no" },
-      disabilities,
-      [disabilities[1] ?? ""],
-    ],
-    [
-      "a disability decline",
-      "eeo.disability",
-      "select",
-      {},
-      disabilities,
-      ["I do not want to answer"],
-    ],
-    [
-      "nothing the options lack",
-      "eeo.gender",
-      "select",
-      { gender: "non-binary" },
-      ["Male", "Female"],
-      null,
-    ],
-    [
-      "nothing for a key outside EEO",
-      "contact.email",
-      "select",
-      {},
-      ["Male"],
-      null,
-    ],
-  ])("picks %s", (_, key, control, patch, labels, expected) => {
-    const question = field({
-      id: "q",
-      label: "Question",
-      control,
-      options: options(...labels),
-    })
-    expect(eeoFill(question, key, eeo(patch))).toEqual(
-      expected === null
-        ? null
-        : {
-            optionIds: expected.map((label) => `#${labels.indexOf(label) + 1}`),
-            labels: expected,
-          }
-    )
-  })
-
-  it("needs the options", () => {
-    const question = field({ id: "q", label: "Gender", control: "select" })
-    expect(eeoFill(question, "eeo.gender", sampleProfile.eeo)).toBeNull()
   })
 })

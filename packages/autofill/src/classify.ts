@@ -19,11 +19,6 @@ const normal = (key: CanonicalKey | null): Classification => ({
   key,
   zone: "normal",
 })
-const eeo = (key: CanonicalKey): Classification => ({
-  key,
-  zone: "forbidden",
-  anchor: "eeo",
-})
 const RESUME_FILE: Classification = { key: "resume.file", zone: "resume-file" }
 const OTHER_FILE: Classification = { key: null, zone: "other-file" }
 const FORBIDDEN: Classification = { key: null, zone: "forbidden" }
@@ -42,11 +37,6 @@ const VENDOR_IDS: Record<
     ["candidate-location", normal("address.city")],
     ["resume", RESUME_FILE],
     ["cover_letter", OTHER_FILE],
-    ["gender", eeo("eeo.gender")],
-    ["hispanic_ethnicity", eeo("eeo.hispanic")],
-    ["race", eeo("eeo.race")],
-    ["veteran_status", eeo("eeo.veteran")],
-    ["disability_status", eeo("eeo.disability")],
   ]),
   ashby: new Map<string, Classification>([
     ["_systemfield_name", normal("name.full")],
@@ -54,10 +44,6 @@ const VENDOR_IDS: Record<
     ["_systemfield_resume", RESUME_FILE],
     ["_systemfield_phone", normal("contact.phone")],
     ["_systemfield_location", normal("address.location")],
-    ["_systemfield_eeoc_gender", eeo("eeo.gender")],
-    ["_systemfield_eeoc_race", eeo("eeo.race")],
-    ["_systemfield_eeoc_veteran_status", eeo("eeo.veteran")],
-    ["_systemfield_eeoc_disability_status", eeo("eeo.disability")],
   ]),
 }
 
@@ -141,32 +127,6 @@ const APPLICANT_ONLY = words(
   "social insurance"
 )
 
-/** EEO topics in match order, each with the Profile key that answers it. */
-const EEO_TOPICS: readonly (readonly [
-  CanonicalKey | null,
-  readonly string[],
-])[] = [
-  ["eeo.race", words("race", "racial")],
-  ["eeo.hispanic", words("hispanic", "latino", "latina", "latinx")],
-  ["eeo.race", words("ethnicity", "ethnic")],
-  ["eeo.gender", words("gender", "sex")],
-  ["eeo.veteran", words("veteran", "veterans")],
-  ["eeo.disability", words("disability", "disabilities", "disabled")],
-  [null, words("sexual orientation", "transgender")],
-]
-
-/** Headings of the voluntary self-identification blocks. */
-const EEO_SECTIONS = words(
-  "equal employment",
-  "equal opportunity",
-  "eeo",
-  "eeoc",
-  "self-identification",
-  "self-identify",
-  "demographic",
-  "demographics"
-)
-
 const SALARY = words(
   "salary",
   "salaries",
@@ -184,17 +144,11 @@ const SALARY = words(
 )
 
 /**
- * Forbidden fields. EEO and salary keep their key and Profile section, since
- * Profile rules may fill them; the other topics always go to the page.
+ * Salary keeps its key and Profile section for rule fills; applicant-only
+ * topics always go to the page.
  */
-function forbiddenZone(label: string, section: string): Classification | null {
+function forbiddenZone(label: string): Classification | null {
   if (hasAny(label, APPLICANT_ONLY)) return FORBIDDEN
-  const topic = EEO_TOPICS.find(([, phrases]) => hasAny(label, phrases))
-  if (topic) return topic[0] ? eeo(topic[0]) : FORBIDDEN
-  const eeoSection =
-    hasAny(section, EEO_SECTIONS) ||
-    EEO_TOPICS.some(([, phrases]) => hasAny(section, phrases))
-  if (eeoSection) return FORBIDDEN
   if (hasAny(label, SALARY)) {
     return { key: "pref.salary", zone: "forbidden", anchor: "preferences" }
   }
@@ -217,6 +171,9 @@ const HOW_HEARD = words(
 )
 /** "Source" only as the whole label: "open source" is not how-heard. */
 const SOURCE = /^(referral |lead |application |candidate )?source$/
+
+/** Any label naming pronouns, such as "What pronouns would you like us to use?" */
+const PRONOUNS = words("pronoun", "pronouns")
 
 /** Words that reverse or narrow a yes/no question past the Profile's answer. */
 const REVERSING = words(
@@ -349,7 +306,6 @@ const NOUNS: readonly (readonly [RegExp, CanonicalKey])[] = [
   [/^(legal )?middle name( legal)?$/, "name.middle"],
   [/^(legal )?(last|family) name( legal)?$|^surname$/, "name.last"],
   [/^(preferred|chosen) (first )?name$|^nickname$/, "name.preferred"],
-  [/^(preferred |personal )?pronouns$/, "name.pronouns"],
   [/^(confirm )?e ?mail( address)?$/, "contact.email"],
   [
     /^(mobile |cell |home |primary )?(phone|telephone|mobile|cell)( phone)?( number)?$/,
@@ -389,7 +345,7 @@ const NOUNS: readonly (readonly [RegExp, CanonicalKey])[] = [
     "resume.years",
   ],
   [
-    /^(earliest|desired|expected|available|anticipated|preferred|potential) start date$|^when (can|could|would) you start$|^when are you available to start$|^(earliest )?availability to start$|^notice period$/,
+    /^(earliest|desired|expected|available|anticipated|preferred|potential) start date$|^when (can|could|would) you start$|^when are you available to start$|^(earliest )?availability to start$|^(required )?noticed? period$/,
     "pref.start",
   ],
   [
@@ -434,6 +390,7 @@ const NOUNS: readonly (readonly [RegExp, CanonicalKey])[] = [
 /** The label dictionary, over the normalized label. */
 function labelKey(label: string): CanonicalKey | null {
   if (SOURCE.test(label) || hasAny(label, HOW_HEARD)) return "source.how-heard"
+  if (hasAny(label, PRONOUNS)) return "name.pronouns"
   const work = workKey(label)
   if (work) return work
   if (LINKS.filter((phrase) => has(label, phrase)).length >= 2) {
@@ -468,7 +425,7 @@ export function classifyField(
   const known = VENDOR_IDS[vendor].get(field.id)
   if (known) return { ...known }
   const label = normalizeText(field.label)
-  const forbidden = forbiddenZone(label, normalizeText(field.section ?? ""))
+  const forbidden = forbiddenZone(label)
   if (forbidden) return { ...forbidden }
   if (field.control === "file") {
     return { ...(hasAny(label, RESUME) ? RESUME_FILE : OTHER_FILE) }

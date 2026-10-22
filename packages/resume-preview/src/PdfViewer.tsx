@@ -22,6 +22,8 @@ export type PdfViewerProps = {
   baseWidth: number
   zoom: number
   onPageCount?: (pages: number) => void
+  onReady?: (blob: Blob, pages: number) => void
+  onError?: (blob: Blob) => void
   className?: string
 }
 
@@ -46,6 +48,8 @@ export function PdfViewer({
   baseWidth,
   zoom,
   onPageCount,
+  onReady,
+  onError,
   className,
 }: PdfViewerProps) {
   const [{ slots, front }, setBuffers] = useState<{
@@ -61,10 +65,12 @@ export function PdfViewer({
       // The first document has nothing to hold over, so it goes straight to
       // the front and shows the spinner while it loads. Every later one waits
       // off screen.
-      const target =
+      const target: SlotIndex =
         state.slots[state.front] === null
           ? state.front
-          : ((1 - state.front) as SlotIndex)
+          : state.front === 0
+            ? 1
+            : 0
       slots[target] = blob
       return { ...state, slots }
     })
@@ -107,6 +113,8 @@ export function PdfViewer({
             front={index === front}
             onPainted={promote}
             onPageCount={onPageCount}
+            onReady={onReady}
+            onError={onError}
             className={className}
           />
         )
@@ -123,6 +131,8 @@ type PdfBufferProps = {
   front: boolean
   onPainted: (index: SlotIndex, blob: Blob) => void
   onPageCount?: (pages: number) => void
+  onReady?: (blob: Blob, pages: number) => void
+  onError?: (blob: Blob) => void
   className?: string
 }
 
@@ -133,6 +143,8 @@ function PdfBuffer({
   front,
   onPainted,
   onPageCount,
+  onReady,
+  onError,
   className,
 }: PdfBufferProps) {
   const [pages, setPages] = useState(0)
@@ -152,12 +164,20 @@ function PdfBuffer({
     if (front && pages > 0) onPageCount?.(pages)
   }, [front, pages, onPageCount])
 
+  useEffect(() => {
+    if (front && pages > 0 && painted.current.size >= pages)
+      onReady?.(blob, pages)
+  }, [front, pages, blob, onReady])
+
   // Tracked by page number rather than counted: a zoom while this buffer is
   // still loading repaints a page that already reported, and a count would
   // read those two paints as two finished pages.
   const onPagePainted = (pageNumber: number) => {
     painted.current.add(pageNumber)
-    if (pages > 0 && painted.current.size >= pages) onPainted(index, blob)
+    if (pages > 0 && painted.current.size >= pages) {
+      onPainted(index, blob)
+      if (front) onReady?.(blob, pages)
+    }
   }
 
   return (
@@ -184,6 +204,8 @@ function PdfBuffer({
           ) : null
         }
         onLoadSuccess={({ numPages }) => setPages(numPages)}
+        onLoadError={() => onError?.(blob)}
+        onSourceError={() => onError?.(blob)}
         className={cn("flex flex-col items-center gap-4", className)}
       >
         {Array.from({ length: pages }, (_, i) => i + 1).map((pageNumber) => (
@@ -194,6 +216,8 @@ function PdfBuffer({
             renderTextLayer
             renderAnnotationLayer={false}
             onRenderSuccess={() => onPagePainted(pageNumber)}
+            onRenderError={() => onError?.(blob)}
+            onLoadError={() => onError?.(blob)}
             className="overflow-hidden rounded-[3px] border border-border bg-card shadow-[0_10px_30px_-18px] shadow-foreground/30"
           />
         ))}

@@ -5,6 +5,8 @@ export * from "./domain/tailor-operation"
 export * from "./domain/job-target"
 export {
   ResumeSummarySchema,
+  ResumePreviewSchema,
+  type ResumePreview,
   ResumePageSchema,
   ResumePageInputSchema,
 } from "./domain/resume"

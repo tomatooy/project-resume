@@ -49,9 +49,21 @@ function question(
 
 /** Answers every field it is asked with `value`. */
 const answering =
-  (value: string): AutofillModels["fillFromAnswer"] =>
+  (value: string): AutofillModels["judge"] =>
   async (input) => ({
-    answers: input.fields.map(({ key }) => ({ key, value })),
+    choices: Object.fromEntries(
+      input.choices.map(({ key, options }) => [
+        key,
+        {
+          option: options.includes(value) ? options.indexOf(value) : null,
+          unmatched: !options.includes(value),
+          applicant: false,
+          confidence: 0.95,
+        },
+      ])
+    ),
+    multi: {},
+    open: {},
     usage: USAGE,
   })
 
@@ -86,7 +98,7 @@ async function answer(
 describe("AutofillService.answer", () => {
   it("fills from the answer and merges Notes in one run", async () => {
     const s = await session({
-      fillFromAnswer: answering("Yes"),
+      judge: answering("Yes"),
       mergeNotes: adding,
     })
 
@@ -113,7 +125,7 @@ describe("AutofillService.answer", () => {
   })
 
   it("reports answers that match no option", async () => {
-    const s = await session({ fillFromAnswer: answering("Maybe") })
+    const s = await session({ judge: answering("Maybe") })
 
     const result = await answer(s)
 
@@ -123,7 +135,7 @@ describe("AutofillService.answer", () => {
 
   it("returns the fill when the merge fails", async () => {
     const s = await session({
-      fillFromAnswer: answering("Yes"),
+      judge: answering("Yes"),
       mergeNotes: failing,
     })
 
@@ -136,35 +148,61 @@ describe("AutofillService.answer", () => {
   it("never fills a forbidden field from an answer", async () => {
     // The model may only be asked about `api`; a leak would show as a second
     // field in the call and its value here.
-    const fillFromAnswer = vi.fn<AutofillModels["fillFromAnswer"]>(
-      async (input) => ({
-        answers: input.fields.map(({ key, label }) => ({
-          key,
-          value: label.includes("API") ? "Yes" : "Female",
-        })),
-        usage: USAGE,
-      })
-    )
+    const judge = vi.fn(answering("Yes"))
+    const fillFromAnswer = vi.fn<AutofillModels["fillFromAnswer"]>()
     const mergeNotes = vi.fn(adding)
-    const s = await session({ fillFromAnswer, mergeNotes })
+    const s = await session({ judge, fillFromAnswer, mergeNotes })
+    const consent = field("consent", "I consent to data processing", "select", {
+      options: YES_NO,
+    })
 
     const result = await answer(s, {
-      fields: [api, gender],
+      fields: [api, consent],
       questions: [
         question("q1", api, ["Yes", "No"]),
-        question("q2", gender, ["Female", "Male"]),
+        question("q2", consent, ["Yes", "No"]),
       ],
     })
 
     expect(result.fills.map(({ fieldId }) => fieldId)).toEqual(["api"])
-    expect(fillFromAnswer.mock.calls[0]?.[0].fields).toHaveLength(1)
-    const sent = JSON.stringify([
-      fillFromAnswer.mock.calls,
-      mergeNotes.mock.calls,
-    ])
+    expect(judge.mock.calls[0]?.[0].choices).toHaveLength(1)
+    expect(judge.mock.calls[0]?.[0].reply?.text).toContain("billing tool")
+    expect(fillFromAnswer).not.toHaveBeenCalled()
+    const sent = JSON.stringify([judge.mock.calls, mergeNotes.mock.calls])
     expect(sent).toContain(api.label)
-    expect(sent).not.toContain("Gender")
-    expect(sent).not.toContain("Female")
+    expect(sent).not.toContain(consent.label)
+  })
+
+  it("fills demographic choices from replies through the ordinary judge", async () => {
+    const judge = vi.fn(answering("Female"))
+    const mergeNotes = vi.fn<AutofillModels["mergeNotes"]>(async () => ({
+      proposal: { ops: [], hints: [] },
+      usage: USAGE,
+    }))
+    const s = await session({ judge, mergeNotes })
+
+    const result = await answer(s, {
+      fields: [{ ...gender, section: "Voluntary Self-Identification" }],
+      questions: [question("q1", gender, ["Female", "Male"])],
+      text: "1. Female",
+    })
+
+    expect(result.fills).toEqual([
+      {
+        fieldId: gender.id,
+        source: "ai",
+        kind: "options",
+        optionIds: ["#1"],
+        labels: ["Female"],
+      },
+    ])
+    expect(judge.mock.calls[0]?.[0]).toMatchObject({
+      reply: { text: "1. Female" },
+      choices: [{ label: gender.label, options: ["Female", "Male"] }],
+    })
+    expect(mergeNotes.mock.calls[0]?.[0].questions).toEqual([
+      { number: 1, text: gender.label, options: ["Female", "Male"] },
+    ])
   })
 })
 

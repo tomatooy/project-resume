@@ -1,4 +1,9 @@
-import type { Control, Json, NoteMergeProposal } from "@workspace/autofill"
+import type {
+  ApplicantSource,
+  Control,
+  Json,
+  NoteMergeProposal,
+} from "@workspace/autofill"
 
 /** Token counts for the run row. */
 export type ModelUsage = { inputTokens: number; outputTokens: number }
@@ -15,10 +20,21 @@ export type ModelCall = { signal: AbortSignal; deadline: number }
  */
 export type ModelField = { key: string; label: string; help?: string }
 
-export type JudgeItem = ModelField & { options: string[] }
+export type JudgeItem = ModelField & {
+  options: string[]
+  /** Server classification, for tracing the how-heard fallback. */
+  guess?: boolean
+  /** Answer mode: the numbered question the field was asked as. */
+  asked?: { number: number; text: string }
+}
 
 export type JudgeInput = ModelCall & {
   context: Json
+  /**
+   * Answer mode: the applicant's reply to the numbered questions. The reply
+   * decides each field; the context only helps read it.
+   */
+  reply?: { text: string }
   choices: JudgeItem[]
   multi: JudgeItem[]
   open: (ModelField & { multiline: boolean })[]
@@ -26,16 +42,35 @@ export type JudgeInput = ModelCall & {
 
 /**
  * `option` is an index into that item's `options`, null when the context is
- * not enough. `multi` holds a yes probability per option and `open` one per
- * field: is this an open-ended question that needs a written answer?
+ * not enough, and `probabilities` holds each option's probability in option
+ * order, whatever was chosen. `multi` holds a yes probability per option and
+ * `open` one per field: is this an open-ended question that needs a written
+ * answer? In answer mode, `unmatched` says the reply answers the field with
+ * something no option says, and `addressed` holds, per multi-select, the
+ * probability that the reply answers it.
  */
 export type JudgeOutput = {
   choices: Record<
     string,
-    { option: number | null; applicant: boolean; confidence: number }
+    {
+      option: number | null
+      applicant: boolean
+      unmatched?: boolean
+      confidence: number
+      probabilities?: number[]
+      source?: ApplicantSource
+      evidence?: string[]
+      blocked?: boolean
+      verification?: { support: number; contradiction: number }
+    }
   >
   multi: Record<string, number[]>
+  /** Notes fallback, gated by applicability and the absence of an explicit answer. */
+  preferences?: Record<string, { option: number; support: number }>
+  addressed?: Record<string, number>
   open: Record<string, number>
+  /** A source or verification call failed; the other call's answers still count. */
+  degraded?: boolean
   usage: ModelUsage
 }
 
@@ -50,7 +85,9 @@ export type ShortTextOutput = {
     value: string | null
     evidence: ("resume" | "profile" | "notes")[]
     applicant: boolean
+    blocked?: boolean
   }[]
+  degraded?: boolean
   usage: ModelUsage
 }
 

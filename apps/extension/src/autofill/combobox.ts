@@ -1,18 +1,5 @@
-import { waitFor } from "./dom"
+import { byIds, waitFor } from "./dom"
 import type { ComboParts } from "./types"
-
-/** The elements an ARIA id list on `input` names, in the input's own tree. */
-function named(input: HTMLInputElement, attribute: string): Element[] {
-  const root = input.getRootNode()
-  const scope =
-    root instanceof Document || root instanceof ShadowRoot
-      ? root
-      : input.ownerDocument
-  return (input.getAttribute(attribute) ?? "").split(/\s+/).flatMap((id) => {
-    const target = id ? scope.getElementById(id) : null
-    return target ? [target] : []
-  })
-}
 
 function optionsIn(nodes: (Element | null)[]): HTMLElement[] {
   const found = new Set<HTMLElement>()
@@ -42,7 +29,7 @@ export function reactSelectParts(input: HTMLInputElement): ComboParts | null {
       const inMenu = optionsIn([container.querySelector(".select__menu")])
       return inMenu.length > 0
         ? inMenu
-        : optionsIn(named(input, "aria-controls"))
+        : optionsIn(byIds(input, input.getAttribute("aria-controls")))
     },
     values: () =>
       [
@@ -66,8 +53,8 @@ export function ariaComboParts(input: HTMLInputElement): ComboParts {
     opener: input,
     options: () =>
       optionsIn([
-        ...named(input, "aria-controls"),
-        ...named(input, "aria-owns"),
+        ...byIds(input, input.getAttribute("aria-controls")),
+        ...byIds(input, input.getAttribute("aria-owns")),
       ]),
     values: () => {
       const value = input.value.trim()

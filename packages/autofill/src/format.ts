@@ -101,20 +101,3 @@ export function formatLocation(city: string, state: string): string {
 export function fullName(first: string, last: string): string {
   return [first, last].filter((part) => part !== "").join(" ")
 }
-
-/** Filename-safe slug for downloads. */
-export function slug(value: string): string {
-  return (
-    value
-      .normalize("NFKD")
-      .replace(/[̀-ͯ]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "resume"
-  )
-}
-
-export function resumeFileName(name: string): string {
-  return `${slug(name)}-resume.pdf`
-}

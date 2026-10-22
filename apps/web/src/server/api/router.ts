@@ -1,6 +1,10 @@
 import { implement, ORPCError, ValidationError } from "@orpc/server"
 import { contract } from "@workspace/api/contract"
-import { ATTEMPT_MS, canonicalJobUrl } from "@workspace/resume-core/contracts"
+import {
+  ATTEMPT_MS,
+  canonicalJobUrl,
+  ResumePreviewSchema,
+} from "@workspace/resume-core/contracts"
 import { AppError } from "@workspace/resume-core"
 import { toAppError } from "../errors"
 import { dispatch } from "../tailoring/dispatch"
@@ -78,6 +82,9 @@ async function configuredTailoring(context: ApiContext) {
 }
 export const router = shared.router({
   resumes: {
+    preview: shared.resumes.preview.handler(async ({ input, context }) =>
+      ResumePreviewSchema.parse(await context.services.resumes.get(input.id))
+    ),
     page: shared.resumes.page.handler(({ input, context }) =>
       context.services.resumes.page(input)
     ),

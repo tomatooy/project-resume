@@ -771,6 +771,7 @@ export type Database = {
           id: string
           idempotency_key: string
           input_version_id: string
+          instructions: string
           job_target_id: string
           legacy: boolean
           resume_id: string
@@ -791,6 +792,7 @@ export type Database = {
           id?: string
           idempotency_key: string
           input_version_id: string
+          instructions?: string
           job_target_id: string
           legacy?: boolean
           resume_id: string
@@ -811,6 +813,7 @@ export type Database = {
           id?: string
           idempotency_key?: string
           input_version_id?: string
+          instructions?: string
           job_target_id?: string
           legacy?: boolean
           resume_id?: string

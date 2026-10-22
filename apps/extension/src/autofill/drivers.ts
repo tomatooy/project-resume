@@ -13,11 +13,11 @@ import {
 import type {
   ComboParts,
   FieldHandle,
+  LiveField,
   ScannedField,
   WriteOutcome,
 } from "./types"
 
-type Live = Omit<ScannedField, "descriptor">
 type OptionsFill = Extract<Fill, { kind: "options" }>
 type SearchFill = Extract<Fill, { kind: "search" }>
 
@@ -42,7 +42,7 @@ const isPressed = (element: Element): boolean =>
   element.getAttribute("aria-checked") === "true"
 
 /** Whether the field shows a value now, read from the page by kind. */
-export function hasValueNow(field: Live): boolean {
+export function hasValueNow(field: LiveField): boolean {
   const { element } = field
   switch (field.kind) {
     case "text":
@@ -77,6 +77,9 @@ const sameText = (shown: string, wanted: string): boolean =>
 
 const optionLabel = (element: HTMLElement): string =>
   clip(textWithBreaks(element).split("\n").join(" "), LIMITS.option)
+
+const comboOptionLabel = (parts: ComboParts, option: HTMLElement): string =>
+  clip(parts.optionLabel?.(option) ?? optionLabel(option), LIMITS.option)
 
 const settled = async (check: () => boolean): Promise<boolean> =>
   (await waitFor(() => (check() ? true : null), CONFIRM_MS)) !== null
@@ -198,7 +201,7 @@ async function chooseInCombo(
     close(parts)
     return "failed"
   }
-  const labels = shown.map(optionLabel)
+  const labels = shown.map((option) => comboOptionLabel(parts, option))
   const picks = resolve(labels, fill)
   if (!picks || picks.length === 0) {
     close(parts)
@@ -218,7 +221,9 @@ async function chooseInCombo(
       n === 0
         ? option
         : (await openCombo(parts, OPEN_MS))?.find(
-            (item) => normalizeText(optionLabel(item)) === normalizeText(label)
+            (item) =>
+              normalizeText(comboOptionLabel(parts, item)) ===
+              normalizeText(label)
           )
     if (!target) break
     press(target)
@@ -240,9 +245,10 @@ async function searchCombo(
   // Results may arrive late or in parts, so this waits for one that matches.
   const found = await waitFor(() => {
     const options = parts.options()
-    const index = searchMatch(fill.target, options.map(optionLabel))
+    const labels = options.map((option) => comboOptionLabel(parts, option))
+    const index = (parts.matchSearch ?? searchMatch)(fill.target, labels)
     const option = index === null ? undefined : options[index]
-    return option ? { option, label: optionLabel(option) } : null
+    return option ? { option, label: comboOptionLabel(parts, option) } : null
   }, SEARCH_MS)
   if (!found) {
     close(parts)
@@ -250,11 +256,22 @@ async function searchCombo(
     return "unmatched"
   }
   press(found.option)
-  return (await settled(() =>
+  const selected = () =>
     parts.values().some((value) => sameText(value, found.label))
-  ))
+  if (!(await settled(selected))) return "failed"
+  // An uncommitted search query can look selected until the input blurs.
+  input.blur()
+  return (await settled(() => !isOpen(parts) && selected()))
     ? "written"
     : "failed"
+}
+
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/** A fill as the field takes it: "2026-10-23" becomes "10/23/2026" for MM/DD/YYYY. */
+function typedText(field: ScannedField, value: string): string {
+  const iso = field.dateFormat ? ISO_DATE.exec(value) : null
+  return iso ? `${iso[2]}/${iso[3]}/${iso[1]}` : value
 }
 
 async function writeText(
@@ -289,7 +306,7 @@ function write(field: ScannedField, fill: Fill): Promise<WriteOutcome> {
   const { combo } = field
   switch (fill.kind) {
     case "text":
-      return writeText(field, fill.value)
+      return writeText(field, typedText(field, fill.value))
     case "check":
       return writeCheck(field, fill.checked)
     case "options": {
@@ -318,7 +335,7 @@ async function readOptions(field: ScannedField): Promise<Option[] | null> {
   const { combo } = field
   if (!combo) return field.descriptor.options ?? null
   const shown = await openCombo(combo, OPEN_MS)
-  const labels = shown?.map(optionLabel) ?? null
+  const labels = shown?.map((option) => comboOptionLabel(combo, option)) ?? null
   close(combo)
   if (!labels || labels.length > LIMITS.options) return null
   return labels.map((label, i) => ({ id: `#${i + 1}`, label }))

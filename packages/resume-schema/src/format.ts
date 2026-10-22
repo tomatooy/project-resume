@@ -48,3 +48,21 @@ export function formatRange(
   if (from && to) return `${from} - ${to}`
   return from || to
 }
+
+/** Filename-safe slug for downloads. */
+function slug(value: string): string {
+  return (
+    value
+      .normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "resume"
+  )
+}
+
+/** The PDF file name for a resume: downloads and autofill uploads alike. */
+export function resumeFileName(name: string): string {
+  return `${slug(name)}-resume.pdf`
+}

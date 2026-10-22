@@ -5,6 +5,10 @@ import { matchesJobUrl } from "./linkedin-extension"
 
 export const ATTEMPT_MS = 5 * 60_000
 export const CREDENTIAL_MARGIN_MS = 60_000
+export const MAX_TAILOR_INSTRUCTIONS_CHARS = 4000
+export const TailorInstructionsSchema = z
+  .string()
+  .max(MAX_TAILOR_INSTRUCTIONS_CHARS)
 export const OperationStatusSchema = z.enum([
   "queued",
   "running",
@@ -30,6 +34,7 @@ export const TailorOperationSchema = z.object({
   status: OperationStatusSchema,
   expectedRevision: z.number().int(),
   inputVersionId: z.uuid(),
+  instructions: TailorInstructionsSchema.default(""),
   idempotencyKey: z.uuid(),
   deadline: z.iso.datetime({ offset: true }),
   dispatchAfter: z.iso.datetime({ offset: true }).nullable().optional(),
@@ -52,6 +57,7 @@ export const JobLookupSchema = z.discriminatedUnion("kind", [
 export type JobLookup = z.infer<typeof JobLookupSchema>
 export const TailorAdmissionSchema = JobIdentitySchema.extend({
   sourceResumeId: z.uuid(),
+  instructions: TailorInstructionsSchema.optional(),
   jobText: z.string().trim().min(MIN_JOB_CHARS).max(MAX_JOB_CHARS),
   sourceUrl: z.url().max(2000),
   idempotencyKey: z.uuid(),

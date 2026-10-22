@@ -1,0 +1,35 @@
+{
+  "name": "@workspace/resume-preview",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./viewer": "./src/PdfViewer.tsx",
+    "./pdfjs": "./src/pdfjs.ts",
+    "./render-queue": "./src/render-queue.ts",
+    "./render": "./src/PdfEngine.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write ."
+  },
+  "dependencies": {
+    "@tanstack/react-store": "^0.11.1",
+    "@tanstack/store": "^0.11.1",
+    "@workspace/resume-render": "workspace:*",
+    "@workspace/resume-schema": "workspace:*",
+    "@workspace/ui": "workspace:*",
+    "pdfjs-dist": "5.4.296",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-pdf": "^10.5.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^6",
+    "vite": "^8"
+  }
+}

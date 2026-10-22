@@ -30,12 +30,15 @@ import { SupabaseSuggestionRepository } from "./adapters/suggestion-repository"
 import { SupabaseSummaryRepository } from "./adapters/summary-repository"
 import { SupabaseVersionRepository } from "./adapters/version-repository"
 import { createModelsFromEnv } from "./ai"
+import { traceAutofillModels, traceJevClient } from "./autofill-trace"
 import type { Db } from "./auth/supabase"
 import { createLogger } from "./log"
 import { createTypeSafeClientFromEnv } from "./typesafe"
 
 export type { Services } from "@workspace/resume-core"
 export { createServices }
+
+const AUTOFILL_TRACE = import.meta.env.DEV && import.meta.env.MODE !== "test"
 
 /**
  * Builds the model client only if consolidation actually runs, so a server
@@ -94,13 +97,16 @@ function missingKey(errorClass: "deepseek_missing" | "typesafe_missing"): null {
 export function lazyAutofillModels(): AutofillModels {
   let built: AutofillModels | null = null
   const models = (): AutofillModels => {
-    built ??= createAutofillModels({
+    if (built) return built
+    const typesafe = process.env.TYPESAFE_API_KEY?.trim()
+      ? createTypeSafeClientFromEnv()
+      : missingKey("typesafe_missing")
+    built = createAutofillModels({
       models: process.env.DEEPSEEK_API_KEY
         ? createModelsFromEnv()
         : missingKey("deepseek_missing"),
-      typesafe: process.env.TYPESAFE_API_KEY?.trim()
-        ? createTypeSafeClientFromEnv()
-        : missingKey("typesafe_missing"),
+      typesafe:
+        typesafe && AUTOFILL_TRACE ? traceJevClient(typesafe) : typesafe,
     })
     return built
   }
@@ -150,7 +156,10 @@ export function supabasePorts(
     autofillProfiles: new SupabaseAutofillProfileRepository(db, userId),
     autofillNotes: new SupabaseAutofillNotesRepository(db, userId),
     autofillApplications: new SupabaseAutofillApplicationRepository(db, userId),
-    autofillModels: lazyAutofillModels(),
+    // Applicant records and model answers: `vite dev` only.
+    autofillModels: AUTOFILL_TRACE
+      ? traceAutofillModels(lazyAutofillModels())
+      : lazyAutofillModels(),
     ...over,
   }
 }

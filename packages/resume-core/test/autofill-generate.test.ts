@@ -77,24 +77,24 @@ describe("AutofillService.generate", () => {
     const model = vi.fn(writing(FIRST))
     const s = await session({ generate: model })
 
-    await expect(generate(s, field("gender", "Gender"))).rejects.toMatchObject({
-      code: "VALIDATION",
-    })
+    await expect(
+      generate(s, field("signature", "Signature"))
+    ).rejects.toMatchObject({ code: "VALIDATION" })
     expect(s.h.db.runs).toEqual([])
     expect(model).not.toHaveBeenCalled()
   })
 
-  it("uses the job description only when asked", async () => {
+  it("never sends imported job context, including legacy useJob requests", async () => {
     const model = vi.fn(writing(FIRST))
     const s = await session({ generate: model })
-    const job = await originJob(s)
+    await originJob(s)
 
     await generate(s, why, { useJob: false })
     await generate(s, why, { useJob: true })
 
-    expect(model.mock.calls[0]?.[0].context).toMatchObject({ job: null })
-    expect(model.mock.calls[1]?.[0].context).toMatchObject({
-      job: { company: "Stripe", description: job.rawText },
-    })
+    for (const [input] of model.mock.calls) {
+      expect(input.context).not.toHaveProperty("job")
+      expect(input.context).not.toHaveProperty("page")
+    }
   })
 })

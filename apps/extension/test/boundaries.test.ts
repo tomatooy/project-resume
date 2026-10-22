@@ -59,10 +59,9 @@ it("declares only required privileges and existing entrypoints", () => {
     { matches: SUPPORTED_MATCHES, js: ["widget-host.js"] },
     { matches: AUTOFILL_MATCHES, js: ["autofill.js"] },
   ])
-  // The toolbar can open the panel on any page; the widget stays on
-  // supported pages.
+  // Both surfaces also run on company pages with a detected ATS embed.
   expect(manifest.web_accessible_resources).toEqual([
-    { matches: SUPPORTED_MATCHES, resources: ["widget.html"] },
+    { matches: ["<all_urls>"], resources: ["widget.html"] },
     { matches: ["<all_urls>"], resources: ["panel.html"] },
   ])
   expect(readFileSync("src/content/widget-host.ts", "utf8")).not.toMatch(

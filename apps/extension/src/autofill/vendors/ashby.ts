@@ -12,10 +12,14 @@ import {
 } from "../dom"
 import { hasValueNow } from "../drivers"
 import { listed, scanGeneric } from "../generic"
-import type { PageInfo, ScannedField, VendorAdapter } from "../types"
-import { humanizeSlug, siteName, titleCompany } from "./page-info"
-
-type Live = Omit<ScannedField, "descriptor">
+import type {
+  ComboParts,
+  LiveField,
+  PageInfo,
+  ScannedField,
+  VendorAdapter,
+} from "../types"
+import { pageInfo, siteName, TITLE_MAX, titleCompany } from "./page-info"
 
 // Only `ashby-*` classes: the hashed ones change with Ashby deploys (Ashby 1).
 // Each survey, such as the US EEO one, is a form of its own (Ashby 13).
@@ -29,6 +33,8 @@ const TITLE = ".ashby-application-form-question-title"
 const HELP = ".ashby-application-form-question-description"
 const SECTION = ".ashby-application-form-section-container"
 const CHECKBOXES = ".ashby-application-form-input-checkbox-group"
+/** A react-datepicker text input that shows and takes MM/DD/YYYY. */
+const DATE = "input.ashby-application-form-input-date"
 const HEADINGS = "h1, h2, h3, h4, h5, h6, legend"
 const POSTING_PATH =
   /^\/([^/]+)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/application)?\/?$/i
@@ -38,8 +44,6 @@ const TITLE_PATTERNS = [
 ]
 const FILE_NAME = /\.(?:pdf|docx?|txt|rtf)$/i
 const ID_MAX = 300
-const TITLE_MAX = 300
-const COMPANY_MAX = 200
 const LINK_MAX = 2000
 
 /** The org and job of a posting path, as written, on either tab. */
@@ -111,7 +115,7 @@ function shownName(entry: Element): string | null {
 }
 
 /** Exactly two shown buttons reading Yes and No, in page order (Ashby 6). */
-function yesNo(entry: Element): Live["choices"] | null {
+function yesNo(entry: Element): LiveField["choices"] | null {
   const buttons = [...entry.querySelectorAll("button")].filter((button) =>
     isShown(button)
   )
@@ -128,7 +132,7 @@ function yesNo(entry: Element): Live["choices"] | null {
 }
 
 /** Ashby names each box after its option, so `scanGeneric` sees lone boxes. */
-function checkboxGroup(entry: Element): Live | null {
+function checkboxGroup(entry: Element): LiveField | null {
   const group = entry.querySelector(CHECKBOXES)
   if (!(group instanceof HTMLElement)) return null
   const choices = [...group.querySelectorAll("input[type=checkbox]")].flatMap(
@@ -145,6 +149,27 @@ function checkboxGroup(entry: Element): Live | null {
   return choices.length > 0
     ? { element: group, kind: "checkboxes", choices }
     : null
+}
+
+/** School results include country and domain, but commit only the name. */
+function schoolComboParts(input: HTMLInputElement): ComboParts {
+  const parts = ariaComboParts(input)
+  return {
+    ...parts,
+    optionLabel: (option) => {
+      // First span in the name/country row, before the domain (Ashby 14).
+      const name = option.querySelector(":scope > div > div > span")
+      return name ? labelText(name) : ""
+    },
+    matchSearch: (target, labels) => {
+      const wanted = normalizeText(target)
+      if (!wanted) return null
+      const matches = labels.flatMap((label, i) =>
+        normalizeText(label) === wanted ? [i] : []
+      )
+      return matches.length === 1 ? (matches[0] ?? null) : null
+    },
+  }
 }
 
 /**
@@ -164,11 +189,12 @@ function entryField(entry: HTMLElement, path: string): ScannedField | null {
 
   const input = entry.querySelector("input[role=combobox]")
   if (input instanceof HTMLInputElement) {
-    const live: Live = {
+    const school = path === "_systemfield_education_history"
+    const live: LiveField = {
       element: input,
       kind: "combo",
       choices: [],
-      combo: ariaComboParts(input),
+      combo: school ? schoolComboParts(input) : ariaComboParts(input),
     }
     return {
       ...live,
@@ -177,8 +203,7 @@ function entryField(entry: HTMLElement, path: string): ScannedField | null {
         label: title || labelFor(input),
         ...extras,
         control: "combobox",
-        // Unverified: only the location searches remotely.
-        ...(path === "_systemfield_location"
+        ...(school || path === "_systemfield_location"
           ? { searchable: true }
           : { optionsPending: true }),
         required: requiredIn(entry),
@@ -189,7 +214,7 @@ function entryField(entry: HTMLElement, path: string): ScannedField | null {
 
   const choices = yesNo(entry)
   if (choices) {
-    const live: Live = { element: entry, kind: "buttons", choices }
+    const live: LiveField = { element: entry, kind: "buttons", choices }
     return {
       ...live,
       descriptor: {
@@ -225,12 +250,16 @@ function entryField(entry: HTMLElement, path: string): ScannedField | null {
   // Ashby may replace the file input after an upload (Ashby 5.2).
   const hasValue =
     descriptor.hasValue || (field.kind === "file" && shownName(entry) !== null)
+  // Reported as a date, so the server sends YYYY-MM-DD for the driver to retype.
+  const date = field.kind === "text" && field.element.matches(DATE)
   return {
     ...field,
+    ...(date ? { dateFormat: "MM/DD/YYYY" as const } : {}),
     descriptor: {
       ...descriptor,
       id: path,
       label: title || descriptor.label,
+      ...(date ? { control: "date" as const } : {}),
       ...extras,
       hasValue,
     },
@@ -253,10 +282,6 @@ function scan(root: Element): ScannedField[] {
   }))
 }
 
-/**
- * The company comes from the page when it names one; the org slug is a weak
- * guess, shown but not used to match the job (spec 6.3).
- */
 function page(doc: Document, url: URL): PageInfo {
   const heading = doc.querySelector("h1.ashby-job-posting-heading")
   const embeddedTitle =
@@ -267,13 +292,11 @@ function page(doc: Document, url: URL): PageInfo {
     (heading && clip(labelText(heading), TITLE_MAX)) ||
     (embeddedTitle && clip(embeddedTitle, TITLE_MAX)) ||
     null
-  const company =
-    siteName(doc, "Ashby") ?? titleCompany(doc, title, TITLE_PATTERNS)
-  if (company)
-    return { company: clip(company, COMPANY_MAX), companyWeak: false, title }
-  const org = postingPath(url)?.org
-  const slug = org ? clip(humanizeSlug(org), COMPANY_MAX) : ""
-  return { company: slug || null, companyWeak: slug !== "", title }
+  return pageInfo(
+    siteName(doc, "Ashby") ?? titleCompany(doc, title, TITLE_PATTERNS),
+    postingPath(url)?.org,
+    title
+  )
 }
 
 export const ashby: VendorAdapter = {

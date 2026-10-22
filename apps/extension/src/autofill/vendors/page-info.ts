@@ -1,4 +1,10 @@
 import { normalizeText } from "@workspace/autofill/match"
+import { clip } from "../dom"
+import type { PageInfo } from "../types"
+
+/** The page info limits the service worker accepts. */
+export const TITLE_MAX = 300
+const COMPANY_MAX = 200
 
 /** A board slug as a name: "office-hours" reads "Office Hours". */
 export function humanizeSlug(slug: string): string {
@@ -43,4 +49,19 @@ export function titleCompany(
     if (company !== "") return company
   }
   return null
+}
+
+/**
+ * The company comes from the page when it names one; the board or org slug
+ * is a weak guess, shown but not used to match the job (spec 6.3).
+ */
+export function pageInfo(
+  company: string | null,
+  slug: string | undefined,
+  title: string | null
+): PageInfo {
+  if (company)
+    return { company: clip(company, COMPANY_MAX), companyWeak: false, title }
+  const guess = slug ? clip(humanizeSlug(slug), COMPANY_MAX) : ""
+  return { company: guess || null, companyWeak: guess !== "", title }
 }

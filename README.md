@@ -38,6 +38,7 @@ spec's server functions so the swap to a real back end stays contained.
 apps/web                 TanStack Start app
 packages/resume-schema   Zod document schema, patch contract, fixtures
 packages/resume-render   react-pdf templates and fonts
+packages/openai          standalone server-side OpenAI Decisions client
 packages/ui              shadcn/Base UI components and design tokens
 docs/specs               over-all, front-end, and back-end specs
 ```
@@ -54,6 +55,10 @@ production (see `.env.local.example`): `DEEPSEEK_API_KEY` for every AI
 feature, and `TYPESAFE_API_KEY`, which autofill requires for its Jev
 decisions. Without the TypeSafe key, autofill falls back to rules and plain
 questions.
+
+The standalone [OpenAI Decisions package](packages/openai/README.md) uses an
+optional `OPENAI_API_KEY` with the same server secret setup. It is available
+alongside Jev and has no product callers yet.
 
 Typecheck and lint:
 

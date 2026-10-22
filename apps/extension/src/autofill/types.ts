@@ -29,6 +29,9 @@ export type ComboParts = {
   input: HTMLInputElement
   opener: HTMLElement
   options(): HTMLElement[]
+  /** The value label when a result also renders supporting details. */
+  optionLabel?(option: HTMLElement): string
+  matchSearch?(target: string, labels: readonly string[]): number | null
   values(): string[]
   clearer(): HTMLElement | null
 }
@@ -41,7 +44,12 @@ export type ScannedField = {
   /** The page's options in order after placeholders: `choices[n - 1]` is `#n`. */
   choices: { element: HTMLElement; label: string }[]
   combo?: ComboParts
+  /** A date picker's text input: date fills (YYYY-MM-DD) are typed in this format. */
+  dateFormat?: "MM/DD/YYYY"
 }
+
+/** A scanned field's live parts on the page, without what is sent on. */
+export type LiveField = Omit<ScannedField, "descriptor">
 
 export type WriteOutcome = z.infer<typeof WriteOutcomeSchema>
 

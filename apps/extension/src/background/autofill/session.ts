@@ -6,6 +6,7 @@ import {
   type Fill,
   FillSchema,
   LIMITS,
+  type Question,
   QuestionSchema,
 } from "@workspace/autofill/fields"
 import { normalizeText } from "@workspace/autofill/match"
@@ -15,6 +16,7 @@ import {
   NotesOutcomeSchema,
   PlanResultSchema,
   QuotaSchema,
+  ResumeChoiceSchema,
   StartResultSchema,
 } from "@workspace/resume-core/contracts"
 import { z } from "zod"
@@ -92,8 +94,17 @@ export const AutofillSessionSchema = z.object({
   plan: PlanResultSchema.nullable(),
   /** The user's pick; null leaves it to the default rules. */
   resumeId: z.uuid().nullable(),
+  /** The default rules' first pick, which later plans keep (spec 6.2). */
+  defaultResume: z
+    .object({ id: z.uuid(), choice: ResumeChoiceSchema.exclude(["user"]) })
+    .nullable(),
   useAnyway: z.boolean(),
   linkedin: JobIdentitySchema.nullable(),
+  /**
+   * The earlier fill as the first `start` found it. Later plans see the
+   * record that start wrote, which is this session's own (spec 4).
+   */
+  earlier: PlanResultSchema.shape.earlier,
   /** The application record and resume snapshot of the last `start`. */
   started: z
     .object({
@@ -176,8 +187,10 @@ function newSession(
     planAt: null,
     plan: null,
     resumeId: null,
+    defaultResume: null,
     useAnyway: false,
     linkedin: null,
+    earlier: null,
     started: null,
     attach: null,
     states: {},
@@ -315,16 +328,20 @@ const PASS_MS = 30_000
 export const canRunPass = (session: AutofillSession, now: number): boolean =>
   session.running === null || now - session.running >= PASS_MS
 
-/** Fills for fields on the form, not owned, and empty unless forced. */
+/**
+ * Fills for fields on the form, not owned, and empty unless forced. The
+ * resume file is attached, never written, so its fill is left out.
+ */
 export function fieldsToFill(
   session: AutofillSession,
   fills: Fill[],
   force: ReadonlySet<string> = new Set()
 ): Fill[] {
   const fields = new Map(session.fields.map((field) => [field.id, field]))
-  return fills.filter(({ fieldId }) => {
+  return fills.filter(({ fieldId, kind }) => {
     const field = fields.get(fieldId)
     return (
+      kind !== "resume-file" &&
       field !== undefined &&
       session.states[fieldId]?.owned !== true &&
       (!field.hasValue || force.has(fieldId))
@@ -382,6 +399,22 @@ export function writeFieldIds(session: AutofillSession): string[] {
   return session.fields
     .filter(({ id }) => routed.has(id) || judged.has(id))
     .map(({ id }) => id)
+}
+
+/**
+ * The questions that still name an empty field, company-specific ones last
+ * (spec 6.4). The panel numbers them in this order and an answer sends them
+ * in it, so "2. yes" means the same question on both sides (spec 8.2).
+ */
+export function openQuestions(session: AutofillSession): Question[] {
+  const empty = new Set(
+    session.fields.filter(({ hasValue }) => !hasValue).map(({ id }) => id)
+  )
+  return session.questions
+    .filter(({ original }) =>
+      original.some(({ fieldId }) => empty.has(fieldId))
+    )
+    .sort((a, b) => Number(a.companySpecific) - Number(b.companySpecific))
 }
 
 /** Whether AI calls may use the resume's job description (spec 6.3). */

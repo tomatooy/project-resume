@@ -90,12 +90,7 @@ describe("classifyField", () => {
       normal("other.backgroundCheck"),
     ],
     ["Have you ever been convicted of a felony?", "combobox", {}, forbidden],
-    [
-      "Gender",
-      "select",
-      {},
-      { key: "eeo.gender", zone: "forbidden", anchor: "eeo" },
-    ],
+    ["Gender", "select", {}, normal(null)],
     [
       "Desired salary",
       "text",
@@ -128,7 +123,7 @@ describe("classifyField", () => {
       "Gender",
       "combobox",
       { vendor: "greenhouse", id: "gender" },
-      { key: "eeo.gender", zone: "forbidden", anchor: "eeo" },
+      normal(null),
     ],
     [
       "Name",
@@ -149,19 +144,12 @@ describe("classifyField", () => {
       classify("Country", "combobox", { id: "country" }),
       classify("Location (City)", "combobox", { id: "candidate-location" }),
       classify("Attach", "file", { id: "resume" }),
-      classify("Please select one", "select", { id: "veteran_status" }),
-      classify("Please select one", "select", {
-        vendor: "ashby",
-        id: "_systemfield_eeoc_disability_status",
-      }),
       classify("Field", "text", { vendor: "ashby", id: "first_name" }),
     ]).toEqual([
       normal("contact.phone.national"),
       normal("contact.phone.country"),
       normal("address.city"),
       { key: "resume.file", zone: "resume-file" },
-      { key: "eeo.veteran", zone: "forbidden", anchor: "eeo" },
-      { key: "eeo.disability", zone: "forbidden", anchor: "eeo" },
       normal(null),
     ])
   })
@@ -219,16 +207,47 @@ describe("classifyField", () => {
     ])
   })
 
-  it("treats every field in a self-identification section as EEO", () => {
-    expect(
-      classify("Please select", "select", {
-        section: "Voluntary Self-Identification",
-      })
-    ).toEqual(forbidden)
+  it.each([
+    "Voluntary Self-Identification",
+    "Equal Employment Opportunity",
+    "EEO",
+    "Demographics",
+    "Veteran status",
+  ])("uses ordinary field classification inside %s", (section) => {
+    expect([
+      classify("Please select", "select", { section }),
+      classify("Languages", "checkboxes", { section }),
+      classify("I consent to data processing", "checkbox", { section }),
+    ]).toEqual([normal(null), normal("other.languages"), forbidden])
   })
 
-  it("gives no Profile link to EEO topics the Profile does not hold", () => {
-    expect(classify("Sexual orientation", "select")).toEqual(forbidden)
+  it.each([
+    "Race",
+    "Ethnicity",
+    "Hispanic or Latino",
+    "Sexual orientation",
+    "Gender",
+    "Transgender",
+    "Veteran status",
+    "Disability status",
+  ])("leaves %s to ordinary choice inference", (label) => {
+    expect(classify(label, "select")).toEqual(normal(null))
+  })
+
+  it.each<[AutofillVendor, string]>([
+    ["greenhouse", "gender"],
+    ["greenhouse", "hispanic_ethnicity"],
+    ["greenhouse", "race"],
+    ["greenhouse", "veteran_status"],
+    ["greenhouse", "disability_status"],
+    ["ashby", "_systemfield_eeoc_gender"],
+    ["ashby", "_systemfield_eeoc_race"],
+    ["ashby", "_systemfield_eeoc_veteran_status"],
+    ["ashby", "_systemfield_eeoc_disability_status"],
+  ])("treats %s %s as an ordinary field", (vendor, id) => {
+    expect(classify("Please select one", "select", { vendor, id })).toEqual(
+      normal(null)
+    )
   })
 
   it("matches plural and past forms of forbidden words", () => {

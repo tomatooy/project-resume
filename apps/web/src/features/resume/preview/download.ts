@@ -1,4 +1,5 @@
-import { slug } from "@/lib/format"
+import { downloadBlob } from "@workspace/resume-preview"
+import { resumeFileName } from "@workspace/resume-schema"
 
 /**
  * Saves the already-rendered preview blob. Export is free: the PDF the pane is
@@ -6,12 +7,7 @@ import { slug } from "@/lib/format"
  * caller's toast.
  */
 export function downloadPdf(blob: Blob, name: string): string {
-  const filename = `${slug(name)}-resume.pdf`
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement("a")
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
+  const filename = resumeFileName(name)
+  downloadBlob(blob, filename)
   return filename
 }

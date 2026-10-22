@@ -7,12 +7,15 @@ import {
 } from "@workspace/autofill/fields"
 import { plainQuestions } from "@workspace/autofill/notes"
 import type {
+  AiRequest,
   AutofillPage,
   InferResult,
   PlanResult,
   Quota,
 } from "@workspace/resume-core/contracts"
 import { z } from "zod"
+import { errorClass, trace } from "../../autofill/debug"
+import { scanUrl } from "../../autofill/posting-url"
 import { api } from "../../lib/api"
 import { DRAFT_FAILED, limitLine } from "../../lib/autofill-copy"
 import type {
@@ -20,7 +23,7 @@ import type {
   WriteOutcomeSchema,
 } from "../../lib/autofill-protocol"
 import type { AutofillAction, AutofillView } from "../../lib/autofill-view"
-import { autofillFrame, sameDocument, scanUrl } from "./frames"
+import { autofillFrame, sameDocument } from "./frames"
 import { sendToContent } from "./send"
 import {
   type AutofillSession,
@@ -29,6 +32,7 @@ import {
   countsOf,
   fieldsToFill,
   markOwned,
+  openQuestions,
   readDocument,
   readSession,
   recordWrites,
@@ -37,6 +41,13 @@ import {
   usesJob,
   writeFieldIds,
 } from "./session"
+import {
+  traceAnswer,
+  traceInfer,
+  tracePlan,
+  traceTargets,
+  traceWrites,
+} from "./trace"
 import { autofillView } from "./view"
 
 /*
@@ -69,6 +80,22 @@ function pageOf(session: AutofillSession): AutofillPage | null {
     postingKey: session.postingKey,
     url: session.url,
     ...session.page,
+  }
+}
+
+/** What every AI call names: the page, the started record and its tallies. */
+function aiRequest(
+  session: AutofillSession,
+  page: AutofillPage,
+  started: Started,
+  useJob = usesJob(session)
+): AiRequest {
+  return {
+    page,
+    resumeId: started.resumeId,
+    applicationId: started.applicationId,
+    useJob,
+    counts: countsOf(session),
   }
 }
 
@@ -134,6 +161,15 @@ async function claimPass(tabId: number, auto: boolean): Promise<Pass | null> {
   // The reducer is pure, so `before` tells whether it claimed.
   const page =
     hasForm(before) && free(before) && after !== null ? pageOf(after) : null
+  if (page === null)
+    trace(
+      `3. no ${auto ? "automatic " : ""}pass:`,
+      !hasForm(before)
+        ? "no application form on the page"
+        : !canRunPass(before, now)
+          ? `another pass is running${auto ? "; this one runs after it" : ""}`
+          : "automatic passes wait until Autofill has run once"
+    )
   return after !== null && page !== null
     ? { session: after, page, claim: now }
     : null
@@ -215,6 +251,7 @@ async function sendWrites(
     fills,
     force,
   })
+  traceWrites(session, fills, results)
   return results
 }
 
@@ -277,27 +314,39 @@ async function readOptions(
   )
 }
 
-/** Plans the session's fields; the plan is kept while it is still current. */
+/** The user's pick, else the default the first plan found (spec 6.2). */
+const pickOf = (session: AutofillSession): string | null =>
+  session.resumeId ?? session.defaultResume?.id ?? null
+
+/** A default rule's pick, which the session keeps from then on. */
+function defaultOf(plan: PlanResult): AutofillSession["defaultResume"] {
+  const { resumeId: id, resumeChoice: choice } = plan
+  return id !== null && choice !== null && choice !== "user"
+    ? { id, choice }
+    : null
+}
+
+/**
+ * Plans the session's fields; the plan is kept while it is still current.
+ * The default is computed once: later plans send it back as the pick, so a
+ * new tailored resume or a late company name cannot move it.
+ */
 async function planFor(
   tabId: number,
   session: AutofillSession,
   page: AutofillPage
 ): Promise<PlanResult> {
+  const resumeId = pickOf(session)
   const plan = await api.autofill.plan(
-    {
-      page,
-      fields: session.fields,
-      resumeId: session.resumeId,
-      linkedin: session.linkedin,
-    },
+    { page, fields: session.fields, resumeId, linkedin: session.linkedin },
     timeout()
   )
   await updatePosting(tabId, page.postingKey, (current) => ({
     ...current,
     quota: plan.quota,
+    defaultResume: current.defaultResume ?? defaultOf(plan),
     // A plan for older fields or another pick is dropped.
-    ...(current.scanAt === session.scanAt &&
-    current.resumeId === session.resumeId
+    ...(current.scanAt === session.scanAt && pickOf(current) === resumeId
       ? { plan, planAt: session.scanAt }
       : {}),
   }))
@@ -392,11 +441,17 @@ async function startApplication(
     const now = Date.now()
     await updatePosting(tabId, key, (session) => ({
       ...session,
+      // Passes run one at a time, so the first start's plan predates its record.
+      earlier: session.started === null ? plan.earlier : session.earlier,
       started,
       attach: nextAttach(session, plan, started, now),
     }))
+    trace("5. application record started; AI calls can run")
     return started
-  } catch {
+  } catch (error) {
+    trace(
+      `5. could not start the application record, so AI fields become questions: ${errorClass(error)}`
+    )
     await updatePosting(tabId, key, (session) => ({
       ...session,
       ai: { ...session.ai, degraded: true },
@@ -413,9 +468,7 @@ async function writeRules(
 ): Promise<void> {
   const session = await readPosting(tabId, pass.page.postingKey)
   if (!session) return
-  const fills = plan.fills.filter(
-    ({ fieldId, kind }) => targets.has(fieldId) && kind !== "resume-file"
-  )
+  const fills = plan.fills.filter(({ fieldId }) => targets.has(fieldId))
   await writeFills(tabId, session, fieldsToFill(session, fills))
 }
 
@@ -444,22 +497,30 @@ async function infer(
     called: false,
     ...rest,
   })
-  if (!started) return plain({ degraded: true })
-  if (plan.quota.remaining === 0) return plain({})
+  if (!started) {
+    trace("7. no application record, so AI fields become questions")
+    return plain({ degraded: true })
+  }
+  if (plan.quota.remaining === 0) {
+    trace("7. hourly AI limit reached, so AI fields become questions")
+    return plain({})
+  }
+  const useJob = usesJob({ ...session, plan })
+  trace(
+    `7. asking AI about ${fields.length} field(s); the job description ${useJob ? "is" : "is not"} sent:`,
+    fields.map(({ label }) => label)
+  )
   try {
     const result = await api.autofill.infer(
-      {
-        page: pass.page,
-        resumeId: started.resumeId,
-        applicationId: started.applicationId,
-        useJob: usesJob({ ...session, plan }),
-        counts: countsOf(session),
-        fields,
-      },
+      { ...aiRequest(session, pass.page, started, useJob), fields },
       timeout()
     )
+    traceInfer(fields, result)
     return { ...result, called: true }
   } catch (error) {
+    trace(
+      `8. the AI call failed, so these fields become questions: ${errorClass(error)}`
+    )
     const quota = limitedQuota(error)
     return plain(
       quota ? { quota, called: true } : { degraded: true, called: true }
@@ -533,9 +594,7 @@ async function askAi(
   if (!latest) return
   const fills = fieldsToFill(
     latest,
-    outcome.fills.filter(
-      ({ fieldId, kind }) => asked.has(fieldId) && kind !== "resume-file"
-    )
+    outcome.fills.filter(({ fieldId }) => asked.has(fieldId))
   )
   const results = await sendWrites(tabId, latest, fills)
   await updatePosting(tabId, key, (current) =>
@@ -578,11 +637,18 @@ async function retryAttach(
 }
 
 async function runPass(tabId: number, pass: Pass, mode: Mode): Promise<void> {
+  trace(
+    `3. ${mode === "manual" ? "Autofill" : "automatic"} pass started (${mode === "manual" ? "every field" : "only fields AI has not tried"})`
+  )
   const session = await readOptions(tabId, pass)
   if (!session) return
   const plan = await planFor(tabId, session, pass.page)
+  tracePlan(session, plan)
   const resumeId = plan.resumeId
-  if (resumeId === null) return
+  if (resumeId === null) {
+    trace("4. no resume picked, so the pass stops here")
+    return
+  }
   if (mode === "manual") await retryAttach(tabId, pass.page.postingKey, plan)
   // Rule values do not wait for the record; AI calls need its id.
   const starting: Promise<Started | null> =
@@ -605,6 +671,7 @@ async function runPass(tabId: number, pass: Pass, mode: Mode): Promise<void> {
           ({ id }) =>
             routes.get(id) === "ai" && session.states[id]?.owned !== true
         )
+  traceTargets(session, routes, targets, aiFields, AUTO_PASSES)
   await settle([
     writeRules(tabId, pass, plan, new Set(targets.map(({ id }) => id))),
     askAi(
@@ -667,14 +734,8 @@ async function answerQuestions(tabId: number, text: string): Promise<void> {
   await withPass(tabId, async ({ session, page }) => {
     const { started } = session
     if (started === null) return
-    const empty = new Set(
-      session.fields.filter(({ hasValue }) => !hasValue).map(({ id }) => id)
-    )
-    const questions = session.questions
-      .filter(({ original }) =>
-        original.some(({ fieldId }) => empty.has(fieldId))
-      )
-      .slice(0, ANSWER_QUESTIONS)
+    // The panel's order, so the numbers in the reply match (spec 8.2).
+    const questions = openQuestions(session).slice(0, ANSWER_QUESTIONS)
     if (questions.length === 0) return
     const named = new Set(
       questions.flatMap(({ original }) =>
@@ -682,31 +743,28 @@ async function answerQuestions(tabId: number, text: string): Promise<void> {
       )
     )
     const fields = session.fields.filter(
-      ({ id }) => empty.has(id) && named.has(id)
+      ({ id, hasValue }) => !hasValue && named.has(id)
+    )
+    trace(
+      `9. Save and fill again: your reply goes to AI with ${questions.length} question(s) for these fields:`,
+      fields.map(({ label }) => label)
     )
     const result = await limited(tabId, page.postingKey, () =>
       api.autofill.answer(
-        {
-          page,
-          resumeId: started.resumeId,
-          applicationId: started.applicationId,
-          useJob: usesJob(session),
-          counts: countsOf(session),
-          fields,
-          questions,
-          text,
-        },
+        { ...aiRequest(session, page, started), fields, questions, text },
         timeout()
       )
     )
-    if (!result) return
+    if (!result) {
+      trace("9. hourly AI limit reached, so nothing was filled")
+      return
+    }
+    traceAnswer(fields, result)
     const latest = await readPosting(tabId, page.postingKey)
     if (!latest) return
     const fills = fieldsToFill(
       latest,
-      result.fills.filter(
-        ({ fieldId, kind }) => named.has(fieldId) && kind !== "resume-file"
-      )
+      result.fills.filter(({ fieldId }) => named.has(fieldId))
     )
     const results = await sendWrites(tabId, latest, fills)
     const outcome = result.notes
@@ -865,11 +923,7 @@ export async function draft(
   const outcome = await api.autofill
     .generate(
       {
-        page,
-        resumeId: started.resumeId,
-        applicationId: started.applicationId,
-        useJob: usesJob(session),
-        counts: countsOf(session),
+        ...aiRequest(session, page, started),
         field,
         ...(instruction ? { instruction } : {}),
       },
@@ -908,8 +962,7 @@ async function clearField(tabId: number, fieldId: string): Promise<void> {
 async function overwriteField(tabId: number, fieldId: string): Promise<void> {
   const session = await readSession(tabId)
   const fill = session?.plan?.overwrites.find(
-    (candidate) =>
-      candidate.fieldId === fieldId && candidate.kind !== "resume-file"
+    (candidate) => candidate.fieldId === fieldId
   )
   if (!session || !fill) return
   const fills = fieldsToFill(session, [fill], new Set([fieldId]))

@@ -9,7 +9,6 @@ import {
   formatStart,
   fullName,
   phoneDigits,
-  resumeFileName,
 } from "../src/format"
 import { emptyProfile, type Profile } from "../src/profile"
 
@@ -77,9 +76,8 @@ describe("formatStart", () => {
 })
 
 describe("names and places", () => {
-  it("formats names, locations and the resume file name", () => {
+  it("formats names and locations", () => {
     expect(fullName("Ada", "Lovelace")).toBe("Ada Lovelace")
     expect(formatLocation("San Francisco", "CA")).toBe("San Francisco, CA")
-    expect(resumeFileName("Mira Halvorsen")).toBe("mira-halvorsen-resume.pdf")
   })
 })
