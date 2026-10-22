@@ -1,22 +1,25 @@
-import { byIds, waitFor } from "./dom"
+import { byIds, isShown, waitFor } from "./dom"
 import type { ComboParts } from "./types"
 
 function optionsIn(nodes: (Element | null)[]): HTMLElement[] {
   const found = new Set<HTMLElement>()
   for (const node of nodes)
     for (const option of node?.querySelectorAll("[role=option]") ?? [])
-      if (option instanceof HTMLElement) found.add(option)
+      if (
+        option instanceof HTMLElement &&
+        option.getAttribute("aria-disabled") !== "true" &&
+        !option.matches(":disabled") &&
+        !option.closest("[hidden], [aria-hidden=true]") &&
+        isShown(option)
+      )
+        found.add(option)
   return [...found]
 }
 
 const textOf = (node: Element): string =>
   (node.textContent ?? "").replace(/\s+/g, " ").trim()
 
-/**
- * A react-select: the `.select__control` holding the input opens it, and its
- * parent holds the menu and the clear button. The outer class on Greenhouse
- * is unverified.
- */
+/** The react-select control holds its value; its parent may hold the menu. */
 export function reactSelectParts(input: HTMLInputElement): ComboParts | null {
   const control = input.closest(".select__control")
   if (!(control instanceof HTMLElement)) return null
@@ -26,10 +29,13 @@ export function reactSelectParts(input: HTMLInputElement): ComboParts | null {
     opener: control,
     // A menu rendered in a portal is found through `aria-controls`.
     options: () => {
-      const inMenu = optionsIn([container.querySelector(".select__menu")])
-      return inMenu.length > 0
-        ? inMenu
-        : optionsIn(byIds(input, input.getAttribute("aria-controls")))
+      const linked = optionsIn([
+        ...byIds(input, input.getAttribute("aria-controls")),
+        ...byIds(input, input.getAttribute("aria-owns")),
+      ])
+      return linked.length > 0
+        ? linked
+        : optionsIn([container.querySelector(".select__menu")])
     },
     values: () =>
       [
@@ -69,37 +75,35 @@ const shownOptions = (parts: ComboParts): HTMLElement[] | null => {
   return options.length > 0 ? options : null
 }
 
-/**
- * Opens the menu and waits for its options. A menu already open is left as
- * it is: `mousedown` on an open react-select closes it. An input that is its
- * own opener gets `ArrowDown`: Ashby's ignores `mousedown` (Ashby 13).
- */
+/** Greenhouse controls menuIsOpen on keyup; Ashby opens on keydown. */
+function pressKey(input: HTMLInputElement, key: "ArrowDown" | "Escape"): void {
+  for (const type of ["keydown", "keyup"])
+    input.dispatchEvent(
+      new KeyboardEvent(type, {
+        key,
+        code: key,
+        bubbles: true,
+        cancelable: true,
+      })
+    )
+}
+
+/** Opens a closed menu, then waits for its rendered options. */
 export function openCombo(
   parts: ComboParts,
-  timeoutMs: number
+  timeoutMs: number,
+  cancelled: () => boolean = () => false
 ): Promise<HTMLElement[] | null> {
+  if (cancelled()) return Promise.resolve(null)
   parts.input.focus()
-  if (!shownOptions(parts))
-    parts.opener.dispatchEvent(
-      parts.opener === parts.input
-        ? new KeyboardEvent("keydown", {
-            key: "ArrowDown",
-            code: "ArrowDown",
-            bubbles: true,
-            cancelable: true,
-          })
-        : new MouseEvent("mousedown", { bubbles: true, cancelable: true })
-    )
-  return waitFor(() => shownOptions(parts), timeoutMs)
+  if (
+    parts.input.getAttribute("aria-expanded") !== "true" &&
+    !shownOptions(parts)
+  )
+    pressKey(parts.input, "ArrowDown")
+  return waitFor(() => (cancelled() ? [] : shownOptions(parts)), timeoutMs)
 }
 
 export function closeCombo(parts: ComboParts): void {
-  parts.input.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "Escape",
-      code: "Escape",
-      bubbles: true,
-      cancelable: true,
-    })
-  )
+  pressKey(parts.input, "Escape")
 }

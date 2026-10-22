@@ -104,7 +104,9 @@ const EeoSchema = z.object({
       message: "Decline cannot be combined with a category",
     })
     .default(["decline"]),
-  veteran: z.enum(["protected", "not-protected", "decline"]).default("decline"),
+  veteran: z
+    .enum(["protect-veteran", "not-protected-veteran", "decline"])
+    .default("decline"),
   disability: z.enum(["yes", "no", "decline"]).default("decline"),
 })
 

@@ -201,18 +201,21 @@ keeps the user-owned rule in spec 5.1 working.
 ### 5.2 react-select
 
 react-select ignores value changes on its `<input>`; it has to be driven like
-a user. The driver (unverified until tested live):
+a user. Greenhouse's shipped select wrapper controls `menuIsOpen` itself:
+`onMouseUp` toggles it, and `onKeyUp` opens it except for Escape, Tab, and
+Enter. Sending only `mousedown` or `keydown` leaves that state closed.
+The driver:
 
-1. Focus the input, then open the menu with a `mousedown` on
-   `.select__control` (react-select opens on mousedown, not click).
+1. Focus the input, then send both `keydown` and `keyup` for `ArrowDown`.
+   Wait for rendered options. This also works with Ashby's keydown opener.
 2. For a searchable select, write the query into the input with the native
-   setter and an `input` event, then wait up to 5 s for options (async
-   location search).
+   setter and an `input` event, open the menu with the same complete
+   ArrowDown keystroke, then wait up to 5 s for options (async location search).
 3. Read `[role="option"]` inside the menu (`.select__menu`), match the target
    (by label for rules, by the option ID from the scan for AI fills), and send
    `mousedown` plus `click` on it.
-4. Confirm `.select__single-value` now shows the label. On no match, press
-   `Escape`, clear the query and leave the field open.
+4. Confirm `.select__single-value` now shows the label. On no match, send
+   both `keydown` and `keyup` for `Escape`, then clear the query.
 
 Keyboard rule: never dispatch `Enter` unless the menu is open and an option is
 focused. A synthetic Enter cannot trigger implicit form submission, but a

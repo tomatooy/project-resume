@@ -17,7 +17,7 @@ const WHY: Record<WriteOutcome, string> = {
  * the user or an earlier write may have changed it.
  */
 export async function writeAll(
-  handles: ReadonlyMap<string, FieldHandle>,
+  handleFor: (id: string) => FieldHandle | undefined,
   fills: Fill[],
   force: ReadonlySet<string>,
   owner: Owner
@@ -27,7 +27,7 @@ export async function writeAll(
   for (const fill of fills) {
     const id = fill.fieldId
     if (results.has(id)) continue
-    const handle = handles.get(id)
+    const handle = handleFor(id)
     const skip = !handle
       ? "the field is no longer on the page"
       : owner.isOwned(id)
@@ -46,7 +46,9 @@ export async function writeAll(
       continue
     }
     owner.markOurs(id)
-    const outcome = await handle.write(fill).catch((): WriteOutcome => "failed")
+    const outcome = await handle
+      .write(fill, () => owner.isOwned(id) || handleFor(id) === undefined)
+      .catch((): WriteOutcome => "failed")
     // A failed write may leave part of its value, or land late; either is
     // ours, not the user's. Skipped and unmatched leave the field as it was.
     if (outcome === "skipped" || outcome === "unmatched") owner.release(id)

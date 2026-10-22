@@ -33,6 +33,7 @@ import {
   US_STATES,
 } from "./match"
 import { effectiveIdentity, type Identity, type Profile } from "./profile"
+import { optionState } from "./options"
 
 export type RuleContext = {
   vendor: AutofillVendor
@@ -445,15 +446,12 @@ const isMultiple = (field: FieldDescriptor): boolean =>
 
 /** A search box: marked searchable, or a combobox that lists nothing until typed into. */
 const isSearch = (field: FieldDescriptor): boolean =>
-  field.searchable === true ||
-  (field.control === "combobox" &&
-    field.optionsPending !== true &&
-    (field.options ?? []).length === 0)
+  optionState(field) === "search"
 
 /** A closed field whose options are read only once it is opened. */
 const waitsForOptions = (field: FieldDescriptor): boolean =>
   CLOSED.has(field.control) &&
-  field.optionsPending === true &&
+  optionState(field) === "pending" &&
   (field.options ?? []).length === 0
 
 /** The first value that fits whole: values are never truncated. */
@@ -531,6 +529,7 @@ function pickOptions(
 
 /** The rule fill a control takes from an answer, or null when none fits. */
 function valueFill(field: FieldDescriptor, answer: Answer): Fill | null {
+  if (optionState(field) === "unavailable") return null
   const base: Base = { fieldId: field.id, source: "rule" }
   switch (field.control) {
     case "checkbox":
@@ -586,6 +585,7 @@ function routeOf(
   fill: Fill | null
 ): Route {
   if (field.hasValue) return "filled"
+  if (optionState(field) === "unavailable") return "page"
   if (fill) return "rule"
   if (zone === "other-file") return "page"
   if (zone === "write") return "write"

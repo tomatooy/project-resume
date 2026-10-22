@@ -52,6 +52,7 @@ export const FieldDescriptorSchema = z.object({
   section: z.string().max(LIMITS.label).optional(),
   control: ControlSchema,
   options: z.array(OptionSchema).max(LIMITS.options).optional(),
+  optionState: z.enum(["pending", "ready", "search", "unavailable"]).optional(),
   /** The options exist only while the widget is open; read on Autofill. */
   optionsPending: z.boolean().optional(),
   searchable: z.boolean().optional(),
@@ -120,7 +121,7 @@ export const QuestionSchema = z.object({
 })
 export type Question = z.infer<typeof QuestionSchema>
 
-export const AutofillVendorSchema = z.enum(["greenhouse", "ashby"])
+export const AutofillVendorSchema = z.enum(["greenhouse", "ashby", "lever"])
 export type AutofillVendor = z.infer<typeof AutofillVendorSchema>
 
 export const ZoneSchema = z.enum([

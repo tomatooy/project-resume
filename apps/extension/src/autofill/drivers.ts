@@ -20,6 +20,9 @@ import type {
 
 type OptionsFill = Extract<Fill, { kind: "options" }>
 type SearchFill = Extract<Fill, { kind: "search" }>
+type SearchResult =
+  | { interrupted: true }
+  | { interrupted: false; label: string }
 
 const OPEN_MS = 2_000
 const SEARCH_MS = 5_000
@@ -107,7 +110,7 @@ function close(parts: ComboParts): void {
  */
 function resolve(
   labels: readonly string[],
-  fill: OptionsFill
+  fill: Pick<OptionsFill, "optionIds" | "labels">
 ): number[] | null {
   const normalized = labels.map(normalizeText)
   const picks: number[] = []
@@ -194,9 +197,11 @@ async function choose(
 async function chooseInCombo(
   parts: ComboParts,
   fill: OptionsFill,
-  multiple: boolean
+  multiple: boolean,
+  cancelled: () => boolean
 ): Promise<WriteOutcome> {
-  const shown = await openCombo(parts, OPEN_MS)
+  const shown = await openCombo(parts, OPEN_MS, cancelled)
+  if (cancelled()) return "skipped"
   if (!shown) {
     close(parts)
     return "failed"
@@ -209,61 +214,95 @@ async function chooseInCombo(
   }
   const wanted = (multiple ? picks : picks.slice(0, 1)).flatMap((i) => {
     const label = labels[i]
-    const option = shown[i]
-    return label !== undefined && option ? [{ label, option }] : []
+    return label !== undefined ? [{ id: `#${i + 1}`, label }] : []
   })
   const selected = (label: string) =>
     parts.values().some((value) => sameText(value, label))
-  for (const [n, { label, option }] of wanted.entries()) {
+  for (const { id, label } of wanted) {
+    if (cancelled()) return "skipped"
     if (selected(label)) continue
     // A multi-select may close or reorder its menu after each choice.
-    const target =
-      n === 0
-        ? option
-        : (await openCombo(parts, OPEN_MS))?.find(
-            (item) =>
-              normalizeText(comboOptionLabel(parts, item)) ===
-              normalizeText(label)
-          )
+    const options = await openCombo(parts, OPEN_MS, cancelled)
+    if (cancelled()) return "skipped"
+    if (!options) break
+    const [index] =
+      resolve(
+        options.map((item) => comboOptionLabel(parts, item)),
+        { optionIds: [id], labels: [label] }
+      ) ?? []
+    const target = index === undefined ? undefined : options[index]
     if (!target) break
     press(target)
   }
+  if (cancelled()) return "skipped"
   close(parts)
-  return (await settled(() => wanted.every(({ label }) => selected(label))))
-    ? "written"
-    : "failed"
+  parts.input.blur()
+  const confirmed = await settled(
+    () => !isOpen(parts) && wanted.every(({ label }) => selected(label))
+  )
+  if (cancelled()) return "skipped"
+  return confirmed ? "written" : "failed"
+}
+
+/** Clears only the query typed by this search. */
+function abandonSearch(parts: ComboParts): WriteOutcome {
+  close(parts)
+  if (parts.input.value !== "") setQuery(parts, "")
+  return "unmatched"
+}
+
+function setQuery(parts: ComboParts, value: string): void {
+  if (parts.setQuery) parts.setQuery(value)
+  else setNativeValue(parts.input, value, { blur: false })
 }
 
 /** Types the query and picks the result that matches the target. */
 async function searchCombo(
   parts: ComboParts,
-  fill: SearchFill
+  fill: SearchFill,
+  cancelled: () => boolean
 ): Promise<WriteOutcome> {
   const { input } = parts
   input.focus()
-  setNativeValue(input, fill.query, { blur: false })
+  setQuery(parts, fill.query)
+  const started = Date.now()
+  // Controlled widgets need an open gesture even after the query changes.
+  await openCombo(parts, SEARCH_MS, cancelled)
   // Results may arrive late or in parts, so this waits for one that matches.
-  const found = await waitFor(() => {
-    const options = parts.options()
-    const labels = options.map((option) => comboOptionLabel(parts, option))
-    const index = (parts.matchSearch ?? searchMatch)(fill.target, labels)
-    const option = index === null ? undefined : options[index]
-    return option ? { option, label: comboOptionLabel(parts, option) } : null
-  }, SEARCH_MS)
-  if (!found) {
-    close(parts)
-    if (input.value !== "") setNativeValue(input, "", { blur: false })
-    return "unmatched"
-  }
-  press(found.option)
+  const result = await waitFor<SearchResult>(
+    () => {
+      if (cancelled()) return { interrupted: true }
+      const options = parts.options()
+      const labels = options.map((option) => comboOptionLabel(parts, option))
+      const index = (parts.matchSearch ?? searchMatch)(fill.target, labels)
+      const option = index === null ? undefined : options[index]
+      return option
+        ? {
+            interrupted: false,
+            label: comboOptionLabel(parts, option),
+          }
+        : null
+    },
+    Math.max(0, SEARCH_MS - (Date.now() - started))
+  )
+  if (cancelled() || result?.interrupted) return "skipped"
+  const found = result
+  if (!found) return abandonSearch(parts)
+  const live = parts
+    .options()
+    .filter((option) => comboOptionLabel(parts, option) === found.label)
+  if (live.length !== 1 || !live[0]) return abandonSearch(parts)
+  press(live[0])
   const selected = () =>
     parts.values().some((value) => sameText(value, found.label))
-  if (!(await settled(selected))) return "failed"
+  const committed = await settled(selected)
+  if (cancelled()) return "skipped"
+  if (!committed) return "failed"
   // An uncommitted search query can look selected until the input blurs.
   input.blur()
-  return (await settled(() => !isOpen(parts) && selected()))
-    ? "written"
-    : "failed"
+  const confirmed = await settled(() => !isOpen(parts) && selected())
+  if (cancelled()) return "skipped"
+  return confirmed ? "written" : "failed"
 }
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
@@ -299,7 +338,12 @@ async function writeCheck(
     : "failed"
 }
 
-function write(field: ScannedField, fill: Fill): Promise<WriteOutcome> {
+function write(
+  field: ScannedField,
+  fill: Fill,
+  cancelled: () => boolean
+): Promise<WriteOutcome> {
+  if (cancelled()) return Promise.resolve("skipped")
   // Files go through the resume attach, never through a fill.
   if (field.kind === "file" || fill.kind === "resume-file")
     return Promise.resolve("skipped")
@@ -310,7 +354,7 @@ function write(field: ScannedField, fill: Fill): Promise<WriteOutcome> {
     case "check":
       return writeCheck(field, fill.checked)
     case "options": {
-      if (combo) return chooseInCombo(combo, fill, isMultiple(field))
+      if (combo) return chooseInCombo(combo, fill, isMultiple(field), cancelled)
       const picks = resolve(
         field.choices.map(({ label }) => label),
         fill
@@ -318,7 +362,7 @@ function write(field: ScannedField, fill: Fill): Promise<WriteOutcome> {
       return picks ? choose(field, picks) : Promise.resolve("unmatched")
     }
     case "search": {
-      if (combo) return searchCombo(combo, fill)
+      if (combo) return searchCombo(combo, fill, cancelled)
       if (field.kind !== "select") return Promise.resolve("failed")
       const index = searchMatch(
         fill.target,
@@ -331,14 +375,64 @@ function write(field: ScannedField, fill: Fill): Promise<WriteOutcome> {
   }
 }
 
-async function readOptions(field: ScannedField): Promise<Option[] | null> {
+async function readOptions(
+  field: ScannedField,
+  cancelled: () => boolean
+): Promise<Option[] | null> {
   const { combo } = field
   if (!combo) return field.descriptor.options ?? null
-  const shown = await openCombo(combo, OPEN_MS)
-  const labels = shown?.map((option) => comboOptionLabel(combo, option)) ?? null
-  close(combo)
-  if (!labels || labels.length > LIMITS.options) return null
-  return labels.map((label, i) => ({ id: `#${i + 1}`, label }))
+  if (combo.input.value.trim() !== "" || cancelled()) return null
+  const started = Date.now()
+  try {
+    await openCombo(combo, OPEN_MS, cancelled)
+    let previous = ""
+    let since = Date.now()
+    const labels = await waitFor(
+      () => {
+        if (cancelled()) return []
+        const shown = combo.options()
+        if (combo.input.value.trim() !== "" || shown.length === 0) return null
+        if (
+          combo.input.getAttribute("aria-busy") === "true" ||
+          shown.some((option) => option.closest('[aria-busy="true"]'))
+        )
+          return null
+        // Virtualized lists cannot be treated as complete enumerations.
+        if (
+          shown.some((option) => {
+            const size = Number(option.getAttribute("aria-setsize"))
+            const count =
+              option
+                .closest('[role="listbox"]')
+                ?.querySelectorAll('[role="option"]').length ?? shown.length
+            return (
+              size === -1 ||
+              size > count ||
+              Number(option.getAttribute("aria-posinset")) > count
+            )
+          })
+        )
+          return null
+        const next = shown.map((option) => comboOptionLabel(combo, option))
+        const signature = JSON.stringify(next)
+        if (signature !== previous) {
+          previous = signature
+          since = Date.now()
+        }
+        return Date.now() - since >= 100 ? next : null
+      },
+      Math.max(0, OPEN_MS - (Date.now() - started))
+    )
+    if (
+      !labels?.length ||
+      labels.length > LIMITS.options ||
+      labels.some((label) => !label)
+    )
+      return null
+    return labels.map((label, i) => ({ id: `#${i + 1}`, label }))
+  } finally {
+    if (!cancelled()) close(combo)
+  }
 }
 
 async function clearCombo(parts: ComboParts): Promise<void> {
@@ -363,8 +457,7 @@ async function clearCombo(parts: ComboParts): Promise<void> {
     }
   }
   // An ARIA combobox holds its value as its text.
-  if (parts.values().length > 0 && parts.input.value !== "")
-    setNativeValue(parts.input, "", { blur: false })
+  if (parts.values().length > 0 && parts.input.value !== "") setQuery(parts, "")
 }
 
 function uncheck(radio: HTMLInputElement): void {
@@ -445,8 +538,9 @@ export function handleFor(field: ScannedField): FieldHandle {
   return {
     descriptor: field.descriptor,
     hasValue: () => hasValueNow(field),
-    readOptions: () => readOptions(field),
-    write: (fill) => write(field, fill),
+    readOptions: (cancelled = () => false) => readOptions(field, cancelled),
+    write: (fill, cancelled = () => false) =>
+      write(field, fill, () => cancelled() || !field.element.isConnected),
     clear: () => clear(field),
     focus: () => focus(field),
   }

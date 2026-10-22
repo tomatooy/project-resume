@@ -88,7 +88,7 @@ async function takeScan(
     tabId,
     (session) => applyScan(session, scan, frame, now).session
   )
-  if (!after) return
+  if (!after || after === before) return
   // The reducer is pure, so the same inputs give its lists again.
   const { added, restore } = applyScan(before, scan, frame, now)
   const labelOf = (id: string): string =>

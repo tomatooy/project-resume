@@ -203,9 +203,8 @@ function entryField(entry: HTMLElement, path: string): ScannedField | null {
         label: title || labelFor(input),
         ...extras,
         control: "combobox",
-        ...(school || path === "_systemfield_location"
-          ? { searchable: true }
-          : { optionsPending: true }),
+        optionState:
+          school || path === "_systemfield_location" ? "search" : "pending",
         required: requiredIn(entry),
         hasValue: hasValueNow(live),
       },
@@ -222,6 +221,7 @@ function entryField(entry: HTMLElement, path: string): ScannedField | null {
         label: title,
         ...extras,
         control: "radio",
+        optionState: "ready",
         options: choices.map(({ label }, i) => ({ id: `#${i + 1}`, label })),
         required: requiredIn(entry),
         hasValue: hasValueNow(live),

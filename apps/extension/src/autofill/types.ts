@@ -28,6 +28,8 @@ export type DriverKind =
 export type ComboParts = {
   input: HTMLInputElement
   opener: HTMLElement
+  /** Vendors that search on keyboard events instead of input/change. */
+  setQuery?(value: string): void
   options(): HTMLElement[]
   /** The value label when a result also renders supporting details. */
   optionLabel?(option: HTMLElement): string
@@ -56,8 +58,8 @@ export type WriteOutcome = z.infer<typeof WriteOutcomeSchema>
 export type FieldHandle = {
   descriptor: FieldDescriptor
   hasValue(): boolean
-  readOptions(): Promise<Option[] | null>
-  write(fill: Fill): Promise<WriteOutcome>
+  readOptions(cancelled?: () => boolean): Promise<Option[] | null>
+  write(fill: Fill, cancelled?: () => boolean): Promise<WriteOutcome>
   clear(): Promise<void>
   focus(): void
 }

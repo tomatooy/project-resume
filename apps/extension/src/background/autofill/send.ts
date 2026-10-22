@@ -33,7 +33,7 @@ export async function sendToContent<K extends WorkerMessage["type"]>(
       "autofill-write",
       "autofill-attach",
       "autofill-clear",
-      "autofill-read-options",
+      "autofill-prepare",
     ].includes(message.type) &&
     (await frameVisible(tabId, frame)) === false
   )

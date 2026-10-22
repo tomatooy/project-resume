@@ -45,6 +45,21 @@ const VENDOR_IDS: Record<
     ["_systemfield_phone", normal("contact.phone")],
     ["_systemfield_location", normal("address.location")],
   ]),
+  lever: new Map<string, Classification>([
+    ["name", normal("name.full")],
+    ["email", normal("contact.email")],
+    ["phone", normal("contact.phone")],
+    ["location", normal("address.location")],
+    ["org", normal("resume.company")],
+    ["pronouns", normal("name.pronouns")],
+    ["customPronounsTextField", normal("name.pronouns")],
+    ["resume", RESUME_FILE],
+    ["urls[LinkedIn]", normal("links.linkedin")],
+    ["urls[GitHub]", normal("links.github")],
+    ["urls[Twitter]", normal("links.twitter")],
+    ["urls[Portfolio]", normal("links.portfolio")],
+    ["urls[Other]", normal("links.website")],
+  ]),
 }
 
 /** HTML autocomplete field names. */

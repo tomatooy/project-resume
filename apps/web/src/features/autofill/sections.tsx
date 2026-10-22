@@ -884,8 +884,8 @@ const YES_NO_DECLINE: readonly Choice<"yes" | "no" | "decline">[] = [
 ]
 
 const VETERAN: readonly Choice<Profile["eeo"]["veteran"]>[] = [
-  { value: "protected", label: "Protected veteran" },
-  { value: "not-protected", label: "Not a protected veteran" },
+  { value: "protect-veteran", label: "Protected veteran" },
+  { value: "not-protected-veteran", label: "Not a protected veteran" },
   { value: "decline", label: DECLINE },
 ]
 

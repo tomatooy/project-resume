@@ -3,7 +3,6 @@ import {
   FieldDescriptorSchema,
   FieldsSchema,
   LIMITS,
-  OptionSchema,
 } from "@workspace/autofill/fields"
 import { z } from "zod"
 
@@ -29,20 +28,23 @@ export const WriteOutcomeSchema = z.enum([
 ])
 
 /** Content script to service worker. Untrusted: page text shapes it. */
+export const ScanSchema = z.object({
+  type: z.literal("autofill-scan"),
+  url: z.url().max(2000),
+  postingKey: z.string().min(1).max(300).nullable(),
+  page: PageInfoSchema,
+  form: z.boolean(),
+  // The service worker navigates the tab to it.
+  formLink: z
+    .url({ protocol: /^https$/ })
+    .max(2000)
+    .nullable(),
+  fields: FieldsSchema,
+  revision: z.number().int().nonnegative().optional(),
+})
+
 export const ContentMessageSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("autofill-scan"),
-    url: z.url().max(2000),
-    postingKey: z.string().min(1).max(300).nullable(),
-    page: PageInfoSchema,
-    form: z.boolean(),
-    // The service worker navigates the tab to it.
-    formLink: z
-      .url({ protocol: /^https$/ })
-      .max(2000)
-      .nullable(),
-    fields: FieldsSchema,
-  }),
+  ScanSchema,
   z.object({
     type: z.literal("autofill-owned"),
     fieldIds: z.array(FieldIdSchema).max(LIMITS.fields),
@@ -64,8 +66,13 @@ type WorkerCommand =
   | { type: "autofill-ping" }
   | { type: "autofill-rescan" }
   | { type: "autofill-open-form" }
-  | { type: "autofill-read-options"; fieldIds: string[] }
-  | { type: "autofill-write"; fills: Fill[]; force: string[] }
+  | { type: "autofill-prepare"; retry: boolean }
+  | {
+      type: "autofill-write"
+      fills: Fill[]
+      force: string[]
+      identities: Record<string, string>
+    }
   | {
       type: "autofill-attach"
       fieldId: string
@@ -98,8 +105,19 @@ export const WorkerReplySchemas = {
   }),
   "autofill-rescan": z.object({ ok: z.literal(true) }),
   "autofill-open-form": OkSchema,
-  "autofill-read-options": z.object({
-    options: z.record(FieldIdSchema, z.array(OptionSchema).nullable()),
+  "autofill-prepare": z.object({
+    scan: ScanSchema.nullable(),
+    outcomes: z.record(
+      FieldIdSchema,
+      z.enum([
+        "cached",
+        "ready",
+        "search",
+        "unavailable",
+        "skipped",
+        "interrupted",
+      ])
+    ),
   }),
   "autofill-write": z.object({
     results: z.record(FieldIdSchema, WriteOutcomeSchema),

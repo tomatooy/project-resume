@@ -1,12 +1,13 @@
-import type { Option } from "@workspace/autofill/fields"
 import type {
   ContentMessage,
   WorkerMessage,
   WorkerReply,
 } from "../lib/autofill-protocol"
 import { fieldRow, trace, traceTable } from "./debug"
+import { createDiscovery } from "./discovery"
 import { isShown, LIMITS, scriptClick } from "./dom"
 import { handleFor } from "./drivers"
+import { fieldIdentity } from "./field-identity"
 import { type AttachResult, attachFile } from "./file"
 import { createOverlay } from "./overlay"
 import { createOwner } from "./owner"
@@ -29,7 +30,7 @@ const WORKER_TYPES = new Set<string>([
   "autofill-ping",
   "autofill-rescan",
   "autofill-open-form",
-  "autofill-read-options",
+  "autofill-prepare",
   "autofill-write",
   "autofill-attach",
   "autofill-clear",
@@ -105,6 +106,9 @@ export function startAutofill(
   const debounceMs = options.debounceMs ?? 300
   let timer: ReturnType<typeof setTimeout> | undefined
   let last = ""
+  let fingerprint = ""
+  let revision = 0
+  const discovery = createDiscovery()
   let fields: ScannedField[] = []
   let handles = new Map<string, FieldHandle>()
   let watched: { form: Element; unwatch: () => void } | null = null
@@ -129,6 +133,7 @@ export function startAutofill(
   const owner = createOwner({
     debounceMs,
     report: (fieldIds) => {
+      discovery.invalidate()
       trace(
         "you changed these fields, so autofill leaves them alone:",
         fieldIds.map(labelOf)
@@ -165,7 +170,10 @@ export function startAutofill(
     const key = postingKey(url)
     const found = adapter && key !== null ? adapter.findForm(document) : null
     const form = found && isShown(found) ? found : null
-    fields = adapter && form ? adapter.scan(form) : []
+    fields = discovery.enrich(
+      adapter && form ? adapter.scan(form) : [],
+      scanUrl(url.href)
+    )
     handles = new Map(
       fields.map((field) => [field.descriptor.id, handleFor(field)])
     )
@@ -182,23 +190,27 @@ export function startAutofill(
             form,
             unwatch: owner.watch(form, (event) => {
               const field = fieldAt(fields, event.target)
-              if (!field || event.type !== "click")
-                return field?.descriptor.id ?? null
+              if (!field) return null
+              if (event.type !== "click") {
+                discovery.invalidate()
+                return field.descriptor.id
+              }
               // Yes and No buttons fire no `input` or `change`, so a click on
               // one is the person's edit. Other clicks only focus or open.
               const { target } = event
-              return field.kind === "buttons" &&
+              const edited =
+                field.kind === "buttons" &&
                 target instanceof Node &&
                 field.choices.some(({ element }) => element.contains(target))
-                ? field.descriptor.id
-                : null
+              if (edited) discovery.invalidate()
+              return edited ? field.descriptor.id : null
             }),
           }
         : null
     }
     // Fields move and re-render, so the buttons follow each read.
     overlay.layout()
-    return {
+    const snapshot: Scan = {
       type: "autofill-scan",
       url: scanUrl(url.href),
       postingKey: key,
@@ -207,6 +219,15 @@ export function startAutofill(
       formLink: adapter && !form ? adapter.formLink(document, url) : null,
       fields: fields.map((field) => field.descriptor),
     }
+    const next = JSON.stringify(snapshot)
+    if (next !== fingerprint) {
+      fingerprint = next
+      revision = Math.max(
+        revision + 1,
+        Math.floor((performance.timeOrigin + performance.now()) * 1000)
+      )
+    }
+    return { ...snapshot, revision }
   }
 
   const scan = (force: boolean) => {
@@ -253,7 +274,7 @@ export function startAutofill(
         queued -= 1
         if (queued === 0 && held) {
           held = false
-          scan(true)
+          scan(false)
         }
       }
     })
@@ -261,26 +282,25 @@ export function startAutofill(
     return run
   }
 
-  const readOptions = async (
-    fieldIds: string[]
-  ): Promise<WorkerReply<"autofill-read-options">> => {
-    // One widget at a time: each opens its menu, reads it and closes it.
-    const entries: [string, Option[] | null][] = []
-    for (const id of fieldIds) {
-      const handle = handles.get(id)
-      const listed = handle
-        ? await handle.readOptions().catch(() => null)
-        : null
-      entries.push([id, listed])
-    }
-    traceTable(
-      "read the options of closed dropdowns",
-      entries.map(([id, listed]) => ({
-        field: labelOf(id),
-        options: listed?.map(({ label }) => label).join(" | ") ?? "none",
-      }))
+  const prepareFields = async (
+    retry: boolean
+  ): Promise<WorkerReply<"autofill-prepare">> => {
+    const url = scanUrl(location.href)
+    const current = () => scanUrl(location.href) === url
+    const outcomes = await discovery.prepareFields(
+      () => {
+        read()
+        return fields
+      },
+      owner,
+      retry,
+      current
     )
-    return { options: Object.fromEntries(entries) }
+    if (!current()) return { scan: null, outcomes }
+    const snapshot = read()
+    // The response carries this scan; menu mutations must not publish it again.
+    last = JSON.stringify(snapshot)
+    return { scan: snapshot, outcomes }
   }
 
   const clear = async (
@@ -290,6 +310,7 @@ export function startAutofill(
     try {
       await handle?.clear()
     } finally {
+      discovery.invalidate()
       // The user asked for it empty, so it stays theirs.
       owner.own([fieldId])
     }
@@ -385,26 +406,51 @@ export function startAutofill(
         }).then(respond, () => respond({ ok: false }))
         return true
       }
-      case "autofill-read-options": {
-        const failed: WorkerReply<"autofill-read-options"> = { options: {} }
-        void perform(() => readOptions(message.fieldIds)).then(respond, () =>
+      case "autofill-prepare": {
+        const failed: WorkerReply<"autofill-prepare"> = {
+          scan: null,
+          outcomes: {},
+        }
+        void perform(() => prepareFields(message.retry)).then(respond, () =>
           respond(failed)
         )
         return true
       }
       case "autofill-write": {
-        const { fills, force } = message
+        const { fills, force, identities } = message
         const failed: WorkerReply<"autofill-write"> = { results: {} }
-        void perform(
-          async (): Promise<WorkerReply<"autofill-write">> => ({
-            results: await writeAll(handles, fills, new Set(force), owner),
-          })
-        ).then(respond, () => respond(failed))
+        void perform(async (): Promise<WorkerReply<"autofill-write">> => {
+          try {
+            return {
+              results: await writeAll(
+                (id) => {
+                  read()
+                  const handle = handles.get(id)
+                  return handle &&
+                    fieldIdentity(handle.descriptor) === identities[id]
+                    ? handle
+                    : undefined
+                },
+                fills,
+                new Set(force),
+                owner
+              ),
+            }
+          } finally {
+            discovery.invalidate()
+          }
+        }).then(respond, () => respond(failed))
         return true
       }
       case "autofill-attach": {
         const failed: WorkerReply<"autofill-attach"> = { result: "failed" }
-        void perform(() => attach(message)).then(respond, () => respond(failed))
+        void perform(async () => {
+          try {
+            return await attach(message)
+          } finally {
+            discovery.invalidate()
+          }
+        }).then(respond, () => respond(failed))
         return true
       }
       case "autofill-clear": {

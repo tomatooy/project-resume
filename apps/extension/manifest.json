@@ -55,7 +55,9 @@
         "https://job-boards.greenhouse.io/*",
         "https://boards.eu.greenhouse.io/*",
         "https://job-boards.eu.greenhouse.io/*",
-        "https://jobs.ashbyhq.com/*"
+        "https://jobs.ashbyhq.com/*",
+        "https://jobs.lever.co/*",
+        "https://jobs.eu.lever.co/*"
       ],
       "js": ["autofill.js"],
       "all_frames": true,

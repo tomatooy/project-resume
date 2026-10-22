@@ -7,6 +7,7 @@ import {
   LIMITS,
   type Option,
   plainQuestions,
+  optionState,
   type Question,
 } from "@workspace/autofill"
 import { z } from "zod"
@@ -122,6 +123,7 @@ function laneOf(field: FieldDescriptor): Lane {
     case "combobox":
     case "radio":
     case "checkboxes":
+      if (optionState(field) === "unavailable") return "page"
       if ((field.options ?? []).length > 0) {
         return field.control === "checkboxes" || field.multiple === true
           ? "multi"
@@ -129,10 +131,7 @@ function laneOf(field: FieldDescriptor): Lane {
       }
       // A search box: marked searchable, or a combobox that lists nothing
       // until typed into.
-      return field.searchable === true ||
-        (field.control === "combobox" && field.optionsPending !== true)
-        ? "search"
-        : "page"
+      return optionState(field) === "search" ? "search" : "page"
     case "file":
       return "page"
     default:

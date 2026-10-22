@@ -188,7 +188,7 @@ describe("AutofillService.infer", () => {
     )
     const s = await session({ judge })
     const profile = ProfileSchema.parse({
-      eeo: { race: ["asian", "white"], veteran: "not-protected" },
+      eeo: { race: ["asian", "white"], veteran: "not-protected-veteran" },
     })
     await s.h.autofillProfileService.save({ profile, expectedRevision: 0 })
     const notes =

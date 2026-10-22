@@ -59,7 +59,7 @@ describe("applicantContext", () => {
     const eeo = {
       ...sampleProfile.eeo,
       race: ["asian", "white"],
-      veteran: "not-protected",
+      veteran: "not-protected-veteran",
     } satisfies typeof sampleProfile.eeo
     expect(
       applicantContext({

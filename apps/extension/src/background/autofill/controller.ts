@@ -1,9 +1,7 @@
-import {
-  type FieldDescriptor,
-  type Fill,
-  LIMITS,
-  type Option,
-  type Question,
+import type {
+  FieldDescriptor,
+  Fill,
+  Question,
 } from "@workspace/autofill/fields"
 import { plainQuestions } from "@workspace/autofill/notes"
 import type {
@@ -15,6 +13,7 @@ import type {
 } from "@workspace/resume-core/contracts"
 import { z } from "zod"
 import { errorClass, trace } from "../../autofill/debug"
+import { fieldIdentity, matchingFields } from "../../autofill/field-identity"
 import { scanUrl } from "../../autofill/posting-url"
 import { api } from "../../lib/api"
 import { DRAFT_FAILED, limitLine } from "../../lib/autofill-copy"
@@ -27,6 +26,7 @@ import { autofillFrame, sameDocument } from "./frames"
 import { sendToContent } from "./send"
 import {
   type AutofillSession,
+  applyScan,
   attachFailed,
   canRunPass,
   countsOf,
@@ -250,6 +250,9 @@ async function sendWrites(
     type: "autofill-write",
     fills,
     force,
+    identities: Object.fromEntries(
+      session.fields.map((field) => [field.id, fieldIdentity(field)])
+    ),
   })
   traceWrites(session, fills, results)
   return results
@@ -264,54 +267,46 @@ export async function writeFills(
 ): Promise<void> {
   if (fills.length === 0) return
   const results = await sendWrites(tabId, session, fills, force)
-  await updatePosting(tabId, session.postingKey, (current) =>
-    recordWrites(current, fills, results)
-  )
-}
-
-/**
- * Takes in options read from closed widgets. A widget that listed none, or
- * more than a field may carry, is searched by typing instead.
- */
-function withOptions(
-  session: AutofillSession,
-  read: Record<string, Option[] | null>
-): AutofillSession {
-  return {
-    ...session,
-    fields: session.fields.map((field) => {
-      const options = read[field.id]
-      if (options === undefined) return field
-      return options !== null &&
-        options.length > 0 &&
-        options.length <= LIMITS.options
-        ? { ...field, options }
-        : { ...field, searchable: true }
-    }),
-  }
-}
-
-async function readOptions(
-  tabId: number,
-  { session }: Pass
-): Promise<AutofillSession | null> {
-  const fieldIds = session.fields
-    .filter(
-      (field) =>
-        field.optionsPending === true &&
-        !field.options &&
-        !field.searchable &&
-        !field.hasValue
+  await updatePosting(tabId, session.postingKey, (current) => {
+    if (!sameDocument(current, session)) return current
+    const valid = matchingFields(session.fields, current.fields)
+    return recordWrites(
+      current,
+      fills.filter((fill) => valid.has(fill.fieldId)),
+      results
     )
-    .map(({ id }) => id)
-  if (fieldIds.length === 0) return session
-  const { options } = await sendToContent(tabId, session, {
-    type: "autofill-read-options",
-    fieldIds,
   })
-  return updatePosting(tabId, session.postingKey, (current) =>
-    withOptions(current, options)
+}
+
+async function prepareFields(
+  tabId: number,
+  { session }: Pass,
+  retry: boolean
+): Promise<AutofillSession | null> {
+  const { scan } = await sendToContent(tabId, session, {
+    type: "autofill-prepare",
+    retry,
+  })
+  if (
+    !scan ||
+    scan.postingKey !== session.postingKey ||
+    scan.url !== session.url
   )
+    return null
+  const now = Date.now()
+  const { after } = await updateSession(tabId, (current) =>
+    current &&
+    sameDocument(current, session) &&
+    current.postingKey === scan.postingKey
+      ? applyScan(current, scan, session, now).session
+      : current
+  )
+  return after &&
+    sameDocument(after, session) &&
+    after.postingKey === scan.postingKey &&
+    after.revision === scan.revision
+    ? after
+    : null
 }
 
 /** The user's pick, else the default the first plan found (spec 6.2). */
@@ -331,26 +326,70 @@ function defaultOf(plan: PlanResult): AutofillSession["defaultResume"] {
  * The default is computed once: later plans send it back as the pick, so a
  * new tailored resume or a late company name cannot move it.
  */
-async function planFor(
+const planning = new Map<number, Map<string, Promise<PlanResult | null>>>()
+
+const planKey = (session: AutofillSession, page: AutofillPage): string =>
+  JSON.stringify([
+    session.documentId,
+    session.frameId,
+    session.scanAt,
+    page,
+    session.fields,
+    pickOf(session),
+    session.linkedin,
+  ])
+
+function planFor(
   tabId: number,
   session: AutofillSession,
   page: AutofillPage
-): Promise<PlanResult> {
+): Promise<PlanResult | null> {
+  const key = planKey(session, page)
+  const pending =
+    planning.get(tabId) ?? new Map<string, Promise<PlanResult | null>>()
+  const shared = pending.get(key)
+  if (shared) {
+    trace("reused an in-flight plan")
+    return shared
+  }
   const resumeId = pickOf(session)
-  const plan = await api.autofill.plan(
-    { page, fields: session.fields, resumeId, linkedin: session.linkedin },
-    timeout()
-  )
-  await updatePosting(tabId, page.postingKey, (current) => ({
-    ...current,
-    quota: plan.quota,
-    defaultResume: current.defaultResume ?? defaultOf(plan),
-    // A plan for older fields or another pick is dropped.
-    ...(current.scanAt === session.scanAt && pickOf(current) === resumeId
-      ? { plan, planAt: session.scanAt }
-      : {}),
-  }))
-  return plan
+  const request = async (): Promise<PlanResult | null> => {
+    const plan = await api.autofill.plan(
+      { page, fields: session.fields, resumeId, linkedin: session.linkedin },
+      timeout()
+    )
+    const { before } = await updateSession(tabId, (current) => {
+      const currentPage = current && pageOf(current)
+      if (
+        !current ||
+        !currentPage ||
+        current.scanAt !== session.scanAt ||
+        planKey(current, currentPage) !== key
+      )
+        return current
+      return {
+        ...current,
+        quota: plan.quota,
+        defaultResume: current.defaultResume ?? defaultOf(plan),
+        plan,
+        planAt: current.scanAt,
+      }
+    })
+    const beforePage = before && pageOf(before)
+    return before &&
+      beforePage &&
+      before.scanAt === session.scanAt &&
+      planKey(before, beforePage) === key
+      ? plan
+      : null
+  }
+  const running = request().finally(() => {
+    pending.delete(key)
+    if (pending.size === 0) planning.delete(tabId)
+  })
+  pending.set(key, running)
+  planning.set(tabId, pending)
+  return running
 }
 
 /** The plan's fill for the resume file field. */
@@ -467,9 +506,9 @@ async function writeRules(
   targets: ReadonlySet<string>
 ): Promise<void> {
   const session = await readPosting(tabId, pass.page.postingKey)
-  if (!session) return
+  if (!session || !sameDocument(session, pass.session)) return
   const fills = plan.fills.filter(({ fieldId }) => targets.has(fieldId))
-  await writeFills(tabId, session, fieldsToFill(session, fills))
+  await writeFills(tabId, pass.session, fieldsToFill(session, fills))
 }
 
 type AiOutcome = Pick<InferResult, "fills" | "write" | "page" | "questions"> & {
@@ -586,20 +625,49 @@ async function askAi(
   const key = pass.page.postingKey
   const started = await starting
   const session = await readPosting(tabId, key)
-  const fields = (session?.fields ?? []).filter(({ id }) => fieldIds.has(id))
-  if (!session || fields.length === 0) return
+  if (!session || !sameDocument(session, pass.session)) return
+  const eligible = matchingFields(
+    pass.session.fields,
+    session.fields.filter((field) => !field.hasValue)
+  )
+  const fields = pass.session.fields.filter(
+    (field) =>
+      fieldIds.has(field.id) &&
+      session.states[field.id]?.owned !== true &&
+      eligible.has(field.id)
+  )
+  if (fields.length === 0) return
   const asked = new Set(fields.map(({ id }) => id))
   const outcome = await infer(pass, plan, started, session, fields)
   const latest = await readPosting(tabId, key)
-  if (!latest) return
+  if (!latest || !sameDocument(latest, pass.session)) return
   const fills = fieldsToFill(
     latest,
     outcome.fills.filter(({ fieldId }) => asked.has(fieldId))
   )
-  const results = await sendWrites(tabId, latest, fills)
-  await updatePosting(tabId, key, (current) =>
-    withAiOutcome(recordWrites(current, fills, results), asked, outcome, mode)
-  )
+  const results = await sendWrites(tabId, pass.session, fills)
+  await updatePosting(tabId, key, (current) => {
+    if (!sameDocument(current, pass.session)) return current
+    const valid = matchingFields(fields, current.fields)
+    for (const id of valid) if (current.states[id]?.owned) valid.delete(id)
+    return withAiOutcome(
+      recordWrites(
+        current,
+        fills.filter((fill) => valid.has(fill.fieldId)),
+        results
+      ),
+      valid,
+      {
+        ...outcome,
+        write: outcome.write.filter((id) => valid.has(id)),
+        page: outcome.page.filter((id) => valid.has(id)),
+        questions: outcome.questions.filter((question) =>
+          question.original.every(({ fieldId }) => valid.has(fieldId))
+        ),
+      },
+      mode
+    )
+  })
 }
 
 /**
@@ -640,9 +708,13 @@ async function runPass(tabId: number, pass: Pass, mode: Mode): Promise<void> {
   trace(
     `3. ${mode === "manual" ? "Autofill" : "automatic"} pass started (${mode === "manual" ? "every field" : "only fields AI has not tried"})`
   )
-  const session = await readOptions(tabId, pass)
+  const session = await prepareFields(tabId, pass, mode === "manual")
   if (!session) return
-  const plan = await planFor(tabId, session, pass.page)
+  const page = pageOf(session)
+  if (!page) return
+  pass = { ...pass, session, page }
+  const plan = await planFor(tabId, session, page)
+  if (!plan) return
   tracePlan(session, plan)
   const resumeId = plan.resumeId
   if (resumeId === null) {
@@ -700,6 +772,7 @@ async function pickResume(tabId: number, resumeId: string): Promise<void> {
   )
   await withPass(tabId, async (pass) => {
     const plan = await planFor(tabId, pass.session, pass.page)
+    if (!plan) return
     const before = pass.session.started
     if (
       before === null ||
@@ -761,24 +834,32 @@ async function answerQuestions(tabId: number, text: string): Promise<void> {
     }
     traceAnswer(fields, result)
     const latest = await readPosting(tabId, page.postingKey)
-    if (!latest) return
+    if (!latest || !sameDocument(latest, session)) return
     const fills = fieldsToFill(
       latest,
       result.fills.filter(({ fieldId }) => named.has(fieldId))
     )
-    const results = await sendWrites(tabId, latest, fills)
+    const results = await sendWrites(tabId, session, fills)
     const outcome = result.notes
-    await updatePosting(tabId, page.postingKey, (current) => ({
-      ...recordWrites(current, fills, results),
-      unmatched: result.unmatched,
-      notes: {
-        outcome,
-        retry: outcome.kind === "failed" ? { text, questions } : null,
-        undo: null,
-      },
-      quota: result.quota,
-      draft: "",
-    }))
+    await updatePosting(tabId, page.postingKey, (current) => {
+      if (!sameDocument(current, session)) return current
+      const valid = matchingFields(fields, current.fields)
+      return {
+        ...recordWrites(
+          current,
+          fills.filter((fill) => valid.has(fill.fieldId)),
+          results
+        ),
+        unmatched: result.unmatched,
+        notes: {
+          outcome,
+          retry: outcome.kind === "failed" ? { text, questions } : null,
+          undo: null,
+        },
+        quota: result.quota,
+        draft: "",
+      }
+    })
   })
 }
 

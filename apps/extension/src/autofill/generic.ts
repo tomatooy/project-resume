@@ -117,13 +117,14 @@ function containerOf(group: Group): HTMLElement {
   return group.first
 }
 
-/** Option ids are positional; a list over the limit is searched instead. */
+/** Option ids are positional; oversized lists require manual selection. */
 export function listed(choices: ScannedField["choices"]): {
   options?: Option[]
-  searchable?: true
+  optionState: "ready" | "unavailable"
 } {
-  if (choices.length > LIMITS.options) return { searchable: true }
+  if (choices.length > LIMITS.options) return { optionState: "unavailable" }
   return {
+    optionState: "ready",
     options: choices.map(({ label }, i) => ({ id: `#${i + 1}`, label })),
   }
 }
@@ -151,7 +152,9 @@ function single(control: Native, root: Element): Built {
   }
   if (control instanceof HTMLSelectElement) {
     const choices = [...control.options]
-      .filter((option) => !isPlaceholder(option))
+      .filter(
+        (option) => !isPlaceholder(option) && !option.matches(":disabled")
+      )
       .map((option) => ({ element: option, label: optionText(option) }))
     return finish(
       { element: control, kind: "select", choices },

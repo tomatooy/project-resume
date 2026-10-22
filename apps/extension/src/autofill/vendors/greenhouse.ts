@@ -89,7 +89,6 @@ function reactSelects(form: Element): ScannedField[] {
       choices: [],
       combo,
     }
-    const container = combo.opener.parentElement ?? combo.opener
     const help = helpFor(input, isDescription)
     found.push({
       ...live,
@@ -97,11 +96,7 @@ function reactSelects(form: Element): ScannedField[] {
         id: fieldId(input, form),
         label: labelFor(input),
         control: "combobox",
-        // Without a dropdown arrow the select searches remotely (GH 4.2);
-        // the others list their options only while open.
-        ...(container.querySelector(".select__dropdown-indicator")
-          ? { optionsPending: true }
-          : { searchable: true }),
+        optionState: input.id === "candidate-location" ? "search" : "pending",
         // Unverified.
         ...(combo.opener.querySelector(".select__value-container--is-multi")
           ? { multiple: true }

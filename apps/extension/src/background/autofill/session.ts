@@ -26,6 +26,7 @@ import {
   type WriteOutcomeSchema,
 } from "../../lib/autofill-protocol"
 import { queued } from "../tab-state"
+import { fieldIdentity } from "../../autofill/field-identity"
 import { originKey } from "./origin"
 
 /*
@@ -55,7 +56,9 @@ export function fieldSignature(field: FieldDescriptor): string {
     JSON.stringify([
       field.control,
       normalizeText(field.label),
-      (field.options ?? []).map(({ label }) => label),
+      field.control === "combobox"
+        ? []
+        : (field.options ?? []).map(({ label }) => label),
     ])
   )
 }
@@ -86,8 +89,9 @@ export const AutofillSessionSchema = z.object({
   page: PageInfoSchema,
   form: z.boolean(),
   formLink: z.string().nullable(),
-  /** The last scan, with the options read on Autofill merged in. */
+  /** The content script's latest field snapshot, including discovered options. */
   fields: FieldsSchema,
+  revision: z.number().int().nonnegative().optional(),
   scanAt: z.number(),
   /** The `scanAt` that `plan` was made for. */
   planAt: z.number().nullable(),
@@ -183,6 +187,7 @@ function newSession(
     form: scan.form,
     formLink: scan.formLink,
     fields: [],
+    revision: scan.revision,
     scanAt: now,
     planAt: null,
     plan: null,
@@ -206,22 +211,10 @@ function newSession(
   }
 }
 
-/**
- * A widget lists its options only while open, so the ones read on Autofill
- * (or `searchable`, when none could be read) stay while it reports pending.
- */
-function withReadOptions(
-  scanned: FieldDescriptor,
-  stored: FieldDescriptor | undefined
-): FieldDescriptor {
-  if (scanned.optionsPending !== true || scanned.options || !stored)
-    return scanned
-  return {
-    ...scanned,
-    ...(stored.options ? { options: stored.options } : {}),
-    ...(stored.searchable ? { searchable: true } : {}),
-  }
-}
+const snapshotKey = (
+  scan: Pick<ScanMessage, "url" | "page" | "form" | "formLink" | "fields">
+): string =>
+  JSON.stringify([scan.url, scan.page, scan.form, scan.formLink, scan.fields])
 
 /**
  * Takes in a scan. A different posting starts a new session; a field whose
@@ -234,6 +227,13 @@ export function applyScan(
   frame: ScanFrame,
   now: number
 ): { session: AutofillSession; added: string[]; restore: Fill[] } {
+  if (
+    session?.documentId === frame.documentId &&
+    session.revision !== undefined &&
+    (scan.revision ?? -1) < session.revision
+  ) {
+    return { session, added: [], restore: [] }
+  }
   const kept = session?.postingKey === scan.postingKey ? session : null
   const base = kept ?? newSession(scan, frame, now)
   const reload = kept !== null && kept.documentId !== frame.documentId
@@ -244,15 +244,22 @@ export function applyScan(
   const fields = scan.fields.map((field) => {
     const signature = fieldSignature(field)
     const state = states[field.id]
-    if (!state) added.push(field.id)
+    const previous = stored.get(field.id)
+    if (!previous || fieldIdentity(previous) !== fieldIdentity(field))
+      added.push(field.id)
     if (state?.signature !== signature) {
       states[field.id] = blankState(signature)
       return field
     }
+    if (previous && fieldIdentity(previous) !== fieldIdentity(field)) {
+      states[field.id] = { ...blankState(signature), owned: state.owned }
+      return field
+    }
     if (reload && state.fill && !state.owned && !field.hasValue)
       restore.push(state.fill)
-    return withReadOptions(field, stored.get(field.id))
+    return field
   })
+  const changed = !kept || reload || snapshotKey(base) !== snapshotKey(scan)
   return {
     session: {
       ...base,
@@ -264,9 +271,9 @@ export function applyScan(
       form: scan.form,
       formLink: scan.formLink,
       fields,
+      revision: scan.revision,
       states,
-      // Every scan moves `scanAt`, so a plan for an older scan never looks current.
-      scanAt: kept && now <= kept.scanAt ? kept.scanAt + 1 : now,
+      scanAt: changed ? Math.max(now, base.scanAt + 1) : base.scanAt,
     },
     added,
     restore,
