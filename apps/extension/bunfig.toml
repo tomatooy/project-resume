@@ -1,0 +1,2 @@
+# Preserve Vite's mode-specific dotenv precedence.
+env = false
