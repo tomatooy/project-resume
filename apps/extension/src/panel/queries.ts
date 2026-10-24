@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import {
   queryOptions,
   type InfiniteData,
@@ -6,14 +6,89 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query"
+import { TailorInstructionsSchema } from "@workspace/resume-core/contracts"
+import type { AutofillAction } from "../lib/autofill-view"
+import { classifyPage } from "../lib/pages"
 import {
   send,
   sendResumePage,
+  sendResumePreview,
+  type ResumePreviewRequest,
   type Snapshot,
   type Message,
 } from "../lib/messages"
 
 const key = ["extension", "current"]
+export function resumePreviewKey(input: ResumePreviewRequest) {
+  return "postingKey" in input
+    ? [
+        "extension",
+        "preview",
+        input.accountId,
+        "autofill",
+        input.postingKey,
+        input.resumeId,
+      ]
+    : [
+        "extension",
+        "preview",
+        input.accountId,
+        input.identity.platform,
+        input.identity.externalJobId,
+        input.resumeId,
+        input.operationId,
+      ]
+}
+export function resumePreviewQuery(input: ResumePreviewRequest) {
+  return queryOptions({
+    queryKey: resumePreviewKey(input),
+    queryFn: () => sendResumePreview(input),
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: "always",
+  })
+}
+const tailorStorageKey = (accountId: string) =>
+  `tailor-instructions:${accountId}`
+
+/** The tailor instructions this browser keeps for one account. */
+export function tailorInstructionsQuery(accountId: string | undefined) {
+  return queryOptions({
+    queryKey: ["extension", "tailor-instructions", accountId],
+    queryFn: async () => {
+      if (!accountId) return ""
+      const storageKey = tailorStorageKey(accountId)
+      const values = await chrome.storage.local.get(storageKey)
+      return TailorInstructionsSchema.parse(values[storageKey] ?? "")
+    },
+    enabled: Boolean(accountId),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  })
+}
+
+/** Saves one account's instructions; saves for an account run in order. */
+export function useSaveTailorInstructions(accountId: string | undefined) {
+  const client = useQueryClient()
+  return useMutation({
+    scope: { id: tailorStorageKey(accountId ?? "") },
+    mutationFn: async (next: { accountId: string; instructions: string }) => {
+      await chrome.storage.local.set({
+        [tailorStorageKey(next.accountId)]: TailorInstructionsSchema.parse(
+          next.instructions
+        ),
+      })
+    },
+    onSuccess: (_result, next) => {
+      client.setQueryData(
+        tailorInstructionsQuery(next.accountId).queryKey,
+        next.instructions
+      )
+    },
+  })
+}
+
 export function currentQuery() {
   return queryOptions({
     queryKey: key,
@@ -24,10 +99,16 @@ export function currentQuery() {
     refetchOnWindowFocus: "always",
   })
 }
-export function useAction() {
+export function useAction(
+  persistInstructions: (instructions: string) => Promise<void>
+) {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (message: Message) => send(message),
+    mutationFn: async (message: Message) => {
+      if (message.type === "tailor")
+        await persistInstructions(message.instructions ?? "")
+      return send(message)
+    },
     onSuccess: async (snapshot) => {
       await client.cancelQueries({ queryKey: key })
       client.setQueryData(key, snapshot)
@@ -36,18 +117,85 @@ export function useAction() {
   })
 }
 
-/** Reloads the panel when its own tab moves to another URL. */
-export function useRoutingRefresh(tabId: number | null | undefined) {
+/**
+ * Autofill actions, apart from `useAction` so a running pass, which can take
+ * 25 s, does not hold up focus and draft actions.
+ */
+export function useAutofillAction() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (action: AutofillAction) => send({ type: "autofill", action }),
+    onSuccess: async (snapshot) => {
+      await client.cancelQueries({ queryKey: key })
+      client.setQueryData(key, snapshot)
+    },
+    onError: () => client.invalidateQueries({ queryKey: key }),
+  })
+}
+
+/** Refreshes the panel when its tab's autofill session changes. */
+export function useAutofillUpdates(tabId: number | null | undefined) {
   const client = useQueryClient()
   useEffect(() => {
     if (tabId === null || tabId === undefined) return
+    const watched = `autofill:${tabId}`
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const changed = (changes: Record<string, chrome.storage.StorageChange>) => {
+      if (!(watched in changes) || timer) return
+      timer = setTimeout(() => {
+        timer = undefined
+        void client.invalidateQueries({ queryKey: key })
+      }, 100)
+    }
+    chrome.storage.session.onChanged.addListener(changed)
+    return () => {
+      clearTimeout(timer)
+      chrome.storage.session.onChanged.removeListener(changed)
+    }
+  }, [client, tabId])
+}
+
+function pageIdentity(page: Snapshot["page"]): string {
+  if (page.kind === "job")
+    return `${page.identity.platform}:${page.identity.externalJobId}`
+  return page.kind === "ats" ? `ats:${page.vendor}` : page.kind
+}
+
+/** Keep loaded content while following this tab's selected job or page. */
+export function useRoutingRefresh(
+  tabId: number | null | undefined,
+  page: Snapshot["page"] | undefined
+) {
+  const client = useQueryClient()
+  const current = page ? pageIdentity(page) : undefined
+  const [destination, setDestination] = useState<{
+    tabId: number
+    identity: string
+  } | null>(null)
+  useEffect(() => {
+    if (tabId === null || tabId === undefined) return
+    let previous = current
     const changed = (id: number, change: chrome.tabs.OnUpdatedInfo) => {
-      if (id === tabId && change.url)
-        void client.resetQueries({ queryKey: key })
+      if (id !== tabId || !change.url) return
+      const next = classifyPage(change.url)
+      const identity = pageIdentity(next)
+      const route =
+        next.kind === "job" || next.kind === "select-job"
+          ? identity
+          : change.url
+      if (route === previous) return
+      previous = route
+      setDestination({ tabId, identity })
+      void client.invalidateQueries({ queryKey: key })
     }
     chrome.tabs.onUpdated.addListener(changed)
     return () => chrome.tabs.onUpdated.removeListener(changed)
-  }, [client, tabId])
+  }, [client, tabId, current])
+  return (
+    destination !== null &&
+    destination.tabId === tabId &&
+    destination.identity !== current
+  )
 }
 
 export function useServerUpdates(
@@ -109,11 +257,15 @@ export function useServerUpdates(
   }, [client, jobId, accountId, operationId])
 }
 
+/** The snapshot carries the first resume page for tailoring and for autofill. */
+const seeded = (snapshot: Snapshot) =>
+  snapshot.lookup?.kind === "none" || snapshot.autofill !== null
+
 export function useBaseResumes(snapshot: Snapshot | undefined) {
   const client = useQueryClient()
   const queryKey = ["extension", "resumes", snapshot?.account?.id]
   const first =
-    snapshot?.lookup?.kind === "none"
+    snapshot && seeded(snapshot)
       ? { items: snapshot.resumes, nextCursor: snapshot.nextResumeCursor }
       : undefined
   const query = useInfiniteQuery({
@@ -126,7 +278,7 @@ export function useBaseResumes(snapshot: Snapshot | undefined) {
     staleTime: Number.POSITIVE_INFINITY,
   })
   useEffect(() => {
-    if (snapshot?.lookup?.kind !== "none") return
+    if (!snapshot || !seeded(snapshot)) return
     const key = ["extension", "resumes", snapshot.account?.id]
     type Pages = InfiniteData<
       Awaited<ReturnType<typeof sendResumePage>>,

@@ -1,8 +1,16 @@
 import type { TurnPlan } from "../domain/chat"
-import type { AgentRun, AgentRunStatus, RunInput } from "../domain/suggestion"
+import type {
+  AgentRun,
+  AgentRunStatus,
+  RunInput,
+  RunKind,
+} from "../domain/suggestion"
 
 export type NewAgentRun = {
-  conversationId: string
+  /** Defaults to `chat`. */
+  kind?: RunKind
+  /** Required for chat runs; autofill runs have none. */
+  conversationId: string | null
   resumeId: string
   /** The composer's hint, or the tailoring writer's id. Advisory. */
   hintSkillId?: string | null
@@ -44,5 +52,9 @@ export interface AgentRunRepository {
    * finishes its run; this is what stops it blocking the conversation.
    */
   failAbandoned(conversationId: string, olderThan: Date): Promise<number>
-  usageSince(since: Date): Promise<{ count: number; oldest: string | null }>
+  /** This user's runs of one kind created at or after `since`. */
+  usageSince(
+    since: Date,
+    kind: RunKind
+  ): Promise<{ count: number; oldest: string | null }>
 }

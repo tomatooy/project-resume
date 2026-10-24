@@ -1,6 +1,7 @@
 import { contentHash, type Resume } from "@workspace/resume-schema"
 
 import { AppError } from "../domain/errors"
+import type { ResumeRecord } from "../domain/resume"
 import type { CreatedByKind, VersionSummary } from "../domain/version"
 import type { ResumeRepository } from "../ports/resume-repository"
 import type { VersionRepository } from "../ports/version-repository"
@@ -19,6 +20,8 @@ export type RestoreResult = {
 }
 
 const DEFAULT_LABEL = "Saved version"
+/** One reread covers an autosave racing the snapshot; more is a busy editor. */
+const SNAPSHOT_ATTEMPTS = 2
 
 export class VersionService {
   constructor(
@@ -49,19 +52,47 @@ export class VersionService {
     resumeId: string,
     options: SnapshotOptions
   ): Promise<VersionSummary> {
-    const resume = await this.resumes.findById(resumeId)
-    if (!resume) throw new AppError("NOT_FOUND", "Resume not found")
+    return (await this.snapshotHead(resumeId, options)).version
+  }
 
-    const result = await this.versions.create({
-      resumeId,
-      content: resume.data,
-      schemaVersion: resume.schemaVersion,
-      contentHash: await contentHash(resume.data),
-      label: options.label ?? DEFAULT_LABEL,
-      createdBy: options.createdBy,
-      agentRunId: options.agentRunId ?? null,
-    })
-    return result.version
+  /**
+   * Snapshots the head and returns the head it snapshotted, so a caller can
+   * use exactly the content the version holds. The write names the revision it
+   * read: an autosave landing in between makes it fail instead of being undone,
+   * and the head is read again once. A second conflict goes to the caller.
+   */
+  async snapshotHead(
+    resumeId: string,
+    options: SnapshotOptions
+  ): Promise<{ version: VersionSummary; resume: ResumeRecord }> {
+    for (let attempt = 1; ; attempt += 1) {
+      const resume = await this.resumes.findById(resumeId)
+      if (!resume) throw new AppError("NOT_FOUND", "Resume not found")
+      try {
+        const result = await this.versions.create({
+          resumeId,
+          content: resume.data,
+          schemaVersion: resume.schemaVersion,
+          contentHash: await contentHash(resume.data),
+          label: options.label ?? DEFAULT_LABEL,
+          createdBy: options.createdBy,
+          agentRunId: options.agentRunId ?? null,
+          expectedRevision: resume.revision,
+        })
+        return {
+          version: result.version,
+          resume: {
+            ...resume,
+            currentVersionId: result.version.id,
+            revision: result.revision,
+            updatedAt: result.updatedAt,
+          },
+        }
+      } catch (error) {
+        const conflict = error instanceof AppError && error.code === "CONFLICT"
+        if (!conflict || attempt >= SNAPSHOT_ATTEMPTS) throw error
+      }
+    }
   }
 
   async restore(resumeId: string, versionId: string): Promise<RestoreResult> {

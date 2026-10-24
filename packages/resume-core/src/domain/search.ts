@@ -38,7 +38,8 @@ export type DocumentHit = {
 export type ResumeSearchHit = DocumentHit
 
 export type ResumeSearchGroup = {
-  resume: ResumeSummary
+  /** Built from the record the search holds, so without the origin job. */
+  resume: Omit<ResumeSummary, "job">
   /** Title hits, which put this resume in the relevance tier above the rest. */
   titleRanges: TextRange[]
   /** Capped at `HITS_PER_RESUME`; `totalHits` is the uncapped count. */

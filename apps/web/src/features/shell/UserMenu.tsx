@@ -1,8 +1,13 @@
-import { BooksIcon, SignOutIcon } from "@phosphor-icons/react"
+import {
+  BooksIcon,
+  IdentificationCardIcon,
+  SignOutIcon,
+} from "@phosphor-icons/react"
 import { Link } from "@tanstack/react-router"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -25,20 +30,27 @@ export function UserMenu({ email }: { email: string }) {
           <button
             type="button"
             aria-label="Account"
-            className="flex size-[26px] items-center justify-center rounded-full border border-border bg-secondary text-[11px] font-semibold text-secondary-foreground transition-colors hover:bg-muted"
+            className="flex size-5 items-center justify-center rounded-full border border-border bg-secondary text-[9px] font-semibold text-secondary-foreground transition-colors hover:bg-muted"
           >
             {initials(email)}
           </button>
         }
       />
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="truncate font-normal text-muted-foreground">
-          {email}
-        </DropdownMenuLabel>
+        {/* Base UI requires a group label to sit inside a Menu.Group. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="truncate font-normal text-muted-foreground">
+            {email}
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem render={<Link to="/skills" />}>
           <BooksIcon />
           Skills
+        </DropdownMenuItem>
+        <DropdownMenuItem render={<Link to="/autofill" />}>
+          <IdentificationCardIcon />
+          Autofill profile
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {/*

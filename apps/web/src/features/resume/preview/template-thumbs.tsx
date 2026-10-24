@@ -5,7 +5,7 @@ import type {
   TemplateOptions,
 } from "@workspace/resume-schema"
 
-import { pdfjs } from "./pdfjs"
+import { pdfjs } from "@workspace/resume-preview/pdfjs"
 
 /**
  * Device pixels across. The cards are about 84 CSS px wide, so this covers a

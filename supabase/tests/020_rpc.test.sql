@@ -113,7 +113,8 @@ select is((select (payload->'version'->>'version_no')::int from res where step =
 select throws_ok(
   $$ select create_resume_version('b0000000-0000-4000-8000-0000000000ff',
        '{"schemaVersion":1}'::jsonb, 1, 'hash-x', null, 'user'::created_by_kind, null) $$,
-  '42501', null,
+  -- RLS hides the row from the revision lock, so the call stops there.
+  'P0002', null,
   'a resume the caller cannot see is refused by RLS, not silently written'
 );
 

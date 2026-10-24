@@ -12,35 +12,46 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { useOperationRecovery } from "../src/panel/queries"
 import { App } from "../src/panel/App"
 import { ExtensionError, type Snapshot } from "../src/lib/messages"
-const mock = vi.hoisted(() => ({ send: vi.fn(), page: vi.fn() }))
+const mock = vi.hoisted(() => ({
+  send: vi.fn(),
+  page: vi.fn(),
+  preview: vi.fn(),
+}))
 let updateListener: ((message: { type: string }) => void) | undefined
 let routeListener:
   | ((tabId: number, change: chrome.tabs.OnUpdatedInfo) => void)
   | undefined
 const runtimeSend = vi.fn(async () => ({ ok: true }))
+const preferences = new Map<string, string>()
+const storageSet = vi.fn(async (values: Record<string, string>) => {
+  for (const [key, value] of Object.entries(values)) preferences.set(key, value)
+})
 vi.mock("../src/lib/messages", async (original) => ({
   ...(await original<typeof import("../src/lib/messages")>()),
   send: mock.send,
   sendResumePage: mock.page,
+  sendResumePreview: mock.preview,
 }))
 const id = "00000000-0000-4000-8000-000000000001"
 function snapshot(
-  status: "queued" | "succeeded" | "failed" | "cancelled"
+  status: "queued" | "succeeded" | "failed" | "cancelled",
+  externalJobId = "123456"
 ): Snapshot {
   return {
     tabId: 1,
     page: {
       kind: "job",
-      identity: { platform: "linkedin", externalJobId: "123456" },
-      sourceUrl: "https://www.linkedin.com/jobs/view/123456",
+      identity: { platform: "linkedin", externalJobId },
+      sourceUrl: `https://www.linkedin.com/jobs/view/${externalJobId}`,
     },
     account: { id, email: "test@example.test" },
     resumes: [],
     nextResumeCursor: null,
     lastBaseId: null,
+    autofill: null,
     lookup: {
       kind: "bound",
-      identity: { platform: "linkedin", externalJobId: "123456" },
+      identity: { platform: "linkedin", externalJobId },
       resumeId: id,
       canRetry: status === "failed" || status === "cancelled",
       canCancel: status === "queued",
@@ -54,6 +65,7 @@ function snapshot(
         status,
         expectedRevision: 1,
         inputVersionId: id,
+        instructions: "",
         idempotencyKey: id,
         deadline: new Date(Date.now() + 300_000).toISOString(),
         errorClass: null,
@@ -72,6 +84,15 @@ function other(page: Snapshot["page"], signedIn = true): Snapshot {
 }
 function mount() {
   vi.stubGlobal("chrome", {
+    storage: {
+      local: {
+        get: async (key: string) => ({ [key]: preferences.get(key) }),
+        set: storageSet,
+      },
+      session: {
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    },
     runtime: {
       sendMessage: runtimeSend,
       connect: vi.fn(() => ({
@@ -90,7 +111,9 @@ function mount() {
         addListener: (listener: typeof routeListener) => {
           routeListener = listener
         },
-        removeListener: vi.fn(),
+        removeListener: (listener: typeof routeListener) => {
+          if (routeListener === listener) routeListener = undefined
+        },
       },
     },
   })
@@ -108,6 +131,7 @@ afterEach(() => {
   cleanup()
   updateListener = undefined
   routeListener = undefined
+  preferences.clear()
   vi.clearAllMocks()
   vi.unstubAllGlobals()
 })
@@ -125,9 +149,9 @@ it("keeps the current view visible while a server event refreshes it", async () 
 it("reopens a saved success without offering generation", async () => {
   mock.send.mockResolvedValue(snapshot("succeeded"))
   const client = mount()
-  expect(await screen.findByText("Resume is ready, now apply")).toBeTruthy()
+  expect(await screen.findByText("Your tailored resume is ready")).toBeTruthy()
   expect(screen.queryByRole("button", { name: "Tailor resume" })).toBeNull()
-  fireEvent.click(screen.getByRole("button", { name: "Edit resume" }))
+  fireEvent.click(screen.getByRole("button", { name: "Edit in app" }))
   await waitFor(() =>
     expect(mock.send).toHaveBeenCalledWith(
       expect.objectContaining({ type: "edit", resumeId: id })
@@ -136,10 +160,42 @@ it("reopens a saved success without offering generation", async () => {
   client.clear()
 })
 
+it("loads preview only on request and exits it when its tab changes jobs", async () => {
+  mock.send.mockResolvedValue(snapshot("succeeded"))
+  mock.preview.mockReturnValue(new Promise(() => {}))
+  const client = mount()
+  const preview = await screen.findByRole("button", { name: "Preview resume" })
+  expect(mock.preview).not.toHaveBeenCalled()
+  fireEvent.click(preview)
+  await screen.findByRole("region", { name: "Resume preview" })
+  expect(mock.preview).toHaveBeenCalledWith({
+    accountId: id,
+    resumeId: id,
+    operationId: id,
+    identity: { platform: "linkedin", externalJobId: "123456" },
+  })
+  mock.send.mockResolvedValue(other({ kind: "select-job" }))
+  routeListener?.(1, { url: "https://www.linkedin.com/jobs/search-results/" })
+  await screen.findByText("Select a job on LinkedIn")
+  expect(screen.queryByRole("region", { name: "Resume preview" })).toBeNull()
+  client.clear()
+})
+
+it.each(["queued", "failed", "cancelled"] as const)(
+  "offers no generated preview for %s",
+  async (status) => {
+    mock.send.mockResolvedValue(snapshot(status))
+    const client = mount()
+    await screen.findByText("Resume tailoring")
+    expect(screen.queryByRole("button", { name: "Preview resume" })).toBeNull()
+    client.clear()
+  }
+)
+
 it("minimizes or closes itself from the header", async () => {
   mock.send.mockResolvedValue(snapshot("succeeded"))
   const client = mount()
-  await screen.findByText("Resume is ready, now apply")
+  await screen.findByText("Your tailored resume is ready")
   expect(screen.getByText("Resume tailoring")).toBeTruthy()
   fireEvent.click(screen.getByRole("button", { name: "Minimize to widget" }))
   fireEvent.click(screen.getByRole("button", { name: "Close for this tab" }))
@@ -152,7 +208,7 @@ it("minimizes or closes itself from the header", async () => {
 it("reloads only when its own tab changes URL", async () => {
   mock.send.mockResolvedValue(snapshot("succeeded"))
   const client = mount()
-  await screen.findByText("Resume is ready, now apply")
+  await screen.findByText("Your tailored resume is ready")
   await waitFor(() => expect(routeListener).toBeDefined())
   routeListener?.(2, { url: "https://www.linkedin.com/jobs/view/654321/" })
   routeListener?.(1, { status: "complete" })
@@ -161,6 +217,105 @@ it("reloads only when its own tab changes URL", async () => {
   await waitFor(() => expect(mock.send).toHaveBeenCalledTimes(2))
   client.clear()
 })
+
+it("keeps the panel mounted across job changes and ignores repeat URLs for that job", async () => {
+  mock.send.mockResolvedValue(untailored())
+  const client = mount()
+  const field = await screen.findByRole("textbox", {
+    name: /Additional instructions/,
+  })
+  await waitFor(() => expect(field.hasAttribute("disabled")).toBe(false))
+  fireEvent.change(field, { target: { value: "No summary." } })
+  let resolve = (_snapshot: Snapshot) => {}
+  mock.send.mockReturnValueOnce(
+    new Promise<Snapshot>((done) => {
+      resolve = done
+    })
+  )
+  await act(async () => {
+    routeListener?.(1, {
+      url: "https://www.linkedin.com/jobs/search-results/?currentJobId=654321",
+    })
+  })
+  await waitFor(() => expect(mock.send).toHaveBeenCalledTimes(2))
+  expect(screen.getByRole("textbox", { name: /Additional instructions/ })).toBe(
+    field
+  )
+  expect(screen.queryByText("Checking this page…")).toBeNull()
+  expect(field.closest("section")?.hasAttribute("inert")).toBe(true)
+  expect(screen.getByText("test@example.test")).toBeTruthy()
+  await act(async () => {
+    routeListener?.(1, {
+      url: "https://www.linkedin.com/jobs/search-results/?currentJobId=654321&trackingId=changed",
+    })
+  })
+  expect(mock.send).toHaveBeenCalledTimes(2)
+  const next: Snapshot = {
+    ...untailored(),
+    page: snapshot("succeeded", "654321").page,
+  }
+  await act(async () => resolve(next))
+  await waitFor(() =>
+    expect(field.closest("section")?.hasAttribute("inert")).toBe(false)
+  )
+  expect(screen.getByDisplayValue("No summary.")).toBe(field)
+  await act(async () => {
+    routeListener?.(1, { url: "https://www.linkedin.com/jobs/view/654321/" })
+  })
+  expect(mock.send).toHaveBeenCalledTimes(2)
+  client.clear()
+})
+
+it("keeps an open preview when only the selected job's URL metadata changes", async () => {
+  mock.send.mockResolvedValue(snapshot("succeeded"))
+  mock.preview.mockReturnValue(new Promise(() => {}))
+  const client = mount()
+  fireEvent.click(await screen.findByRole("button", { name: "Preview resume" }))
+  const preview = await screen.findByRole("region", { name: "Resume preview" })
+  await act(async () => {
+    routeListener?.(1, {
+      url: "https://www.linkedin.com/jobs/search-results/?currentJobId=123456&trackingId=changed",
+    })
+  })
+  expect(mock.send).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole("region", { name: "Resume preview" })).toBe(preview)
+  client.clear()
+})
+
+it("keeps listening during job switches and discards an earlier job's late response", async () => {
+  mock.send.mockResolvedValue(snapshot("succeeded"))
+  const client = mount()
+  await screen.findByText("Your tailored resume is ready")
+  let resolveFirst = (_snapshot: Snapshot) => {}
+  let resolveLatest = (_snapshot: Snapshot) => {}
+  mock.send
+    .mockReturnValueOnce(
+      new Promise<Snapshot>((resolve) => {
+        resolveFirst = resolve
+      })
+    )
+    .mockReturnValueOnce(
+      new Promise<Snapshot>((resolve) => {
+        resolveLatest = resolve
+      })
+    )
+  await act(async () => {
+    routeListener?.(1, { url: "https://www.linkedin.com/jobs/view/654321/" })
+  })
+  await waitFor(() => expect(mock.send).toHaveBeenCalledTimes(2))
+  expect(routeListener).toBeDefined()
+  await act(async () => {
+    routeListener?.(1, { url: "https://www.linkedin.com/jobs/view/987654/" })
+  })
+  await waitFor(() => expect(mock.send).toHaveBeenCalledTimes(3))
+  await act(async () => resolveLatest(snapshot("failed", "987654")))
+  await screen.findByText("Could not finish tailoring")
+  await act(async () => resolveFirst(snapshot("succeeded", "654321")))
+  expect(screen.getByText("Could not finish tailoring")).toBeTruthy()
+  expect(screen.queryByText("Your tailored resume is ready")).toBeNull()
+  client.clear()
+})
+
 it("asks to connect an account before anything else", async () => {
   mock.send.mockResolvedValue(other({ kind: "ats", vendor: "lever" }, false))
   const client = mount()
@@ -173,10 +328,10 @@ it("asks to connect an account before anything else", async () => {
   client.clear()
 })
 it("holds a place for autofill on application pages", async () => {
-  mock.send.mockResolvedValue(other({ kind: "ats", vendor: "greenhouse" }))
+  mock.send.mockResolvedValue(other({ kind: "ats", vendor: "lever" }))
   const client = mount()
   expect(await screen.findByText("Autofill is coming soon")).toBeTruthy()
-  expect(screen.getByText(/this Greenhouse application/)).toBeTruthy()
+  expect(screen.getByText(/this Lever application/)).toBeTruthy()
   expect(screen.getByText("Autofill")).toBeTruthy()
   expect(
     screen.getByRole("button", { name: "Minimize to widget" })
@@ -231,6 +386,11 @@ it("does not present a network failure as no resume or failed generation", async
   )
   const client = mount()
   expect(await screen.findByText("Could not check this job")).toBeTruthy()
+  expect(
+    screen.getByText(
+      "We couldn’t load your resume’s status for this job. Try again in a moment."
+    )
+  ).toBeTruthy()
   expect(screen.queryByRole("button", { name: "Tailor resume" })).toBeNull()
   expect(screen.queryByText("Could not finish tailoring")).toBeNull()
   client.clear()
@@ -278,7 +438,9 @@ it("loads more bases without rereading job state and retains pages after unchang
         title: "First base",
         subtitle: "",
         templateId: "lisbon",
+        createdAt: "2026-09-25T00:00:00Z",
         updatedAt: "2026-09-25T00:00:00Z",
+        job: null,
       },
     ],
   }
@@ -337,4 +499,155 @@ it("retries queued recovery after a failed refresh even with a healthy Realtime 
     client.clear()
     vi.useRealTimers()
   }
+})
+
+function untailored(): Snapshot {
+  return {
+    ...snapshot("succeeded"),
+    lookup: { kind: "none" },
+    resumes: [
+      {
+        id,
+        title: "Base resume",
+        subtitle: "",
+        templateId: "lisbon",
+        createdAt: "2026-09-25T00:00:00Z",
+        updatedAt: "2026-09-25T00:00:00Z",
+        job: null,
+      },
+    ],
+  }
+}
+
+it("keeps typing stable and waits for instruction persistence only on submit", async () => {
+  mock.send.mockResolvedValue(untailored())
+  const client = mount()
+  const field = await screen.findByRole("textbox", {
+    name: /Additional instructions/,
+  })
+  const tailor = screen.getByRole("button", { name: "Tailor resume" })
+  await waitFor(() => expect(field.hasAttribute("disabled")).toBe(false))
+
+  let finishSave = () => {}
+  const saving = new Promise<void>((resolve) => {
+    finishSave = resolve
+  })
+  storageSet.mockImplementationOnce(async (values) => {
+    await saving
+    for (const [key, value] of Object.entries(values))
+      preferences.set(key, value)
+  })
+  field.focus()
+  fireEvent.change(field, { target: { value: "No summary." } })
+  await waitFor(() => expect(storageSet).toHaveBeenCalled())
+  expect(document.activeElement).toBe(field)
+  expect(
+    screen.getByText(
+      "Instructions save automatically in this browser. Edit or clear anytime."
+    )
+  ).toBeTruthy()
+  expect(tailor.hasAttribute("disabled")).toBe(false)
+
+  fireEvent.change(field, {
+    target: { value: "No summary. Emphasize backend experience." },
+  })
+  fireEvent.click(tailor)
+  await waitFor(() => expect(tailor.hasAttribute("disabled")).toBe(true))
+  expect(mock.send).not.toHaveBeenCalledWith(
+    expect.objectContaining({ type: "tailor" })
+  )
+
+  await act(async () => finishSave())
+  await waitFor(() =>
+    expect(mock.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "tailor",
+        instructions: "No summary. Emphasize backend experience.",
+      })
+    )
+  )
+  expect(preferences.get(`tailor-instructions:${id}`)).toBe(
+    "No summary. Emphasize backend experience."
+  )
+  client.clear()
+})
+
+it("saves instructions before generation, restores them on reopen, and sends edits", async () => {
+  mock.send.mockResolvedValue(untailored())
+  const first = mount()
+  const field = await screen.findByRole("textbox", {
+    name: /Additional instructions/,
+  })
+  await waitFor(() => expect(field.hasAttribute("disabled")).toBe(false))
+  fireEvent.change(field, { target: { value: "Do not include a summary." } })
+  await waitFor(() =>
+    expect(preferences.get(`tailor-instructions:${id}`)).toBe(
+      "Do not include a summary."
+    )
+  )
+  cleanup()
+  first.clear()
+
+  const reopened = mount()
+  await screen.findByDisplayValue("Do not include a summary.")
+  fireEvent.change(screen.getByRole("textbox"), {
+    target: { value: "No summary. Emphasize backend experience." },
+  })
+  const tailor = screen.getByRole("button", { name: "Tailor resume" })
+  await waitFor(() => expect(tailor.hasAttribute("disabled")).toBe(false))
+  fireEvent.click(tailor)
+  await waitFor(() =>
+    expect(mock.send).toHaveBeenCalledWith({
+      type: "tailor",
+      sourceResumeId: id,
+      identity: { platform: "linkedin", externalJobId: "123456" },
+      instructions: "No summary. Emphasize backend experience.",
+    })
+  )
+  reopened.clear()
+})
+
+it("persists cleared instructions and keeps another account's preference separate", async () => {
+  preferences.set(`tailor-instructions:${id}`, "No summary.")
+  preferences.set("tailor-instructions:another-account", "Keep it concise.")
+  mock.send.mockResolvedValue(untailored())
+  const first = mount()
+  const field = await screen.findByDisplayValue("No summary.")
+  fireEvent.change(field, { target: { value: "" } })
+  await waitFor(() =>
+    expect(preferences.get(`tailor-instructions:${id}`)).toBe("")
+  )
+  cleanup()
+  first.clear()
+  mock.send.mockResolvedValue({
+    ...untailored(),
+    account: { id: "another-account", email: "another@example.test" },
+  })
+  const another = mount()
+  await screen.findByDisplayValue("Keep it concise.")
+  expect(preferences.get(`tailor-instructions:${id}`)).toBe("")
+  another.clear()
+})
+
+it("reports failed instruction saves and retries without losing the draft", async () => {
+  mock.send.mockResolvedValue(untailored())
+  const client = mount()
+  const field = await screen.findByRole("textbox", {
+    name: /Additional instructions/,
+  })
+  await waitFor(() => expect(field.hasAttribute("disabled")).toBe(false))
+  storageSet.mockRejectedValueOnce(new Error("Storage unavailable"))
+  fireEvent.change(field, { target: { value: "No summary." } })
+  await screen.findByText("Could not save your instructions.")
+  expect(
+    screen
+      .getByRole("button", { name: "Tailor resume" })
+      .hasAttribute("disabled")
+  ).toBe(true)
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }))
+  await waitFor(() =>
+    expect(preferences.get(`tailor-instructions:${id}`)).toBe("No summary.")
+  )
+  expect(screen.getByDisplayValue("No summary.")).toBeTruthy()
+  client.clear()
 })

@@ -49,9 +49,6 @@ body {
   background: var(--muted);
   color: var(--foreground);
 }
-.edge-open img {
-  filter: grayscale(1);
-}
 .edge-control {
   opacity: 0;
   pointer-events: none;

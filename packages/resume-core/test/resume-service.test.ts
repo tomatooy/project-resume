@@ -152,4 +152,46 @@ describe("ResumeService", () => {
     expect(await resumeService.list()).toEqual([])
     await expect(resumeService.get(id)).rejects.toBeInstanceOf(AppError)
   })
+
+  it("summaries carry the origin job", async () => {
+    const h = harness()
+    const base = await h.resumeService.create({ title: "Base" })
+    const tailored = await h.resumeService.create({ title: "Tailored" })
+    const stripe = await h.jobTargets.create({
+      ...POSTING,
+      company: "Stripe",
+      title: "Software Engineer",
+    })
+    const figma = await h.jobTargets.create({ ...POSTING, company: "Figma" })
+    await h.jobTargets.link({
+      resumeId: tailored.id,
+      jobTargetId: stripe.id,
+      isOrigin: true,
+    })
+    // Attached later, so not the posting the resume was made from.
+    await h.jobTargets.link({
+      resumeId: base.id,
+      jobTargetId: figma.id,
+      isOrigin: false,
+    })
+
+    expect(base.job).toBeNull()
+    expect(
+      (await h.resumeService.page({})).items.find(
+        (item) => item.id === tailored.id
+      )?.job
+    ).toEqual({ company: "Stripe", title: "Software Engineer" })
+    expect((await h.resumeService.summary(base.id)).job).toBeNull()
+  })
 })
+
+const POSTING = {
+  platform: null,
+  externalJobId: null,
+  sourceUrl: null,
+  rawText: "We are hiring.",
+  title: "Engineer",
+  company: "Acme",
+  location: null,
+  requirements: { mustHaves: [], niceToHaves: [], keywords: [] },
+}

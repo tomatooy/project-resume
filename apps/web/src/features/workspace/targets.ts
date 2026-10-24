@@ -15,6 +15,7 @@ export const TabTargetSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("skills") }),
   z.object({ kind: z.literal("skill"), skillId: z.string().min(1) }),
+  z.object({ kind: z.literal("autofill") }),
 ])
 export type TabTarget = z.infer<typeof TabTargetSchema>
 
@@ -33,6 +34,8 @@ export function tabKey(target: TabTarget): string {
       return "skills"
     case "skill":
       return `skill:${target.skillId}`
+    case "autofill":
+      return "autofill"
   }
 }
 
@@ -46,6 +49,7 @@ export function routeTarget(pathname: string): TabTarget | null {
 
 function decodedRouteTarget(pathname: string): TabTarget | null {
   const parts = pathname.replace(/\/$/, "").split("/")
+  if (parts[1] === "autofill" && parts.length === 2) return { kind: "autofill" }
   if (parts[1] === "skills" && parts.length <= 3) {
     return parts[2]
       ? { kind: "skill", skillId: decodeURIComponent(parts[2]) }
@@ -67,6 +71,7 @@ function decodedRouteTarget(pathname: string): TabTarget | null {
 export function tabRoute(target: TabTarget | null) {
   if (!target) return { to: "/dashboard" } as const
   if (target.kind === "skills") return { to: "/skills" } as const
+  if (target.kind === "autofill") return { to: "/autofill" } as const
   if (target.kind === "skill")
     return {
       to: "/skills/$skillId",

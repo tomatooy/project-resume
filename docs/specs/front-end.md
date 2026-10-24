@@ -23,7 +23,7 @@ Spec version 1.0, 2026-09-01. Read `over-all-design.md` first. Types referenced 
 | Auth client | | `@supabase/ssr`, `@supabase/supabase-js` | browser client for the login form only |
 | IDs | | `nanoid` | via `@workspace/resume-schema` helpers |
 
-**Naming trap.** `@react-pdf/renderer` and `react-pdf` both export `Document` and `Page`. Rule: a file imports from at most one of them. The renderer is imported only inside `packages/resume-render`; the viewer only inside `apps/web/src/features/resume/preview/PdfViewer.tsx`.
+**Naming trap.** `@react-pdf/renderer` and `react-pdf` both export `Document` and `Page`. Rule: a file imports from at most one of them. The renderer is imported only inside `packages/resume-render`; the viewer only inside `packages/resume-preview/src/PdfViewer.tsx`.
 
 Versions: pin exact versions in `package.json` (no `latest`). Replace the existing `"latest"` entries in `apps/web/package.json` at step 3 of the build order.
 
@@ -161,7 +161,7 @@ The `previewPatches` from the store (see section 7.4) are applied to a copy of `
 
 ### 5.2 Viewer
 
-`features/resume/preview/PdfViewer.tsx` wraps `react-pdf`:
+`packages/resume-preview/src/PdfViewer.tsx` wraps `react-pdf`:
 
 - `pdfjs.GlobalWorkerOptions.workerSrc` set from the package's bundled worker via a Vite `?url` import.
 - Renders every page vertically with a page gap; width fits the pane; zoom controls at 50, 75, 100, 125, 150 percent; page count badge.

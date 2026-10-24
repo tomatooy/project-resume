@@ -13,16 +13,16 @@ Object.assign(globalThis, {
 /**
  * react-pdf's entry module assigns `GlobalWorkerOptions.workerSrc` the bare
  * specifier "pdf.worker.mjs" when it evaluates, clobbering whatever the app
- * configured. When `./pdfjs` evaluates first (an import or a fit check before
+ * configured. When the pdfjs module evaluates first (an import or a fit check before
  * the viewer opens), react-pdf evaluates second and wins, and the viewer falls
  * through to the fake worker with "Failed to resolve module specifier".
  */
 it("keeps the app's worker url when react-pdf evaluates afterwards", async () => {
-  const { pdfjs } = await import("./pdfjs")
+  const { pdfjs } = await import("@workspace/resume-preview/pdfjs")
   const configured = pdfjs.GlobalWorkerOptions.workerSrc
   expect(configured).toMatch(/pdf\.worker/)
 
-  await import("./PdfViewer")
+  await import("@workspace/resume-preview/viewer")
 
   expect(pdfjs.GlobalWorkerOptions.workerSrc).toBe(configured)
 })

@@ -1,5 +1,9 @@
 import { z } from "zod"
 import {
+  type AutofillVendor,
+  AutofillVendorSchema,
+} from "@workspace/autofill/fields"
+import {
   linkedinExtensionPage,
   type LinkedInPage,
 } from "@workspace/resume-core/contracts"
@@ -45,14 +49,17 @@ export function atsName(vendor: AtsVendor): string {
   return ATS[vendor].name
 }
 
+const matchesOf = (vendor: AtsVendor): string[] =>
+  ATS[vendor].hosts.map((host) => `https://${host}/*`)
+
 export const LINKEDIN_MATCH = "https://www.linkedin.com/*"
 /** Content script and host permission patterns, in manifest order. */
 export const SUPPORTED_MATCHES = [
   LINKEDIN_MATCH,
-  ...AtsVendorSchema.options.flatMap((vendor) =>
-    ATS[vendor].hosts.map((host) => `https://${host}/*`)
-  ),
+  ...AtsVendorSchema.options.flatMap(matchesOf),
 ]
+/** The autofill content script's patterns, in manifest order. */
+export const AUTOFILL_MATCHES = AutofillVendorSchema.options.flatMap(matchesOf)
 
 export type Page = LinkedInPage | { kind: "ats"; vendor: AtsVendor }
 export type Category = "job" | "ats" | "unsupported"
@@ -85,6 +92,13 @@ export function classifyPage(input: string): Page {
   if (linkedin.kind !== "unsupported") return linkedin
   const vendor = atsVendor(input)
   return vendor ? { kind: "ats", vendor } : linkedin
+}
+
+/** The vendor autofill supports on this page, or null. */
+export function autofillVendor(page: Page): AutofillVendor | null {
+  if (page.kind !== "ats") return null
+  const { vendor } = page
+  return AutofillVendorSchema.options.find((name) => name === vendor) ?? null
 }
 
 export function categoryOf(page: Page): Category {

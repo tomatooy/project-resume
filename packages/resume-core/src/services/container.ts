@@ -1,6 +1,10 @@
 import type { TailorOperationRepository } from "../ports/tailor-operation-repository"
 import { TailorOperationService } from "./tailor-operation-service"
+import type { AutofillNotesRepository } from "../ports/autofill-notes-repository"
+import type { AutofillProfileRepository } from "../ports/autofill-profile-repository"
 import type { AgentRunRepository } from "../ports/agent-run-repository"
+import type { AutofillApplicationRepository } from "../ports/autofill-application-repository"
+import type { AutofillModels } from "../ports/autofill-models"
 import type { ConversationRepository } from "../ports/conversation-repository"
 import type { JobFetcher } from "../ports/job-fetcher"
 import type { JobParser } from "../ports/job-parser"
@@ -14,6 +18,9 @@ import type { SuggestionRepository } from "../ports/suggestion-repository"
 import type { Summarizer } from "../ports/summarizer"
 import type { SummaryRepository } from "../ports/summary-repository"
 import type { VersionRepository } from "../ports/version-repository"
+import { AutofillNotesService } from "./autofill-notes-service"
+import { AutofillService } from "./autofill-service"
+import { AutofillProfileService } from "./autofill-profile-service"
 import { ImportService } from "./import-service"
 import { MemoryService } from "./memory-service"
 import { ResumeService } from "./resume-service"
@@ -40,6 +47,10 @@ export type Ports = {
   jobFetcher: JobFetcher
   operations: TailorOperationRepository
   skills: SkillRepository
+  autofillProfiles: AutofillProfileRepository
+  autofillNotes: AutofillNotesRepository
+  autofillApplications: AutofillApplicationRepository
+  autofillModels: AutofillModels
   /** Injected so a test can move time; wall clock otherwise. */
   clock?: () => Date
 }
@@ -55,6 +66,9 @@ export type Services = {
   tailor: TailorService
   operations: TailorOperationService
   skills: SkillService
+  autofillProfile: AutofillProfileService
+  autofillNotes: AutofillNotesService
+  autofill: AutofillService
 }
 
 /**
@@ -72,6 +86,8 @@ export function createServices(ports: Ports): Services {
     ports.summaries,
     ports.summarizer
   )
+  const autofillProfile = new AutofillProfileService(ports.autofillProfiles)
+  const autofillNotes = new AutofillNotesService(ports.autofillNotes)
   return {
     resumes,
     imports: new ImportService(ports.resumeParser, resumes, versions),
@@ -104,5 +120,19 @@ export function createServices(ports: Ports): Services {
       ports.clock
     ),
     skills: new SkillService(ports.skills),
+    autofillProfile,
+    autofillNotes,
+    autofill: new AutofillService({
+      resumes: ports.resumes,
+      versions,
+      runs,
+      jobTargets: ports.jobTargets,
+      operations: ports.operations,
+      profiles: autofillProfile,
+      notes: autofillNotes,
+      applications: ports.autofillApplications,
+      models: ports.autofillModels,
+      clock: ports.clock ?? (() => new Date()),
+    }),
   }
 }

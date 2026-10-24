@@ -13,6 +13,8 @@ const TabStateSchema = z.object({
   manual: z.string().nullable(),
   /** The toolbar could not run on this document; the tooltip says so. */
   blocked: z.boolean(),
+  /** A host mounted by our content script, required on company pages. */
+  hostDocumentId: z.string().nullable().default(null),
 })
 export type TabState = z.infer<typeof TabStateSchema>
 export const initialTabState: TabState = {
@@ -20,6 +22,7 @@ export const initialTabState: TabState = {
   ats: "panel",
   manual: null,
   blocked: false,
+  hostDocumentId: null,
 }
 
 export type Here = { category: Category; location: string | null }
@@ -74,8 +77,9 @@ export function transition(
   const { category, location } = here
   switch (event.type) {
     case "navigate": {
-      const next =
-        event.document && state.blocked ? { ...state, blocked: false } : state
+      const next = event.document
+        ? { ...state, blocked: false, hostDocumentId: null }
+        : state
       if (next.manual === null) return next
       // A panel the user opened stays open when the page becomes supported.
       if (category !== "unsupported")
@@ -109,7 +113,7 @@ const key = (tabId: number) => `tab:${tabId}`
 const queues = new Map<number, Promise<unknown>>()
 
 /** Runs storage work for one tab in order, so read-modify-write never races. */
-function queued<T>(tabId: number, task: () => Promise<T>): Promise<T> {
+export function queued<T>(tabId: number, task: () => Promise<T>): Promise<T> {
   const next = (queues.get(tabId) ?? Promise.resolve()).then(task, task)
   queues.set(tabId, next)
   const done = () => {
@@ -136,7 +140,8 @@ export function updateTabState(
       before.job !== after.job ||
       before.ats !== after.ats ||
       before.manual !== after.manual ||
-      before.blocked !== after.blocked
+      before.blocked !== after.blocked ||
+      before.hostDocumentId !== after.hostDocumentId
     )
       await chrome.storage.session.set({ [key(tabId)]: after })
     return { before, after }

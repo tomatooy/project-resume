@@ -14,7 +14,10 @@
   },
   // DEEPSEEK_API_KEY is a secret: `wrangler secret put DEEPSEEK_API_KEY` in
   // production, `apps/web/.dev.vars` locally. Never a var.
-  // Optional Jev client: TYPESAFE_API_KEY follows the same secret setup.
+  // TYPESAFE_API_KEY, which autofill requires for Jev, follows the same
+  // secret setup. Without it, autofill's infer degrades to rules.
+  // OPENAI_API_KEY is optional, for the standalone Decisions client. Use
+  // .dev.vars locally and `wrangler secret put OPENAI_API_KEY` in production.
   "workflows": [
     {
       "name": "resume-tailoring",

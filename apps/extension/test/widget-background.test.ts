@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { BLOCKED_TITLE, registerWidget } from "../src/background/widget"
-import { SUPPORTED_MATCHES } from "../src/lib/pages"
 
 const onMessage = vi.fn<typeof chrome.runtime.onMessage.addListener>()
 const onClicked = vi.fn<typeof chrome.action.onClicked.addListener>()
@@ -178,19 +177,19 @@ it("follows the tab URL after LinkedIn changes pages without a reload", async ()
 })
 
 it("rejects controls from the wrong frame, extension or page", async () => {
-  expect(await request({ type: "widget-open" })).toBeUndefined()
+  expect(await request({ type: "widget-open" })).toBeNull()
   expect(
     await request(
       { type: "widget-open" },
       { ...widget, tab: { ...tab, url: "https://example.test/" } }
     )
-  ).toBeUndefined()
+  ).toBeNull()
   expect(
     await request({ type: "widget-open" }, { ...widget, id: "other" })
   ).toBeUndefined()
-  expect(await request({ type: "panel-close" }, widget)).toBeUndefined()
-  expect(await request({ type: "panel-minimize" })).toBeUndefined()
-  expect(await request({ type: "widget-dismiss" }, widget)).toBeUndefined()
+  expect(await request({ type: "panel-close" }, widget)).toBeNull()
+  expect(await request({ type: "panel-minimize" })).toBeNull()
+  expect(await request({ type: "widget-dismiss" }, widget)).toBeNull()
   expect(
     await request({ type: "widget-state" }, { ...host, tab: undefined })
   ).toBeUndefined()
@@ -252,7 +251,7 @@ it("adds the host to supported tabs that were open before an install or update",
   ])
   onInstalled.mock.calls[0]?.[0]({ reason: "update", previousVersion: "0.0.9" })
   await settle()
-  expect(query).toHaveBeenCalledWith({ url: SUPPORTED_MATCHES })
+  expect(query).toHaveBeenCalledWith({})
   expect(executeScript).toHaveBeenCalledExactlyOnceWith({
     target: { tabId: 1 },
     files: ["widget-host.js"],

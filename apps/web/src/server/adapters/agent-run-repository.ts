@@ -5,6 +5,7 @@ import {
   type FinishAgentRun,
   type NewAgentRun,
   RunInputSchema,
+  type RunKind,
   type TurnPlan,
   TurnPlanSchema,
 } from "@workspace/resume-core"
@@ -17,13 +18,14 @@ type Row = Database["public"]["Tables"]["agent_runs"]["Row"]
 type RunRow = Omit<Row, "finished_at">
 
 const RUN_COLUMNS =
-  "id, conversation_id, resume_id, resume_version_id, hint_skill_id, model, selected_node_id, input, status, error_class, input_tokens, output_tokens, latency_ms, created_at, plan, skill_ids, structural, budget_exhausted"
+  "id, kind, conversation_id, resume_id, resume_version_id, hint_skill_id, model, selected_node_id, input, status, error_class, input_tokens, output_tokens, latency_ms, created_at, plan, skill_ids, structural, budget_exhausted"
 
 function toRun(row: RunRow): AgentRun {
   const input = RunInputSchema.safeParse(row.input)
   const plan = TurnPlanSchema.safeParse(row.plan)
   return {
     id: row.id,
+    kind: row.kind,
     conversationId: row.conversation_id,
     resumeId: row.resume_id,
     hintSkillId: row.hint_skill_id,
@@ -52,6 +54,7 @@ export class SupabaseAgentRunRepository implements AgentRunRepository {
     const { data, error } = await this.db
       .from("agent_runs")
       .insert({
+        kind: input.kind ?? "chat",
         conversation_id: input.conversationId,
         resume_id: input.resumeId,
         hint_skill_id: input.hintSkillId ?? null,
@@ -156,9 +159,10 @@ export class SupabaseAgentRunRepository implements AgentRunRepository {
     return data.length
   }
 
-  async usageSince(since: Date) {
+  async usageSince(since: Date, kind: RunKind) {
     const { data, error } = await this.db.rpc("agent_usage_since", {
       p_since: since.toISOString(),
+      p_kind: kind,
     })
     if (error) throw error
     return z

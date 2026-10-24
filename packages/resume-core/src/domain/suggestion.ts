@@ -19,6 +19,26 @@ export type Suggestion = {
 
 export type AgentRunStatus = "running" | "completed" | "failed" | "cancelled"
 
+/** Chat and autofill each have their own hourly quota. */
+export const RunKindSchema = z.enum(["chat", "autofill"])
+export type RunKind = z.infer<typeof RunKindSchema>
+
+/** What is left of one kind's hourly quota; `resetAt` is null with no runs. */
+export const QuotaSchema = z.object({
+  remaining: z.number().int().min(0),
+  resetAt: z.string().nullable(),
+})
+export type Quota = z.infer<typeof QuotaSchema>
+
+/** The paid autofill calls. Each run row names its call in `hintSkillId`. */
+export const AUTOFILL_PROCEDURES = [
+  "autofill.infer",
+  "autofill.answer",
+  "autofill.notes.merge",
+  "autofill.generate",
+] as const
+export type AutofillProcedure = (typeof AUTOFILL_PROCEDURES)[number]
+
 /**
  * Per-request inputs a run needs again on a client-tool continuation. Held on
  * the row only while the run is in flight and cleared when it finishes.
@@ -32,7 +52,9 @@ export type RunInput = z.infer<typeof RunInputSchema>
 
 export type AgentRun = {
   id: string
-  conversationId: string
+  kind: RunKind
+  /** Null only for autofill runs, which belong to no conversation. */
+  conversationId: string | null
   resumeId: string
   /**
    * The playbook the composer hinted at, or `TAILOR_SKILL_ID` for the

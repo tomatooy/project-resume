@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { InMemoryDb, InMemoryJobTargetRepository } from "../src/testing/index"
+import { harness } from "./harness"
 
 const POSTING = {
   platform: null,
@@ -50,5 +51,52 @@ describe("InMemoryJobTargetRepository", () => {
       "Babbage",
       "Acme",
     ])
+  })
+
+  it("lists origin jobs newest first", async () => {
+    // The harness shares one store between resumes and postings, so a soft
+    // delete is visible to the posting queries.
+    const { resumeService, jobTargets } = harness()
+    const a = await resumeService.create({ title: "A" })
+    const b = await resumeService.create({ title: "B" })
+    const c = await resumeService.create({ title: "C" })
+    const d = await resumeService.create({ title: "D" })
+    const stripe = await jobTargets.create({ ...POSTING, company: "Stripe" })
+    const airbnb = await jobTargets.create({ ...POSTING, company: "Airbnb" })
+    const figma = await jobTargets.create({ ...POSTING, company: "Figma" })
+    await jobTargets.link({
+      resumeId: a.id,
+      jobTargetId: stripe.id,
+      isOrigin: true,
+    })
+    await jobTargets.link({
+      resumeId: b.id,
+      jobTargetId: airbnb.id,
+      isOrigin: true,
+    })
+    await jobTargets.link({
+      resumeId: c.id,
+      jobTargetId: figma.id,
+      isOrigin: false,
+    })
+    await jobTargets.link({
+      resumeId: d.id,
+      jobTargetId: figma.id,
+      isOrigin: true,
+    })
+    await resumeService.remove(d.id)
+
+    const origins = await jobTargets.listOrigins(10)
+    expect(origins.map((row) => row.resumeId)).toEqual([b.id, a.id])
+    expect(origins[0]).toMatchObject({
+      company: "Airbnb",
+      title: "Senior Engineer",
+    })
+    expect(Number.isNaN(Date.parse(origins[0]?.linkedAt ?? ""))).toBe(false)
+    expect(
+      (await jobTargets.listOrigins(1)).map((row) => row.resumeId)
+    ).toEqual([b.id])
+    expect((await jobTargets.findOrigin(a.id))?.company).toBe("Stripe")
+    expect(await jobTargets.findOrigin(c.id)).toBeNull()
   })
 })

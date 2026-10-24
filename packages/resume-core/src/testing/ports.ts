@@ -2,6 +2,9 @@ import { InMemoryTailorOperationRepository } from "./in-memory-tailor-operation-
 import type { Ports } from "../services/container"
 import { InMemoryDb } from "./db"
 import { InMemoryAgentRunRepository } from "./in-memory-agent-run-repository"
+import { InMemoryAutofillApplicationRepository } from "./in-memory-autofill-application-repository"
+import { InMemoryAutofillNotesRepository } from "./in-memory-autofill-notes-repository"
+import { InMemoryAutofillProfileRepository } from "./in-memory-autofill-profile-repository"
 import { InMemoryConversationRepository } from "./in-memory-conversation-repository"
 import { InMemoryJobTargetRepository } from "./in-memory-job-target-repository"
 import { InMemoryMessageRepository } from "./in-memory-message-repository"
@@ -10,6 +13,7 @@ import { InMemorySkillRepository } from "./in-memory-skill-repository"
 import { InMemorySuggestionRepository } from "./in-memory-suggestion-repository"
 import { InMemorySummaryRepository } from "./in-memory-summary-repository"
 import { InMemoryVersionRepository } from "./in-memory-version-repository"
+import { stubAutofillModels } from "./stub-autofill-models"
 import { StubJobFetcher } from "./stub-job-fetcher"
 import { StubJobParser } from "./stub-job-parser"
 import { StubResumeParser } from "./stub-resume-parser"
@@ -39,6 +43,10 @@ export function inMemoryPorts(db = new InMemoryDb()) {
     resumeTailor: new StubResumeTailor(),
     jobFetcher: new StubJobFetcher(),
     skills: new InMemorySkillRepository(db),
+    autofillProfiles: new InMemoryAutofillProfileRepository(db),
+    autofillNotes: new InMemoryAutofillNotesRepository(db),
+    autofillApplications: new InMemoryAutofillApplicationRepository(db),
+    autofillModels: stubAutofillModels(),
     clock: () => db.now(),
   } satisfies Ports & { db: InMemoryDb }
 }

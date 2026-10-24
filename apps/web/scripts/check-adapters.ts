@@ -14,7 +14,10 @@
  * ones every local Supabase stack prints; they are not secrets and they are
  * worthless against anything but 127.0.0.1.
  */
+import { isDeepStrictEqual } from "node:util"
 import { createClient } from "@supabase/supabase-js"
+import { emptyProfile, PROFILE_SCHEMA_VERSION } from "@workspace/autofill"
+import { sampleProfile } from "@workspace/autofill/fixtures"
 import {
   AppError,
   matchDocument,
@@ -223,6 +226,23 @@ check(
   versions.length === 3 && versions[0]?.versionNo === 3
 )
 
+const latest = await a.resumes.get(created.id)
+let staleSnapshot = false
+try {
+  await supabasePorts(dbA, USER_A).versions.create({
+    resumeId: created.id,
+    content: latest.data,
+    schemaVersion: latest.schemaVersion,
+    contentHash: "stale-snapshot",
+    label: "Stale snapshot",
+    createdBy: "user",
+    expectedRevision: latest.revision - 1,
+  })
+} catch (error) {
+  staleSnapshot = error instanceof AppError && error.code === "CONFLICT"
+}
+check("a snapshot at a stale revision is a CONFLICT", staleSnapshot)
+
 console.log("suggestions")
 const conversation = await a.memory.openConversation(created.id)
 check("conversation is created", conversation.id.length > 0)
@@ -262,7 +282,7 @@ check(
 )
 check(
   "the hourly count sees the run",
-  await a.runs.assertWithinHourlyLimit(1).then(
+  await a.runs.assertWithinHourlyLimit("chat", 1).then(
     () => false,
     (error) => error instanceof AppError && error.code === "RATE_LIMITED"
   )
@@ -399,6 +419,193 @@ try {
 }
 check("a removed skill is gone from the editor", removedGone)
 
+console.log("autofill")
+// A previous run leaves A's Profile, Notes and History behind. Clearing them
+// lets every run start from expected revision 0.
+const clearedAutofill = [
+  await dbA.from("autofill_note_versions").delete().eq("user_id", USER_A),
+  await dbA.from("autofill_notes").delete().eq("user_id", USER_A),
+  await dbA.from("autofill_profiles").delete().eq("user_id", USER_A),
+]
+for (const { error } of clearedAutofill) if (error) throw error
+const autofillPorts = supabasePorts(dbA, USER_A)
+const UNKNOWN_VERSION = crypto.randomUUID()
+
+const noProfile = await a.autofillProfile.get()
+check(
+  "an absent Profile reads as empty",
+  !noProfile.exists &&
+    noProfile.revision === 0 &&
+    isDeepStrictEqual(noProfile.profile, emptyProfile)
+)
+check(
+  "the first Profile save is revision 1",
+  (
+    await a.autofillProfile.save({
+      profile: sampleProfile,
+      expectedRevision: 0,
+    })
+  ).revision === 1
+)
+let profileConflict = false
+try {
+  await a.autofillProfile.save({ profile: sampleProfile, expectedRevision: 0 })
+} catch (error) {
+  profileConflict = error instanceof AppError && error.code === "CONFLICT"
+}
+check("a stale Profile save is a CONFLICT", profileConflict)
+const storedProfile = await autofillPorts.autofillProfiles.get()
+check(
+  "the Profile reads back as saved",
+  isDeepStrictEqual(storedProfile?.data, sampleProfile) &&
+    storedProfile?.schemaVersion === PROFILE_SCHEMA_VERSION &&
+    storedProfile.revision === 1
+)
+// A document an older or broken writer left behind reads as the empty Profile
+// at its stored revision, so the next save replaces it.
+const corrupted = await dbA
+  .from("autofill_profiles")
+  .update({ data: { personal: { first: 42 } } })
+  .eq("user_id", USER_A)
+if (corrupted.error) throw corrupted.error
+const unparsed = await a.autofillProfile.get()
+check(
+  "a Profile that no longer parses reads as empty at its revision",
+  unparsed.exists &&
+    unparsed.revision === 2 &&
+    isDeepStrictEqual(unparsed.profile, emptyProfile)
+)
+check(
+  "the next save replaces it",
+  (
+    await a.autofillProfile.save({
+      profile: sampleProfile,
+      expectedRevision: 2,
+    })
+  ).revision === 3
+)
+
+const noteText = "## Logistics\n- Lives in SF."
+check(
+  "absent Notes read as empty",
+  isDeepStrictEqual(await a.autofillNotes.get(), {
+    content: "",
+    revision: 0,
+    updatedAt: null,
+  })
+)
+check(
+  "the first Notes save is revision 1",
+  (
+    await a.autofillNotes.save({
+      content: noteText,
+      expectedRevision: 0,
+      snapshot: false,
+    })
+  ).revision === 1
+)
+const editSave = await autofillPorts.autofillNotes.save({
+  content: "## Logistics\n- Lives in Oakland.",
+  expectedRevision: 1,
+  snapshot: "edit",
+})
+check(
+  "an edit save returns its snapshot",
+  editSave.revision === 2 && editSave.versionId !== null
+)
+const editId = editSave.versionId ?? UNKNOWN_VERSION
+let notesConflict = false
+try {
+  await a.autofillNotes.save({
+    content: "- Other.",
+    expectedRevision: 1,
+    snapshot: false,
+  })
+} catch (error) {
+  notesConflict = error instanceof AppError && error.code === "CONFLICT"
+}
+check("a stale Notes save is a CONFLICT", notesConflict)
+const history = await autofillPorts.autofillNotes.listVersions()
+check(
+  "History lists the one snapshot",
+  history.length === 1 &&
+    history[0]?.id === editId &&
+    history[0]?.reason === "edit" &&
+    history[0]?.length === noteText.length
+)
+const editVersion = await autofillPorts.autofillNotes.findVersion(editId)
+check(
+  "the snapshot holds the text before the edit",
+  editVersion?.content === noteText && editVersion.reason === "edit"
+)
+const restoredNotes = await autofillPorts.autofillNotes.restore(editId, 2)
+check(
+  "a restore returns the earlier text",
+  restoredNotes.content === noteText && restoredNotes.revision === 3
+)
+check(
+  "the restore snapshots the text it replaced",
+  (await autofillPorts.autofillNotes.listVersions())
+    .map(({ reason }) => reason)
+    .join() === "restore,edit"
+)
+check(
+  "an unknown snapshot is null",
+  (await autofillPorts.autofillNotes.findVersion(UNKNOWN_VERSION)) === null
+)
+let unknownRestore = false
+try {
+  await autofillPorts.autofillNotes.restore(UNKNOWN_VERSION, 3)
+} catch (error) {
+  unknownRestore = error instanceof AppError && error.code === "NOT_FOUND"
+}
+check("restoring an unknown snapshot is NOT_FOUND", unknownRestore)
+let staleRestore = false
+try {
+  await autofillPorts.autofillNotes.restore(editId, 2)
+} catch (error) {
+  staleRestore = error instanceof AppError && error.code === "CONFLICT"
+}
+check("a stale restore is a CONFLICT", staleRestore)
+
+const merged = await a.autofillNotes.merge(async () => ({
+  ops: [{ op: "add", heading: "Logistics", text: "Can travel monthly." }],
+  hints: [],
+}))
+check(
+  "a merge saves with an Undo snapshot",
+  merged.kind === "saved" &&
+    merged.revision === 4 &&
+    merged.undoVersionId !== null
+)
+const undone = await a.autofillNotes.undo({
+  versionId:
+    (merged.kind === "saved" && merged.undoVersionId) || UNKNOWN_VERSION,
+  revision: 4,
+})
+check(
+  "Undo restores the text before the merge",
+  undone.kind === "restored" &&
+    (await a.autofillNotes.get()).content === noteText
+)
+
+check("B does not see A's Profile", !(await b.autofillProfile.get()).exists)
+check("B does not see A's Notes", (await b.autofillNotes.get()).revision === 0)
+let foreignVersion = false
+try {
+  await b.autofillNotes.version(editId)
+} catch (error) {
+  foreignVersion = error instanceof AppError && error.code === "NOT_FOUND"
+}
+check("B cannot read A's snapshot", foreignVersion)
+let foreignRestore = false
+try {
+  await b.autofillNotes.restore({ id: editId, expectedRevision: 0 })
+} catch (error) {
+  foreignRestore = error instanceof AppError && error.code === "NOT_FOUND"
+}
+check("B cannot restore A's snapshot", foreignRestore)
+
 console.log("isolation")
 check(
   "B cannot list A's resume",
@@ -423,6 +630,269 @@ check(
   "B's own disabled list does not see A's toggles",
   !(await b.skills.listOverlay()).disabledIds.includes("bullet_rewrite")
 )
+
+console.log("origin jobs")
+const originPorts = supabasePorts(dbA, USER_A)
+const plainResume = await a.resumes.create({ title: "Origin check base" })
+const olderOrigin = await a.resumes.create({ title: "Origin check older" })
+const newerOrigin = await a.resumes.create({ title: "Origin check newer" })
+const checkPosting = {
+  platform: null,
+  externalJobId: null,
+  sourceUrl: null,
+  rawText: "A posting for the origin check.",
+  title: "Origin Engineer",
+  company: "Origin Co",
+  location: null,
+  requirements: { mustHaves: [], niceToHaves: [], keywords: [] },
+}
+const originTarget = await originPorts.jobTargets.create(checkPosting)
+const olderTarget = await originPorts.jobTargets.create({
+  ...checkPosting,
+  company: "Older Co",
+})
+// Attached after the resume was made, so not where it came from.
+await originPorts.jobTargets.link({
+  resumeId: plainResume.id,
+  jobTargetId: olderTarget.id,
+  isOrigin: false,
+})
+await originPorts.jobTargets.link({
+  resumeId: olderOrigin.id,
+  jobTargetId: olderTarget.id,
+  isOrigin: true,
+})
+await originPorts.jobTargets.link({
+  resumeId: newerOrigin.id,
+  jobTargetId: originTarget.id,
+  isOrigin: true,
+})
+const originBrief = { company: "Origin Co", title: "Origin Engineer" }
+check(
+  "summary carries the origin job",
+  isDeepStrictEqual((await a.resumes.summary(newerOrigin.id)).job, originBrief)
+)
+const originList = await a.resumes.list()
+check(
+  "list carries the origin job",
+  isDeepStrictEqual(
+    originList.find((row) => row.id === newerOrigin.id)?.job,
+    originBrief
+  )
+)
+check(
+  "a resume with only a later link is listed, without a job",
+  originList.find((row) => row.id === plainResume.id)?.job === null
+)
+const originPage = await a.resumes.page()
+check(
+  "page carries the origin job",
+  isDeepStrictEqual(
+    originPage.items.find((row) => row.id === newerOrigin.id)?.job,
+    originBrief
+  )
+)
+check(
+  "the origin filter leaves the page total alone",
+  originPage.total === originList.length,
+  `got ${originPage.total} of ${originList.length}`
+)
+const origins = await originPorts.jobTargets.listOrigins(50)
+check(
+  "listOrigins puts the newest origin link first",
+  isDeepStrictEqual(
+    origins.slice(0, 2).map((row) => [row.resumeId, row.company, row.title]),
+    [
+      [newerOrigin.id, "Origin Co", "Origin Engineer"],
+      [olderOrigin.id, "Older Co", "Origin Engineer"],
+    ]
+  ) && !Number.isNaN(Date.parse(origins[0]?.linkedAt ?? ""))
+)
+check(
+  "listOrigins leaves out links that are not origins",
+  !origins.some((row) => row.resumeId === plainResume.id)
+)
+check(
+  "listOrigins keeps to the limit",
+  isDeepStrictEqual(
+    (await originPorts.jobTargets.listOrigins(1)).map((row) => row.resumeId),
+    [newerOrigin.id]
+  )
+)
+check(
+  "findOrigin returns the origin posting",
+  (await originPorts.jobTargets.findOrigin(newerOrigin.id))?.id ===
+    originTarget.id
+)
+check(
+  "findOrigin is null without an origin link",
+  (await originPorts.jobTargets.findOrigin(plainResume.id)) === null
+)
+const originPortsB = supabasePorts(dbB, USER_B)
+check(
+  "B cannot list A's origin jobs",
+  !(await originPortsB.jobTargets.listOrigins(50)).some(
+    (row) => row.resumeId === newerOrigin.id
+  )
+)
+check(
+  "B cannot find A's origin posting",
+  (await originPortsB.jobTargets.findOrigin(newerOrigin.id)) === null
+)
+await a.resumes.remove(newerOrigin.id)
+check(
+  "listOrigins leaves out deleted resumes",
+  !(await originPorts.jobTargets.listOrigins(50)).some(
+    (row) => row.resumeId === newerOrigin.id
+  )
+)
+await a.resumes.remove(olderOrigin.id)
+await a.resumes.remove(plainResume.id)
+
+console.log("autofill applications")
+// A previous run leaves A's records behind; every posting below starts with
+// no row.
+const clearedApplications = await dbA
+  .from("autofill_applications")
+  .delete()
+  .eq("user_id", USER_A)
+if (clearedApplications.error) throw clearedApplications.error
+const applicationPorts = supabasePorts(dbA, USER_A)
+const applicationPortsB = supabasePorts(dbB, USER_B)
+const filledResume = await a.resumes.create({ title: "Autofill check resume" })
+const filledVersion = await a.versions.snapshot(filledResume.id, {
+  createdBy: "system",
+})
+const filledTarget = await applicationPorts.jobTargets.create({
+  platform: null,
+  externalJobId: null,
+  sourceUrl: null,
+  rawText: "A posting for the autofill check.",
+  title: "Engineer",
+  company: "Autofill Co",
+  location: null,
+  requirements: { mustHaves: [], niceToHaves: [], keywords: [] },
+})
+const filledPosting = {
+  vendor: "greenhouse" as const,
+  postingKey: "greenhouse:autofillco:1001",
+  orgSlug: "autofillco",
+  url: "https://job-boards.greenhouse.io/autofillco/jobs/1001",
+  company: "Autofill Co",
+  title: "Engineer",
+  resumeId: filledResume.id,
+  resumeVersionId: filledVersion.id,
+  jobTargetId: null,
+}
+const firstFill =
+  await applicationPorts.autofillApplications.upsert(filledPosting)
+const secondFill = await applicationPorts.autofillApplications.upsert({
+  ...filledPosting,
+  title: "Senior Engineer",
+  jobTargetId: filledTarget.id,
+})
+check("two upserts for one posting keep one id", firstFill.id === secondFill.id)
+const storedFill = await dbA
+  .from("autofill_applications")
+  .select("vendor, posting_key, org_slug, url, company, title, job_target_id")
+  .eq("id", firstFill.id)
+  .single()
+check(
+  "the second upsert updates the record",
+  isDeepStrictEqual(storedFill.data, {
+    vendor: "greenhouse",
+    posting_key: "greenhouse:autofillco:1001",
+    org_slug: "autofillco",
+    url: "https://job-boards.greenhouse.io/autofillco/jobs/1001",
+    company: "Autofill Co",
+    title: "Senior Engineer",
+    job_target_id: filledTarget.id,
+  })
+)
+const foundFill = await applicationPorts.autofillApplications.find(
+  "greenhouse",
+  filledPosting.postingKey
+)
+check(
+  "find returns the record with its resume title",
+  foundFill?.id === firstFill.id &&
+    foundFill.resumeId === filledResume.id &&
+    foundFill.resumeTitle === "Autofill check resume" &&
+    !Number.isNaN(Date.parse(foundFill.updatedAt))
+)
+check(
+  "find keeps to the posting and the vendor",
+  (await applicationPorts.autofillApplications.find(
+    "greenhouse",
+    "greenhouse:autofillco:9999"
+  )) === null &&
+    (await applicationPorts.autofillApplications.find(
+      "ashby",
+      filledPosting.postingKey
+    )) === null
+)
+check(
+  "latestResumeId returns the record's resume",
+  (await applicationPorts.autofillApplications.latestResumeId()) ===
+    filledResume.id
+)
+const fillCounts = { fields: 18, rules: 9, ai: 4, asked: 3, drafted: 1 }
+await applicationPorts.autofillApplications.updateCounts(
+  firstFill.id,
+  fillCounts
+)
+const countedFill = await dbA
+  .from("autofill_applications")
+  .select("counts")
+  .eq("id", firstFill.id)
+  .single()
+check(
+  "updateCounts persists",
+  isDeepStrictEqual(countedFill.data?.counts, fillCounts)
+)
+check(
+  "B cannot find A's record",
+  (await applicationPortsB.autofillApplications.find(
+    "greenhouse",
+    filledPosting.postingKey
+  )) === null
+)
+check(
+  "B gets no latest resume from A's records",
+  (await applicationPortsB.autofillApplications.latestResumeId()) === null
+)
+// A newer record whose resume is deleted later gives way to the older one.
+const goneResume = await a.resumes.create({ title: "Autofill check gone" })
+const goneVersion = await a.versions.snapshot(goneResume.id, {
+  createdBy: "system",
+})
+await applicationPorts.autofillApplications.upsert({
+  ...filledPosting,
+  postingKey: "greenhouse:autofillco:1002",
+  resumeId: goneResume.id,
+  resumeVersionId: goneVersion.id,
+})
+check(
+  "latestResumeId takes the newest record",
+  (await applicationPorts.autofillApplications.latestResumeId()) ===
+    goneResume.id
+)
+await a.resumes.remove(goneResume.id)
+check(
+  "latestResumeId skips a deleted resume",
+  (await applicationPorts.autofillApplications.latestResumeId()) ===
+    filledResume.id
+)
+check(
+  "find still names a deleted resume",
+  (
+    await applicationPorts.autofillApplications.find(
+      "greenhouse",
+      "greenhouse:autofillco:1002"
+    )
+  )?.resumeTitle === "Autofill check gone"
+)
+await a.resumes.remove(filledResume.id)
 
 console.log("durable tailoring")
 const operationPorts = supabasePorts(dbA, USER_A, {

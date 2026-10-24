@@ -14,6 +14,32 @@ const POSTING = {
 }
 
 describe("createResumeTailor", () => {
+  it("passes additional instructions to the model and permits omitting the summary", async () => {
+    const model = new MockLanguageModelV3({
+      doGenerate: [
+        textGenerate(JSON.stringify({ basics: { name: "Ada" }, sections: [] })),
+      ],
+    })
+    const instructions =
+      "Do not include a summary. Focus on backend experience."
+    const result = await createResumeTailor(testModels(model)).tailor({
+      resume: {
+        ...starter,
+        basics: { ...starter.basics, summary: "Old summary" },
+      },
+      posting: POSTING,
+      instructions,
+    })
+    const prompt = model.doGenerateCalls[0]?.prompt
+    expect(
+      JSON.stringify(prompt?.filter((message) => message.role === "user"))
+    ).toContain(instructions)
+    expect(
+      JSON.stringify(prompt?.filter((message) => message.role === "system"))
+    ).toContain("omit basics.summary")
+    expect(result.parsed.basics.summary).toBeUndefined()
+  })
+
   it("puts the posting and the document in the prompt and reports the model", async () => {
     const model = new MockLanguageModelV3({
       modelId: "smart-test",

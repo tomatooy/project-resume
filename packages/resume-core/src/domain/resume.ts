@@ -5,17 +5,51 @@ import type {
 } from "@workspace/resume-schema"
 
 import { z } from "zod"
-import { TemplateIdSchema } from "@workspace/resume-schema"
+import {
+  ResumeSchema,
+  TemplateIdSchema,
+  TemplateOptionsSchema,
+} from "@workspace/resume-schema"
+/** The posting a resume was tailored for, as a resume list shows it. */
+export const JobBriefSchema = z.object({
+  company: z.string(),
+  title: z.string(),
+})
+export type JobBrief = z.infer<typeof JobBriefSchema>
+
 export const ResumeSummarySchema = z.object({
   id: z.string(),
   title: z.string(),
   subtitle: z.string(),
   templateId: TemplateIdSchema,
+  createdAt: z.string(),
   updatedAt: z.string(),
+  /**
+   * The posting linked as the resume's origin, null for a resume not made
+   * from one. Defaults to null so a summary sent before this field existed
+   * still parses.
+   */
+  job: JobBriefSchema.nullable().default(null),
 })
 export type ResumeSummary = z.infer<typeof ResumeSummarySchema>
 
-export type ResumeRecord = ResumeSummary & {
+export const ResumePreviewSchema = ResumeSummarySchema.pick({
+  id: true,
+  title: true,
+  updatedAt: true,
+  templateId: true,
+}).extend({
+  data: ResumeSchema,
+  templateOptions: TemplateOptionsSchema,
+  revision: z.number().int().nonnegative(),
+})
+export type ResumePreview = z.infer<typeof ResumePreviewSchema>
+
+/**
+ * Without `job`: only the summary queries read the origin link, and a record
+ * from `create` cannot know a posting that is linked after it.
+ */
+export type ResumeRecord = Omit<ResumeSummary, "job"> & {
   data: Resume
   schemaVersion: number
   templateOptions: TemplateOptions
@@ -45,15 +79,19 @@ export type HeadWrite = {
 }
 
 export const PAGE_SIZE = 30
+export const ResumeSortSchema = z.enum(["updatedAt", "createdAt"])
+export type ResumeSort = z.infer<typeof ResumeSortSchema>
+
 export const ResumePageInputSchema = z.object({
+  sortBy: ResumeSortSchema.optional(),
   cursor: z
     .string()
     .max(128)
     .refine((value) => {
-      const [updatedAt, id] = value.split("|")
+      const [timestamp, id] = value.split("|")
       return (
         value.split("|").length === 2 &&
-        ResumeCursorSchema.safeParse({ updatedAt, id }).success
+        ResumeCursorSchema.safeParse({ timestamp, id }).success
       )
     }, "Invalid cursor")
     .optional(),
@@ -66,13 +104,16 @@ export const ResumePageSchema = z.object({
 })
 export type ResumePage = z.infer<typeof ResumePageSchema>
 const ResumeCursorSchema = z.object({
-  updatedAt: z.iso.datetime({ offset: true }),
+  timestamp: z.iso.datetime({ offset: true }),
   id: z.uuid(),
 })
-export function resumeCursor(row: ResumeSummary): string {
-  return `${row.updatedAt}|${row.id}`
+export function resumeCursor(
+  row: Pick<ResumeSummary, "updatedAt" | "createdAt" | "id">,
+  sortBy: ResumeSort = "updatedAt"
+): string {
+  return `${row[sortBy]}|${row.id}`
 }
 export function parseResumeCursor(cursor: string) {
-  const [updatedAt, id] = cursor.split("|")
-  return ResumeCursorSchema.parse({ updatedAt, id })
+  const [timestamp, id] = cursor.split("|")
+  return ResumeCursorSchema.parse({ timestamp, id })
 }

@@ -16,6 +16,7 @@ import {
   BooksIcon,
   DotsThreeIcon,
   FileTextIcon,
+  IdentificationCardIcon,
   PlusIcon,
   XIcon,
 } from "@phosphor-icons/react"
@@ -78,6 +79,7 @@ export function WorkspaceTabs({ children }: { children: ReactNode }) {
 
   function label(target: TabTarget): string {
     if (target.kind === "skills") return "All skills"
+    if (target.kind === "autofill") return "Autofill profile"
     if (target.kind === "skill")
       return target.skillId === "new"
         ? "New skill"
@@ -122,7 +124,7 @@ export function WorkspaceTabs({ children }: { children: ReactNode }) {
         >
           <div
             ref={strip}
-            className="flex min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-y-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
             <SortableContext
               items={tabs.map(tabKey)}
@@ -298,7 +300,7 @@ function WorkspaceTab({
           }
         }}
       >
-        {target.kind === "resume" ? <FileTextIcon /> : <BooksIcon />}
+        <TabIcon kind={target.kind} />
         <span className="truncate">{label}</span>
         {runtime ? <ResumeBadge runtime={runtime} /> : null}
         {editor ? <SkillBadge editor={editor} /> : null}
@@ -321,6 +323,18 @@ function WorkspaceTab({
       </Button>
     </div>
   )
+}
+
+function TabIcon({ kind }: { kind: TabTarget["kind"] }) {
+  switch (kind) {
+    case "resume":
+      return <FileTextIcon />
+    case "autofill":
+      return <IdentificationCardIcon />
+    case "skills":
+    case "skill":
+      return <BooksIcon />
+  }
 }
 
 function ResumeBadge({ runtime }: { runtime: ResumeRuntime }) {

@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { defaultTemplateOptions } from "@workspace/resume-schema"
-import { createPreviewStore } from "./preview-store"
-import { PreviewRenderQueue, type PreviewInput } from "./render-queue"
+import { createPreviewStore } from "@workspace/resume-preview"
+import {
+  PreviewRenderQueue,
+  type PreviewInput,
+} from "@workspace/resume-preview/render-queue"
 
 const input: PreviewInput = {
   doc: {

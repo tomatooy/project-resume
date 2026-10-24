@@ -23,6 +23,37 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllGlobals())
 describe("shared API HTTP and SSR", () => {
+  it("returns the saved preview document and settings without creating a version", async () => {
+    const services = createServices(inMemoryPorts())
+    const resume = await services.resumes.create({ title: "Tailored copy" })
+    const before = await services.resumes.get(resume.id)
+    deps.context.mockResolvedValue({ services, log })
+    const response = await handleApi(
+      new Request(
+        `https://app.example.test/api/v1/resumes/${resume.id}/preview`,
+        { headers: { Authorization: "Bearer test" } }
+      )
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(await response.json()).toEqual({
+      id: before.id,
+      title: before.title,
+      data: before.data,
+      templateId: before.templateId,
+      templateOptions: before.templateOptions,
+      revision: before.revision,
+      updatedAt: before.updatedAt,
+    })
+    expect(await services.resumes.get(resume.id)).toEqual(before)
+    const missing = await handleApi(
+      new Request(
+        `https://app.example.test/api/v1/resumes/${crypto.randomUUID()}/preview`
+      )
+    )
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toMatchObject({ code: "NOT_FOUND" })
+  })
   it("fetches a posting through the same service and Worker adapter as the web app", async () => {
     const text = "Build useful software with our engineering team. "
       .repeat(8)

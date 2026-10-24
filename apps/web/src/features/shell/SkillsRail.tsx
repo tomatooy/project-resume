@@ -4,6 +4,7 @@ import { Link, useParams } from "@tanstack/react-router"
 import { Switch } from "@workspace/ui/components/switch"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
+import type { ReactNode } from "react"
 import { toast } from "sonner"
 
 import { NEW_SKILL_ID } from "@/features/skills/workspace"
@@ -23,7 +24,7 @@ import { RailSkeleton } from "./RailSkeleton"
  * A row opens the skill in a tab, which is where the detail or the form is;
  * the switch beside it is the same switch as in the library list.
  */
-export function SkillsRail() {
+export function SkillsRail({ title }: { title?: ReactNode }) {
   const { data, isPending } = useQuery(skillsQuery())
   const setEnabled = useSetSkillEnabled()
   const params = useParams({ strict: false })
@@ -53,9 +54,11 @@ export function SkillsRail() {
   return (
     <>
       <div className="flex h-[42px] flex-none items-center gap-1.5 px-2.5">
-        <span className="text-[10px] font-semibold tracking-[0.07em] text-muted-foreground uppercase">
-          Skills
-        </span>
+        {title ?? (
+          <span className="text-[10px] font-semibold tracking-[0.07em] text-muted-foreground uppercase">
+            Skills
+          </span>
+        )}
         {isPending ? (
           <Skeleton className="h-4 w-5 bg-foreground/10 motion-reduce:animate-none" />
         ) : (
@@ -76,7 +79,7 @@ export function SkillsRail() {
         </IconButton>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-1.5 pb-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {isPending ? (
           <RailSkeleton />
         ) : (

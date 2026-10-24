@@ -19,6 +19,9 @@ import {
   deleteResume,
   deleteUserSkill,
   duplicateResume,
+  getAutofillNotes,
+  getAutofillNoteVersion,
+  getAutofillProfile,
   getOrCreateConversation,
   getResume,
   getUserSkill,
@@ -27,17 +30,25 @@ import {
   listMessages,
   listResumePage,
   getResumeSummary,
+  listAutofillNoteVersions,
   listSkills,
   listVersions,
   renameResume,
   restoreVersion,
+  saveAutofillProfile,
   searchResumes,
   setSkillEnabled,
   updateUserSkill,
 } from "./api"
-import type { ChatHistory } from "./types"
+import { ApiError, type ChatHistory } from "./types"
 import type { ResumeState } from "@/features/resume/store"
-import { UserSkillInputSchema, type SkillDraft } from "@workspace/resume-core"
+import {
+  ResumeSortSchema,
+  UserSkillInputSchema,
+  type ResumeSort,
+  type SkillDraft,
+} from "@workspace/resume-core"
+import type { Profile } from "@workspace/autofill"
 
 export function cacheWorkspaceResume(
   client: QueryClient,
@@ -125,16 +136,16 @@ export async function saveWorkspaceSkill(
 
 /* -------------------------------------------------------------- queries */
 
-export const resumesQuery = () =>
+export const resumesQuery = (sortBy: ResumeSort = "updatedAt") =>
   infiniteQueryOptions({
-    queryKey: ["resumes", "pages"] as const,
-    queryFn: ({ pageParam }) => listResumePage({ cursor: pageParam }),
+    queryKey: ["resumes", "pages", sortBy] as const,
+    queryFn: ({ pageParam }) => listResumePage({ cursor: pageParam, sortBy }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
   })
 
-export function useResumes(enabled = true) {
-  const query = useInfiniteQuery({ ...resumesQuery(), enabled })
+export function useResumes(sortBy: ResumeSort = "updatedAt", enabled = true) {
+  const query = useInfiniteQuery({ ...resumesQuery(sortBy), enabled })
   const data = query.data
     ? [
         ...new Map(
@@ -154,10 +165,12 @@ export const resumeSummaryQuery = (id: string) =>
   })
 export function useResumeSummaries(ids: string[]) {
   const client = useQueryClient()
-  const cached =
-    client
-      .getQueryData(resumesQuery().queryKey)
-      ?.pages.flatMap((page) => page.items) ?? []
+  const cached = ResumeSortSchema.options.flatMap(
+    (sortBy) =>
+      client
+        .getQueryData(resumesQuery(sortBy).queryKey)
+        ?.pages.flatMap((page) => page.items) ?? []
+  )
   return useQueries({
     queries: [...new Set(ids)].map((id) => ({
       ...resumeSummaryQuery(id),
@@ -166,15 +179,17 @@ export function useResumeSummaries(ids: string[]) {
   })
 }
 export async function invalidateResumes(client: QueryClient): Promise<void> {
-  await client.cancelQueries({ queryKey: resumesQuery().queryKey })
-  client.setQueryData(resumesQuery().queryKey, (data) =>
-    data
-      ? {
-          pages: data.pages.slice(0, 1),
-          pageParams: data.pageParams.slice(0, 1),
-        }
-      : data
-  )
+  await client.cancelQueries({ queryKey: ["resumes", "pages"] })
+  for (const sortBy of ResumeSortSchema.options) {
+    client.setQueryData(resumesQuery(sortBy).queryKey, (data) =>
+      data
+        ? {
+            pages: data.pages.slice(0, 1),
+            pageParams: data.pageParams.slice(0, 1),
+          }
+        : data
+    )
+  }
   await client.invalidateQueries({ queryKey: ["resumes"] })
 }
 
@@ -279,6 +294,37 @@ export const userSkillQuery = (id: string) =>
   queryOptions({
     queryKey: ["skills", id] as const,
     queryFn: () => getUserSkill({ id }),
+  })
+
+/* ------------------------------------------------------------- autofill */
+
+// One `["autofill"]` prefix for the Autofill page, so a write can refresh
+// everything the page shows with one key.
+
+export const autofillProfileQuery = () =>
+  queryOptions({
+    queryKey: ["autofill", "profile"] as const,
+    queryFn: getAutofillProfile,
+  })
+
+export const autofillNotesQuery = () =>
+  queryOptions({
+    queryKey: ["autofill", "notes"] as const,
+    queryFn: getAutofillNotes,
+  })
+
+/** History: the newest 20 snapshots, without their text. */
+export const noteVersionsQuery = () =>
+  queryOptions({
+    queryKey: ["autofill", "note-versions"] as const,
+    queryFn: listAutofillNoteVersions,
+  })
+
+/** One snapshot with its text, for the History preview. */
+export const noteVersionQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["autofill", "note-version", id] as const,
+    queryFn: () => getAutofillNoteVersion({ id }),
   })
 
 /* ------------------------------------------------------------ cache ops */
@@ -403,6 +449,36 @@ async function clearChatConversation(
     suggestions: {},
   })
   return result
+}
+
+/* --------------------------------------------------- autofill mutations */
+
+/**
+ * The first save of the Profile, from a resume or from empty fields. The saved
+ * Profile goes straight into the cache, so the page shows its sections; when
+ * another tab created one first, the cache reloads that one.
+ */
+export function useCreateAutofillProfile() {
+  const queryClient = useQueryClient()
+  const { queryKey } = autofillProfileQuery()
+  return useMutation({
+    mutationFn: async (load: () => Promise<Profile>) => {
+      const profile = await load()
+      const saved = await saveAutofillProfile({ profile, expectedRevision: 0 })
+      return { profile, ...saved }
+    },
+    onSuccess: ({ profile, revision, updatedAt }) =>
+      queryClient.setQueryData(queryKey, {
+        profile,
+        revision,
+        updatedAt,
+        exists: true,
+      }),
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === "CONFLICT")
+        void queryClient.refetchQueries({ queryKey, exact: true })
+    },
+  })
 }
 
 /* ------------------------------------------------------ skill mutations */

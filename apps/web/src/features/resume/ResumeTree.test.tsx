@@ -62,6 +62,7 @@ const record: ResumeRecord = {
   title: "Test",
   subtitle: "",
   templateId: "lisbon",
+  createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   data: structuredClone(doc),
   schemaVersion: 1,

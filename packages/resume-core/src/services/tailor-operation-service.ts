@@ -122,6 +122,7 @@ export class TailorOperationService {
     const { parsed, model } = await this.writer.tailor({
       resume: snapshot.content,
       posting,
+      instructions: operation.instructions,
       signal: this.signal(operation),
     })
     await this.operations.recordModel(id, model)

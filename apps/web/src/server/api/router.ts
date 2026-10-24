@@ -1,6 +1,10 @@
 import { implement, ORPCError, ValidationError } from "@orpc/server"
 import { contract } from "@workspace/api/contract"
-import { ATTEMPT_MS, canonicalJobUrl } from "@workspace/resume-core/contracts"
+import {
+  ATTEMPT_MS,
+  canonicalJobUrl,
+  ResumePreviewSchema,
+} from "@workspace/resume-core/contracts"
 import { AppError } from "@workspace/resume-core"
 import { toAppError } from "../errors"
 import { dispatch } from "../tailoring/dispatch"
@@ -78,6 +82,9 @@ async function configuredTailoring(context: ApiContext) {
 }
 export const router = shared.router({
   resumes: {
+    preview: shared.resumes.preview.handler(async ({ input, context }) =>
+      ResumePreviewSchema.parse(await context.services.resumes.get(input.id))
+    ),
     page: shared.resumes.page.handler(({ input, context }) =>
       context.services.resumes.page(input)
     ),
@@ -134,5 +141,33 @@ export const router = shared.router({
       }
       return found
     }),
+  },
+  autofill: {
+    plan: shared.autofill.plan.handler(({ input, context }) =>
+      context.services.autofill.plan(input)
+    ),
+    start: shared.autofill.start.handler(({ input, context }) =>
+      context.services.autofill.start(input)
+    ),
+    infer: shared.autofill.infer.handler(({ input, context }) =>
+      context.services.autofill.infer(input)
+    ),
+    resolveLocation: shared.autofill.resolveLocation.handler(
+      ({ input, context }) => context.services.autofill.resolveLocation(input)
+    ),
+    answer: shared.autofill.answer.handler(({ input, context }) =>
+      context.services.autofill.answer(input)
+    ),
+    generate: shared.autofill.generate.handler(({ input, context }) =>
+      context.services.autofill.generate(input)
+    ),
+    notes: {
+      merge: shared.autofill.notes.merge.handler(({ input, context }) =>
+        context.services.autofill.notesMerge(input)
+      ),
+      undo: shared.autofill.notes.undo.handler(({ input, context }) =>
+        context.services.autofill.notesUndo(input)
+      ),
+    },
   },
 })

@@ -25,15 +25,22 @@ import type { Database } from "@workspace/supabase"
 import { toJson } from "./json"
 
 type Row = Database["public"]["Tables"]["resumes"]["Row"]
-type SummaryRow = Pick<
+type HeadRow = Pick<
   Row,
-  "id" | "title" | "subtitle" | "template_id" | "updated_at"
+  "id" | "title" | "subtitle" | "template_id" | "created_at" | "updated_at"
 >
+type SummaryRow = HeadRow & {
+  /** Only the origin link: every summary query filters the embed to it. */
+  resume_job_targets: {
+    job_targets: { company: string; title: string } | null
+  }[]
+}
 
 const RECORD_COLUMNS =
   "id,user_id,title,subtitle,data,schema_version,template_id,template_options,current_version_id,revision,created_at,updated_at,deleted_at"
 
-const SUMMARY_COLUMNS = "id, title, subtitle, template_id, updated_at"
+const SUMMARY_COLUMNS =
+  "id, title, subtitle, template_id, created_at, updated_at, resume_job_targets(is_origin, job_targets(company, title))"
 
 /**
  * `template_id` is plain text in the database so that adding a template needs
@@ -42,13 +49,22 @@ const SUMMARY_COLUMNS = "id, title, subtitle, template_id, updated_at"
  * they do not know, so an unrecognised id is coerced to the default here, in
  * the one place every read passes through.
  */
-function toSummary(row: SummaryRow): ResumeSummary {
+function toHead(row: HeadRow): Omit<ResumeSummary, "job"> {
   return {
     id: row.id,
     title: row.title,
     subtitle: row.subtitle,
     templateId: toTemplateId(row.template_id),
+    createdAt: row.created_at,
     updatedAt: row.updated_at,
+  }
+}
+
+function toSummary(row: SummaryRow): ResumeSummary {
+  const origin = row.resume_job_targets[0]?.job_targets
+  return {
+    ...toHead(row),
+    job: origin ? { company: origin.company, title: origin.title } : null,
   }
 }
 
@@ -56,7 +72,7 @@ function toRecord(
   row: Omit<Row, "search_text" | "search_unicode">
 ): ResumeRecord {
   return {
-    ...toSummary(row),
+    ...toHead(row),
     // `migrateResume` both upgrades and validates, so a `jsonb` column becomes
     // a `Resume` without a cast and without trusting what is stored.
     data: migrateResume(row.data),
@@ -78,6 +94,9 @@ export class SupabaseResumeRepository implements ResumeRepository {
       .from("resumes")
       .select(SUMMARY_COLUMNS)
       .is("deleted_at", null)
+      // Filters the embedded links, not the resumes: a resume with no origin
+      // link is still listed, with an empty embed.
+      .eq("resume_job_targets.is_origin", true)
       .order("updated_at", { ascending: false })
     if (error) throw error
     return data.map(toSummary)
@@ -94,17 +113,20 @@ export class SupabaseResumeRepository implements ResumeRepository {
   }
 
   async page(input: ResumePageInput) {
+    const sortBy = input.sortBy ?? "updatedAt"
+    const column = sortBy === "createdAt" ? "created_at" : "updated_at"
     const cursor = input.cursor ? parseResumeCursor(input.cursor) : null
     let query = this.db
       .from("resumes")
       .select(SUMMARY_COLUMNS, { count: cursor ? undefined : "exact" })
       .is("deleted_at", null)
+      .eq("resume_job_targets.is_origin", true)
     if (cursor)
       query = query.or(
-        `updated_at.lt.${cursor.updatedAt},and(updated_at.eq.${cursor.updatedAt},id.lt.${cursor.id})`
+        `${column}.lt.${cursor.timestamp},and(${column}.eq.${cursor.timestamp},id.lt.${cursor.id})`
       )
     const { data, error, count } = await query
-      .order("updated_at", { ascending: false })
+      .order(column, { ascending: false })
       .order("id", { ascending: false })
       .limit(PAGE_SIZE + 1)
     if (error) throw error
@@ -112,7 +134,8 @@ export class SupabaseResumeRepository implements ResumeRepository {
     const last = items.at(-1)
     return {
       items,
-      nextCursor: data.length > PAGE_SIZE && last ? resumeCursor(last) : null,
+      nextCursor:
+        data.length > PAGE_SIZE && last ? resumeCursor(last, sortBy) : null,
       ...(!cursor ? { total: count ?? 0 } : {}),
     }
   }
@@ -122,6 +145,7 @@ export class SupabaseResumeRepository implements ResumeRepository {
       .select(SUMMARY_COLUMNS)
       .eq("id", id)
       .is("deleted_at", null)
+      .eq("resume_job_targets.is_origin", true)
       .maybeSingle()
     if (error) throw error
     return data ? toSummary(data) : null
@@ -144,7 +168,7 @@ export class SupabaseResumeRepository implements ResumeRepository {
       .rpc("resume_search_candidates", {
         p_tokens: tokens,
         p_phase: phase,
-        p_before_at: cursor?.updatedAt,
+        p_before_at: cursor?.timestamp,
         p_before_id: cursor?.id,
       })
       .select(RECORD_COLUMNS)

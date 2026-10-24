@@ -1,8 +1,25 @@
 import { oc } from "@orpc/contract"
 import {
+  AnswerInputSchema,
+  AnswerResultSchema,
+  GenerateInputSchema,
+  GenerateResultSchema,
+  InferInputSchema,
+  InferResultSchema,
+  ResolveLocationInputSchema,
+  ResolveLocationResultSchema,
+  NotesMergeInputSchema,
+  NotesMergeResultSchema,
+  NotesUndoInputSchema,
+  NotesUndoResultSchema,
+  PlanInputSchema,
+  PlanResultSchema,
+  StartInputSchema,
+  StartResultSchema,
   JobIdentitySchema,
   JobLookupSchema,
   ResumeSummarySchema,
+  ResumePreviewSchema,
   ResumePageInputSchema,
   ResumePageSchema,
   TailorAdmissionSchema,
@@ -30,6 +47,10 @@ export const JobPostingSchema = z.object({
 })
 export const contract = {
   resumes: {
+    preview: base
+      .route({ method: "GET", path: "/resumes/{id}/preview" })
+      .input(z.object({ id: z.uuid() }))
+      .output(ResumePreviewSchema),
     page: base
       .route({ method: "GET", path: "/resumes/page" })
       .input(ResumePageInputSchema)
@@ -77,5 +98,41 @@ export const contract = {
       .route({ method: "POST", path: "/operations/{operationId}/cancel" })
       .input(z.object({ operationId: z.uuid() }))
       .output(JobLookupSchema),
+  },
+  autofill: {
+    plan: base
+      .route({ method: "POST", path: "/autofill/plan" })
+      .input(PlanInputSchema)
+      .output(PlanResultSchema),
+    start: base
+      .route({ method: "POST", path: "/autofill/start" })
+      .input(StartInputSchema)
+      .output(StartResultSchema),
+    infer: base
+      .route({ method: "POST", path: "/autofill/infer" })
+      .input(InferInputSchema)
+      .output(InferResultSchema),
+    resolveLocation: base
+      .route({ method: "POST", path: "/autofill/resolve-location" })
+      .input(ResolveLocationInputSchema)
+      .output(ResolveLocationResultSchema),
+    answer: base
+      .route({ method: "POST", path: "/autofill/answer" })
+      .input(AnswerInputSchema)
+      .output(AnswerResultSchema),
+    generate: base
+      .route({ method: "POST", path: "/autofill/generate" })
+      .input(GenerateInputSchema)
+      .output(GenerateResultSchema),
+    notes: {
+      merge: base
+        .route({ method: "POST", path: "/autofill/notes/merge" })
+        .input(NotesMergeInputSchema)
+        .output(NotesMergeResultSchema),
+      undo: base
+        .route({ method: "POST", path: "/autofill/notes/undo" })
+        .input(NotesUndoInputSchema)
+        .output(NotesUndoResultSchema),
+    },
   },
 }

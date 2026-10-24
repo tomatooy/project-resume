@@ -8,6 +8,7 @@ import {
   PlusIcon,
   XIcon,
 } from "@phosphor-icons/react"
+import { useQuery } from "@tanstack/react-query"
 import {
   templateList,
   type FontScale,
@@ -29,7 +30,7 @@ import { toast } from "sonner"
 import { IconButton } from "@/features/shell/IconButton"
 import { PaneTitle } from "@/features/shell/PaneTitle"
 import { ClientOnly } from "@/lib/client-only"
-import { useThrottledValue } from "@/lib/use-throttled-value"
+import { resumeSummaryQuery } from "@/lib/queries"
 import { useResumeState, useSession } from "../session-context"
 import { downloadPdf } from "./download"
 import {
@@ -37,13 +38,22 @@ import {
   usePreviewStore,
   usePreviewDemand,
 } from "./preview-context"
-import { clampZoom, ZOOM_MAX, ZOOM_MIN, ZOOM_STEPS } from "./preview-store"
+import {
+  clampZoom,
+  nextZoomStep,
+  previousZoomStep,
+  usePinchZoom,
+  useThrottledValue,
+  ZOOM_MAX,
+  ZOOM_MIN,
+} from "@workspace/resume-preview"
 import { TemplateThumb } from "./TemplateThumb"
-import { usePinchZoom } from "./use-pinch-zoom"
 import { useTemplateThumbs } from "./use-template-thumbs"
 
 const PdfViewer = lazy(() =>
-  import("./PdfViewer").then((m) => ({ default: m.PdfViewer }))
+  import("@workspace/resume-preview/viewer").then((m) => ({
+    default: m.PdfViewer,
+  }))
 )
 
 const PAGE_LABEL: Record<PageSize, string> = {
@@ -91,7 +101,8 @@ export function PreviewPane({
   onToggleMaximize?: () => void
 }) {
   const session = useSession()
-  const ownerName = useResumeState((s) => s.doc.basics.name)
+  const resumeId = useResumeState((s) => s.resumeId)
+  const { data: resume } = useQuery(resumeSummaryQuery(resumeId))
   const templateId = useResumeState((s) => s.templateId)
   const options = useResumeState((s) => s.templateOptions)
   const store = usePreviewStore()
@@ -198,10 +209,11 @@ export function PreviewPane({
               document, and everything else here touches that document. */}
           <IconButton
             label="Download the PDF"
-            disabled={!blob || loading || stale}
+            disabled={!resume || !blob || loading || stale}
             onClick={() =>
               blob &&
-              toast.success(`Downloaded ${downloadPdf(blob, ownerName)}`)
+              resume &&
+              toast.success(`Downloaded ${downloadPdf(blob, resume.title)}`)
             }
           >
             <DownloadSimpleIcon />
@@ -264,7 +276,7 @@ export function PreviewPane({
               label="Zoom out"
               className="rounded-full"
               disabled={zoom <= ZOOM_MIN}
-              onClick={() => setZoom(previousStep(zoom))}
+              onClick={() => setZoom(previousZoomStep(zoom))}
             >
               <MinusIcon />
             </IconButton>
@@ -275,7 +287,7 @@ export function PreviewPane({
               label="Zoom in"
               className="rounded-full"
               disabled={zoom >= ZOOM_MAX}
-              onClick={() => setZoom(nextStep(zoom))}
+              onClick={() => setZoom(nextZoomStep(zoom))}
             >
               <PlusIcon />
             </IconButton>
@@ -382,12 +394,4 @@ function TemplateMenu({
       </div>
     </div>
   )
-}
-
-function nextStep(zoom: number): number {
-  return ZOOM_STEPS.find((step) => step > zoom) ?? zoom
-}
-
-function previousStep(zoom: number): number {
-  return [...ZOOM_STEPS].reverse().find((step) => step < zoom) ?? zoom
 }

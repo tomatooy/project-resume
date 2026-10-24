@@ -6,6 +6,11 @@
  * which is also how the turn's playbooks are resolved; no playbook text is on
  * this surface, and none reaches the browser.
  */
+export {
+  createAutofillModels,
+  createAutofillText,
+  createJudge,
+} from "./autofill/index"
 export { fromUIMessage, toModelMessages, toUIMessage } from "./messages"
 export { type Models, type ModelTier, createModels } from "./models"
 export { createJobParser, createResumeTailor } from "./job"

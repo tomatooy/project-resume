@@ -15,6 +15,7 @@ import type {
   UpdateDataResult,
 } from "../ports/resume-repository"
 import { type InMemoryDb, nowIso } from "./db"
+import { originOf } from "./in-memory-job-target-repository"
 
 /**
  * Mirrors the Supabase adapter's observable behaviour, including the parts that
@@ -31,7 +32,7 @@ export class InMemoryResumeRepository implements ResumeRepository {
         (a, b) =>
           b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id)
       )
-      .map(toSummary)
+      .map((row) => toSummary(this.db, row))
   }
 
   async listRecords(): Promise<ResumeRecord[]> {
@@ -45,19 +46,23 @@ export class InMemoryResumeRepository implements ResumeRepository {
   }
 
   async page(input: ResumePageInput) {
-    const all = await this.list()
+    const sortBy = input.sortBy ?? "updatedAt"
+    const all = (await this.list()).sort(
+      (a, b) => b[sortBy].localeCompare(a[sortBy]) || b.id.localeCompare(a.id)
+    )
     const cursor = input.cursor ? parseResumeCursor(input.cursor) : null
     const rows = all.filter(
       (row) =>
         !cursor ||
-        row.updatedAt < cursor.updatedAt ||
-        (row.updatedAt === cursor.updatedAt && row.id < cursor.id)
+        row[sortBy] < cursor.timestamp ||
+        (row[sortBy] === cursor.timestamp && row.id < cursor.id)
     )
     const items = rows.slice(0, PAGE_SIZE)
     const last = items.at(-1)
     return {
       items,
-      nextCursor: rows.length > PAGE_SIZE && last ? resumeCursor(last) : null,
+      nextCursor:
+        rows.length > PAGE_SIZE && last ? resumeCursor(last, sortBy) : null,
       ...(!cursor ? { total: all.length } : {}),
     }
   }
@@ -76,8 +81,8 @@ export class InMemoryResumeRepository implements ResumeRepository {
     const rows = (await this.listRecords()).filter(
       (row) =>
         (!cursor ||
-          row.updatedAt < cursor.updatedAt ||
-          (row.updatedAt === cursor.updatedAt && row.id < cursor.id)) &&
+          row.updatedAt < cursor.timestamp ||
+          (row.updatedAt === cursor.timestamp && row.id < cursor.id)) &&
         (phase === "body" || matchTokens(row.title, tokens).length > 0)
     )
     const records = rows.slice(0, 50)
@@ -94,12 +99,14 @@ export class InMemoryResumeRepository implements ResumeRepository {
   }
 
   async create(input: NewResume): Promise<ResumeRecord> {
+    const timestamp = nowIso(this.db)
     const row = {
       id: this.db.uuid(),
       ...input,
       currentVersionId: null,
       revision: 1,
-      updatedAt: nowIso(this.db),
+      createdAt: timestamp,
+      updatedAt: timestamp,
       deletedAt: null as string | null,
     }
     this.db.resumes.push(row)
@@ -167,19 +174,30 @@ export class InMemoryResumeRepository implements ResumeRepository {
 
 type Row = InMemoryDb["resumes"][number]
 
-function toSummary(row: Row): ResumeSummary {
+/** The fields a summary and a record share. */
+function toHead(row: Row): Omit<ResumeSummary, "job"> {
   return {
     id: row.id,
     title: row.title,
     subtitle: row.subtitle,
     templateId: row.templateId,
+    createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  }
+}
+
+/** With the origin job, as the Supabase summary query embeds it. */
+function toSummary(db: InMemoryDb, row: Row): ResumeSummary {
+  const origin = originOf(db, row.id)
+  return {
+    ...toHead(row),
+    job: origin ? { company: origin.company, title: origin.title } : null,
   }
 }
 
 function toRecord(row: Row): ResumeRecord {
   return {
-    ...toSummary(row),
+    ...toHead(row),
     data: migrateResume(row.data),
     schemaVersion: row.schemaVersion,
     templateOptions: row.templateOptions,

@@ -1,6 +1,8 @@
-import { useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
+import { ArrowSquareOutIcon, FilePdfIcon } from "@phosphor-icons/react"
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "@workspace/ui/components/button"
+import { cn } from "@workspace/ui/lib/utils"
 import {
   Select,
   SelectContent,
@@ -9,16 +11,34 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import { Spinner } from "@workspace/ui/components/spinner"
+import { Textarea } from "@workspace/ui/components/textarea"
+import { MAX_TAILOR_INSTRUCTIONS_CHARS } from "@workspace/resume-core/contracts"
 import {
   currentQuery,
+  resumePreviewKey,
+  useAutofillAction,
+  useAutofillUpdates,
   useBaseResumes,
   useOperationRecovery,
   useAction,
   useRoutingRefresh,
   useServerUpdates,
 } from "./queries"
-import { ExtensionError, type Message } from "../lib/messages"
-import { AtsVendorSchema, atsName, categoryOf } from "../lib/pages"
+import { AutofillPanel } from "./autofill/AutofillPanel"
+import { useResumeAttach } from "./autofill/attach"
+import { TailoredPreview } from "./preview/TailoredPreview"
+import { useTailorInstructions } from "./use-tailor-instructions"
+import {
+  ExtensionError,
+  type Message,
+  type ResumePreviewRequest,
+} from "../lib/messages"
+import {
+  AtsVendorSchema,
+  atsName,
+  autofillVendor,
+  categoryOf,
+} from "../lib/pages"
 
 const vendors = new Intl.ListFormat("en", { type: "disjunction" }).format(
   AtsVendorSchema.options.map(atsName)
@@ -29,25 +49,72 @@ const control = (type: "panel-minimize" | "panel-close") => {
 
 export function App() {
   const state = useQuery(currentQuery())
-  const action = useAction()
+  const autofill = useAutofillAction()
+  const [previewId, setPreviewId] = useState<string | null>(null)
+  const previewButton = useRef<HTMLButtonElement>(null)
   const [selection, setSelection] = useState<{
     account: string
     id: string
   } | null>(null)
   const data = state.data
-  useRoutingRefresh(data?.tabId)
+  useResumeAttach(data?.autofill?.attach ?? null, (next) =>
+    autofill.mutate(next)
+  )
+  const instructions = useTailorInstructions(
+    data?.lookup?.kind === "none" ? data.account?.id : undefined
+  )
+  const action = useAction(instructions.persist)
+  const navigated = useRoutingRefresh(data?.tabId, data?.page)
+  const changingPage = navigated && state.isFetching
   const resumes = useBaseResumes(data)
   useOperationRecovery(data)
+  useAutofillUpdates(data?.tabId)
   useServerUpdates(
     data?.page.kind === "job" ? data.page.identity.externalJobId : undefined,
     data?.account?.id,
     data?.lookup?.kind === "bound" ? data.lookup.operation.id : undefined
   )
   const act = (message: Message) => {
-    if (!action.isPending) action.mutate(message)
+    if (!action.isPending && !changingPage) action.mutate(message)
   }
   const lookup = data?.lookup
   const page = data?.page
+  const readyPreview: ResumePreviewRequest | null =
+    !state.isError &&
+    data?.account &&
+    page?.kind === "job" &&
+    lookup?.kind === "bound" &&
+    lookup.operation.status === "succeeded"
+      ? {
+          accountId: data.account.id,
+          identity: page.identity,
+          resumeId: lookup.resumeId,
+          operationId: lookup.operation.id,
+        }
+      : !state.isError &&
+          data?.account &&
+          page?.kind === "ats" &&
+          data.autofill?.form &&
+          data.autofill.resume &&
+          data.autofill.postingKey
+        ? {
+            accountId: data.account.id,
+            resumeId: data.autofill.resume.id,
+            postingKey: data.autofill.postingKey,
+          }
+        : null
+  const readyKey = readyPreview
+    ? JSON.stringify([data?.tabId, ...resumePreviewKey(readyPreview)])
+    : null
+  const preview = previewId && previewId === readyKey ? readyPreview : null
+  useEffect(() => {
+    setPreviewId((current) => (current === readyKey ? current : null))
+  }, [readyKey])
+  const closePreview = () => {
+    setPreviewId(null)
+    void state.refetch()
+    requestAnimationFrame(() => previewButton.current?.focus())
+  }
   const baseId =
     resumes.rows.find(
       (r) =>
@@ -58,7 +125,19 @@ export function App() {
     )?.id ??
     resumes.rows[0]?.id ??
     ""
-  const message = action.error?.message ?? state.error?.message
+  const message =
+    action.error?.message ?? autofill.error?.message ?? state.error?.message
+  // Focus, draft and the resume attach never hold up the panel's other
+  // autofill buttons.
+  const sent = autofill.isPending ? autofill.variables?.kind : undefined
+  const sending =
+    sent === undefined ||
+    sent === "focus" ||
+    sent === "draft" ||
+    sent === "attach" ||
+    sent === "attach-failed"
+      ? null
+      : sent
   const pending = action.isPending
   // A failed refresh still says which page the tab is on.
   const known =
@@ -90,7 +169,7 @@ export function App() {
         </h1>
         <p>
           {category === "job"
-            ? "Your saved resume may still be processing."
+            ? "We couldn’t load your resume’s status for this job. Try again in a moment."
             : "Check your connection and try again."}
         </p>
         <Button
@@ -114,7 +193,52 @@ export function App() {
         </Button>
       </>
     )
-  else if (page?.kind === "ats")
+  else if (preview)
+    content = (
+      <TailoredPreview
+        key={previewId}
+        request={preview}
+        onBack={closePreview}
+        onEdit={() =>
+          act(
+            "postingKey" in preview
+              ? { type: "autofill-edit", ...preview }
+              : {
+                  type: "edit",
+                  resumeId: preview.resumeId,
+                  identity: preview.identity,
+                }
+          )
+        }
+        onConnect={() => {
+          setPreviewId(null)
+          act({ type: "connect" })
+        }}
+        editing={pending}
+      />
+    )
+  else if (page?.kind === "ats" && data.autofill) {
+    const view = data.autofill
+    content = (
+      <AutofillPanel
+        view={{ ...view, vendor: view.vendor ?? autofillVendor(page) }}
+        resumes={{
+          rows: resumes.rows,
+          more:
+            resumes.hasNextPage && !resumes.isFetchingNextPage
+              ? () => void resumes.fetchNextPage()
+              : null,
+        }}
+        onAction={(next) => autofill.mutate(next)}
+        onOpenProfile={(section) => act({ type: "open-app", section })}
+        onOpenApp={() => act({ type: "open-app" })}
+        onPreview={() => setPreviewId(readyKey)}
+        previewButtonRef={previewButton}
+        pending={pending}
+        sending={sending}
+      />
+    )
+  } else if (page?.kind === "ats")
     content = (
       <>
         <h1>Autofill is coming soon</h1>
@@ -173,14 +297,14 @@ export function App() {
           }
         >
           {op.status === "succeeded"
-            ? "READY FOR YOUR NEXT STEP"
+            ? "SAVED TO YOUR ACCOUNT"
             : op.status === "cancelled"
               ? "CANCELLED"
               : "NEEDS ANOTHER TRY"}
         </span>
         <h1>
           {op.status === "succeeded"
-            ? "Resume is ready, now apply"
+            ? "Your tailored resume is ready"
             : op.status === "cancelled"
               ? "Your copy is saved"
               : "Could not finish tailoring"}
@@ -189,10 +313,29 @@ export function App() {
           {op.errorClass === "conflict"
             ? "Your edits are safe. Retry will use the latest saved resume."
             : op.status === "succeeded"
-              ? "Review your tailored resume in VS:Résumé."
+              ? "Review your PDF, download it, or make a few final edits."
               : "You can retry with the saved job description, or edit your copy."}
         </p>
-        <div className="flex gap-2">
+        {op.status === "succeeded" && data.canApply && (
+          <Button
+            className="w-full"
+            disabled={pending}
+            onClick={() => act({ type: "apply", identity: page.identity })}
+          >
+            <ArrowSquareOutIcon /> Apply now
+          </Button>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {op.status === "succeeded" && (
+            <Button
+              ref={previewButton}
+              className="flex-1"
+              variant={data.canApply ? "outline" : "default"}
+              onClick={() => setPreviewId(readyKey)}
+            >
+              <FilePdfIcon /> Preview resume
+            </Button>
+          )}
           {lookup.canRetry && (
             <Button
               disabled={pending}
@@ -209,7 +352,7 @@ export function App() {
           )}
           <Button
             disabled={pending}
-            variant={op.status === "succeeded" ? "default" : "outline"}
+            variant="outline"
             onClick={() =>
               act({
                 type: "edit",
@@ -218,7 +361,13 @@ export function App() {
               })
             }
           >
-            Edit resume
+            {op.status === "succeeded" ? (
+              <>
+                <ArrowSquareOutIcon /> Edit in app
+              </>
+            ) : (
+              "Edit resume"
+            )}
           </Button>
         </div>
       </>
@@ -279,14 +428,51 @@ export function App() {
             </Button>
           )}
         </div>
+        <div className="space-y-2">
+          <label htmlFor="tailor-instructions" className="text-xs font-medium">
+            Additional instructions
+            <span className="ml-1 font-normal text-muted-foreground">
+              (optional)
+            </span>
+          </label>
+          <Textarea
+            id="tailor-instructions"
+            value={instructions.value}
+            onChange={(event) => instructions.change(event.target.value)}
+            placeholder="For example: Don’t include a summary. Focus on my backend experience."
+            maxLength={MAX_TAILOR_INSTRUCTIONS_CHARS}
+            rows={3}
+            className="field-sizing-fixed min-h-24 max-h-48 resize-y text-sm"
+            disabled={pending || instructions.loading}
+            aria-describedby="tailor-instructions-help"
+          />
+          <p id="tailor-instructions-help" className="text-xs">
+            Instructions save automatically in this browser. Edit or clear
+            anytime.
+          </p>
+          {instructions.error && (
+            <div className="flex items-center gap-2" role="alert">
+              <p className="text-xs text-warning">{instructions.error}</p>
+              <Button size="xs" variant="ghost" onClick={instructions.retry}>
+                Try again
+              </Button>
+            </div>
+          )}
+        </div>
         <Button
           className="w-full"
-          disabled={!baseId || pending}
+          disabled={
+            !baseId ||
+            pending ||
+            instructions.loading ||
+            Boolean(instructions.error)
+          }
           onClick={() => {
             if (page?.kind === "job")
               act({
                 type: "tailor",
                 sourceResumeId: baseId,
+                instructions: instructions.value,
                 identity: page.identity,
               })
           }}
@@ -306,16 +492,26 @@ export function App() {
       </>
     )
   return (
-    <main className="flex min-h-dvh w-full flex-col border-l border-border bg-card text-foreground">
-      <header className="border-b border-border bg-card p-5">
+    <main
+      className={cn(
+        "flex w-full flex-col border-l border-border bg-card text-foreground",
+        preview ? "h-dvh min-h-0 overflow-hidden" : "min-h-dvh"
+      )}
+    >
+      <header
+        className={cn(
+          "shrink-0 border-b border-border bg-card",
+          preview ? "px-4 py-3" : "p-5"
+        )}
+      >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 font-heading text-lg tracking-tight text-foreground">
             <img
-              src="/icons/32.png"
+              src="/logo.svg"
               alt=""
               width={32}
               height={32}
-              className="size-6 grayscale"
+              className="size-6 shrink-0 object-contain dark:invert"
             />
             VS:Résumé
           </div>
@@ -364,10 +560,19 @@ export function App() {
             </Button>
           </div>
         </div>
-        <p className="mt-2 text-xs">Your next role, with a resume that fits.</p>
+        {!preview && (
+          <p className="mt-2 text-xs">
+            Your next role, with a resume that fits.
+          </p>
+        )}
       </header>
-      <section className="space-y-5 p-5" aria-live="polite">
-        {(category === "job" || category === "ats") && (
+      <section
+        className={preview ? "flex min-h-0 flex-1 flex-col" : "space-y-5 p-5"}
+        aria-live={preview ? "off" : "polite"}
+        aria-busy={changingPage}
+        inert={changingPage}
+      >
+        {!preview && (category === "job" || category === "ats") && (
           <div className="text-muted-foreground text-[11px] font-medium uppercase tracking-widest">
             {category === "job" ? "Resume tailoring" : "Autofill"}
           </div>
@@ -382,7 +587,7 @@ export function App() {
           </p>
         )}
       </section>
-      {data?.account && (
+      {data?.account && !preview && (
         <footer className="mt-auto flex items-center justify-between gap-2 border-t border-border bg-card px-5 py-4">
           <span className="truncate text-xs text-muted-foreground">
             {data.account.email}

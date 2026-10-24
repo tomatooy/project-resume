@@ -1,0 +1,30 @@
+{
+  "name": "@workspace/autofill",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "sideEffects": false,
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@workspace/resume-schema": "workspace:*",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "typescript": "^6",
+    "vitest": "^3.2.4"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./fields": "./src/fields.ts",
+    "./fixtures": "./src/fixtures/index.ts",
+    "./match": "./src/match.ts",
+    "./location": "./src/location.ts",
+    "./notes": "./src/notes.ts",
+    "./options": "./src/options.ts"
+  }
+}

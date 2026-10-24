@@ -1,3 +1,4 @@
+import type { AutofillVendor, Profile } from "@workspace/autofill"
 import type {
   Resume,
   ResumePatch,
@@ -5,6 +6,7 @@ import type {
   TemplateOptions,
 } from "@workspace/resume-schema"
 
+import type { Counts, NoteVersionReason } from "../domain/autofill"
 import type { ChatMessage } from "../domain/chat"
 import type { JobTarget } from "../domain/job-target"
 import type { SummaryRecord } from "../domain/memory"
@@ -22,6 +24,7 @@ export type ResumeRow = {
   templateOptions: TemplateOptions
   currentVersionId: string | null
   revision: number
+  createdAt: string
   updatedAt: string
   deletedAt: string | null
 }
@@ -49,6 +52,43 @@ export type SuggestionRow = {
   status: SuggestionStatus
 }
 
+export type AutofillProfileRow = {
+  data: Profile
+  schemaVersion: number
+  revision: number
+  updatedAt: string
+}
+
+export type AutofillNotesRow = {
+  content: string
+  revision: number
+  updatedAt: string
+}
+
+export type NoteVersionRow = {
+  id: string
+  content: string
+  reason: NoteVersionReason
+  createdAt: string
+}
+
+export type AutofillApplicationRow = {
+  id: string
+  vendor: AutofillVendor
+  postingKey: string
+  orgSlug: string | null
+  url: string
+  company: string | null
+  title: string | null
+  resumeId: string | null
+  resumeVersionId: string | null
+  jobTargetId: string | null
+  /** Null stands for the table's `{}` default, before a request reports any. */
+  counts: Counts | null
+  createdAt: string
+  updatedAt: string
+}
+
 /**
  * The shared store the in-memory repositories read and write, standing in for
  * one Postgres database. Time and ids are injectable so tests can assert on
@@ -67,12 +107,18 @@ export class InMemoryDb {
     resumeId: string
     jobTargetId: string
     isOrigin: boolean
+    createdAt: string
   }[] = []
   userSkills: CustomSkill[] = []
   /** The ids the user switched off, whichever tier they belong to. */
   disabledSkills: string[] = []
   /** conversation id -> active summary id */
   activeSummaries = new Map<string, string>()
+  /** The one user's Profile and Notes rows, null before the first save. */
+  autofillProfile: AutofillProfileRow | null = null
+  autofillNotes: AutofillNotesRow | null = null
+  noteVersions: NoteVersionRow[] = []
+  autofillApplications: AutofillApplicationRow[] = []
 
   private seq = 0
   private messageSeq = 0

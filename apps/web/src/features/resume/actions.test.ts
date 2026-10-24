@@ -59,6 +59,7 @@ function session(): ResumeSession {
     title: "Test",
     subtitle: "",
     templateId: "lisbon",
+    createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     data: doc(),
     schemaVersion: 1,

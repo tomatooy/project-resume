@@ -89,13 +89,18 @@ async function setup(initial = "/r/a/edit") {
     path: "/skills",
     component: Page,
   })
+  const autofill = createRoute({
+    getParentRoute: () => root,
+    path: "/autofill",
+    component: Page,
+  })
   const dashboard = createRoute({
     getParentRoute: () => root,
     path: "/dashboard",
     component: () => <p>Dashboard empty workspace</p>,
   })
   const router = createRouter({
-    routeTree: root.addChildren([resume, skills, dashboard]),
+    routeTree: root.addChildren([resume, skills, autofill, dashboard]),
     history: createMemoryHistory({ initialEntries: [initial] }),
   })
   const client = new QueryClient({
@@ -189,6 +194,13 @@ describe("workspace tabs with a memory router", () => {
       window.localStorage.getItem("resume-studio.workspace.v1:test") ?? "null"
     )
     expect(stored.tabs[0]).toMatchObject({ kind: "resume", resumeId: "b" })
+  })
+
+  it("labels the autofill tab", async () => {
+    await setup("/autofill")
+    expect(
+      await screen.findByRole("tab", { name: "Autofill profile" })
+    ).toHaveAttribute("aria-selected", "true")
   })
 
   it("does not open a tab for a preloaded route", async () => {

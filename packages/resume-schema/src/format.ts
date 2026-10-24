@@ -48,3 +48,12 @@ export function formatRange(
   if (from && to) return `${from} - ${to}`
   return from || to
 }
+
+/** Shared title-based filename for downloads and autofill attachments. */
+export function resumeFileName(title: string): string {
+  const name = title
+    .replace(/\s+/g, "")
+    .replace(/[<>:"/\\|?*\p{Cc}]/gu, "")
+    .replace(/\.pdf$/i, "")
+  return `${name || "resume"}.pdf`
+}

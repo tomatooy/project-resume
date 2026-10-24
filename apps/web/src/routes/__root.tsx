@@ -32,7 +32,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       ],
       links: [
         { rel: "stylesheet", href: appCss },
-        { rel: "icon", type: "image/webp", href: "/logo.webp" },
+        { rel: "icon", type: "image/x-icon", href: "/favicon.ico" },
+        {
+          rel: "icon",
+          type: "image/svg+xml",
+          href: "/logo.svg",
+          sizes: "any",
+        },
         { rel: "manifest", href: "/manifest.json" },
       ],
     }),

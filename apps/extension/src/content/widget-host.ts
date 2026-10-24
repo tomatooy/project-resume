@@ -18,7 +18,11 @@
   let shown: View = "none"
   let wanted: View = "none"
   let position = 0.18
+  let expanded = false
   let generation = 0
+  let watchedOrigin: string | null = null
+  let frameVisible: boolean | null = null
+  let frameTimer: ReturnType<typeof setTimeout> | undefined
   const alive = () => {
     try {
       return Boolean(chrome.runtime?.id)
@@ -33,7 +37,11 @@
     const panel = shown === "panel"
     host.style.display = shown === "none" ? "none" : "block"
     host.style.top = panel ? "0px" : `${Math.round(position * room())}px`
-    host.style.width = panel ? "min(400px, 100vw)" : "96px"
+    host.style.width = panel
+      ? expanded
+        ? "min(760px, 100vw)"
+        : "min(400px, 100vw)"
+      : "96px"
     host.style.height = panel ? "100dvh" : "88px"
   }
   const render = () => {
@@ -45,6 +53,7 @@
         ? shown
         : wanted
     if (next !== shown) {
+      expanded = false
       // A new element, because changing src adds entries to the page history.
       frame?.remove()
       frame = null
@@ -91,15 +100,63 @@
       if (!alive()) teardown()
     })
   }
+  const embeddedVisibility = (origin: string): boolean | null => {
+    const matches = [...document.querySelectorAll("iframe")].filter((node) => {
+      try {
+        return new URL(node.src).origin === origin
+      } catch {
+        return false
+      }
+    })
+    // An origin alone cannot identify one of several sibling embeds.
+    const [embedded] = matches
+    if (matches.length !== 1 || !embedded) return null
+    return (
+      embedded.getClientRects().length > 0 &&
+      getComputedStyle(embedded).visibility !== "hidden"
+    )
+  }
+  const inspectFrames = () => {
+    if (!watchedOrigin || frameTimer) return
+    frameTimer = setTimeout(() => {
+      frameTimer = undefined
+      if (!watchedOrigin) return
+      const next = embeddedVisibility(watchedOrigin)
+      if (next === frameVisible) return
+      frameVisible = next
+      forward({ type: "autofill-frame-change" })
+    }, 300)
+  }
+  const frameObserver = new MutationObserver(() => {
+    // Document hydration can remove the host while its listeners stay alive.
+    if (!host.isConnected) {
+      if (!alive()) {
+        teardown()
+        return
+      }
+      document.documentElement?.append(host)
+    }
+    inspectFrames()
+  })
   const onMessage = (event: MessageEvent<unknown>) => {
     if (
-      shown !== "widget" ||
       event.source !== frame?.contentWindow ||
       event.origin !== extensionOrigin
     )
       return
     const data = event.data
     if (typeof data !== "object" || data === null || !("type" in data)) return
+    if (
+      shown === "panel" &&
+      data.type === "panel-resize" &&
+      "expanded" in data &&
+      typeof data.expanded === "boolean"
+    ) {
+      expanded = data.expanded
+      layout()
+      return
+    }
+    if (shown !== "widget") return
     if (
       data.type === "widget-move" &&
       "delta" in data &&
@@ -133,7 +190,15 @@
     )
       return
     if (message.type === "widget-ping") respond({ view: shown })
-    else if (message.type === "widget-refresh") {
+    else if (
+      message.type === "autofill-frame-state" &&
+      "origin" in message &&
+      typeof message.origin === "string"
+    ) {
+      watchedOrigin = message.origin
+      frameVisible = embeddedVisibility(watchedOrigin)
+      respond({ visible: frameVisible })
+    } else if (message.type === "widget-refresh") {
       respond({ ok: true })
       void refresh()
     }
@@ -153,9 +218,12 @@
   }
   const teardown = () => {
     generation += 1
+    clearTimeout(frameTimer)
+    frameObserver.disconnect()
     host.remove()
     window.removeEventListener("message", onMessage)
     window.removeEventListener("resize", layout)
+    window.removeEventListener("resize", inspectFrames)
     window.removeEventListener("pageshow", onShow)
     document.removeEventListener("visibilitychange", onVisibility)
     document.removeEventListener(probe, onProbe)
@@ -167,10 +235,17 @@
   }
   window.addEventListener("message", onMessage)
   window.addEventListener("resize", layout)
+  window.addEventListener("resize", inspectFrames)
   window.addEventListener("pageshow", onShow)
   document.addEventListener("visibilitychange", onVisibility)
   document.addEventListener(probe, onProbe)
   chrome.runtime.onMessage.addListener(onRuntime)
+  frameObserver.observe(document, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["src", "style", "class", "hidden"],
+  })
   void refresh()
 })()
 

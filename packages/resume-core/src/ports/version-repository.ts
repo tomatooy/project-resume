@@ -22,6 +22,11 @@ export type CreateVersionInput = {
    * brings back is what the current version already holds.
    */
   dedupe?: boolean
+  /**
+   * The head revision the content was read at. When the head has moved since,
+   * the write is refused with CONFLICT rather than undoing that edit.
+   */
+  expectedRevision?: number
 }
 
 export type CreateVersionResult = {

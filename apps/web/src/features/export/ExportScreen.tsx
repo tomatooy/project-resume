@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query"
 import { templates } from "@workspace/resume-render"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
@@ -6,6 +7,7 @@ import { toast } from "sonner"
 
 import { useShellLayout } from "@/features/shell/shell-layout"
 import { pluralize } from "@/lib/format"
+import { resumeSummaryQuery } from "@/lib/queries"
 import { downloadPdf } from "../resume/preview/download"
 import { usePreview, usePreviewDemand } from "../resume/preview/preview-context"
 import { useResumeState } from "../resume/session-context"
@@ -59,7 +61,7 @@ const FORMATS: Format[] = [
 export function ExportScreen() {
   const resumeId = useResumeState((s) => s.resumeId)
   const scroll = useTabScroll(`resume:${resumeId}:export`)
-  const doc = useResumeState((s) => s.doc)
+  const { data: resume } = useQuery(resumeSummaryQuery(resumeId))
   const templateId = useResumeState((s) => s.templateId)
   const options = useResumeState((s) => s.templateOptions)
   usePreviewDemand()
@@ -81,8 +83,8 @@ export function ExportScreen() {
   const template = templates[templateId]
 
   const download = () => {
-    if (!blob || stale || loading) return
-    toast.success(`Downloaded ${downloadPdf(blob, doc.basics.name)}`)
+    if (!resume || !blob || stale || loading) return
+    toast.success(`Downloaded ${downloadPdf(blob, resume.title)}`)
   }
 
   return (
@@ -132,7 +134,7 @@ export function ExportScreen() {
               {format.available ? (
                 <Button
                   className="mt-3.5 w-full"
-                  disabled={!blob || loading || stale}
+                  disabled={!resume || !blob || loading || stale}
                   onClick={download}
                 >
                   {loading && !blob ? "Rendering…" : format.action}

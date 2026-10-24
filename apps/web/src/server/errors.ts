@@ -23,6 +23,8 @@ const PG_CODES: Record<string, AppError["code"]> = {
   P0002: "NOT_FOUND",
   // Unique violation. Two writers raced for the same version number.
   "23505": "CONFLICT",
+  // A snapshot named a revision the head has since moved past.
+  P0409: "CONFLICT",
   // Foreign key violation: the parent row is gone, or was never visible.
   "23503": "NOT_FOUND",
 }

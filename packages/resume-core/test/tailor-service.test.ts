@@ -51,6 +51,10 @@ describe("TailorService", () => {
     expect(result.tailored).toBe(true)
     expect(result.resume.title).toBe("Acme - Senior Engineer")
     expect(result.resume.subtitle).toBe("Tailored for Acme")
+    expect(result.resume.job).toEqual({
+      company: "Acme",
+      title: "Senior Engineer",
+    })
 
     const versions = await h.versionService.list(result.resume.id)
     expect(versions.map((v) => [v.label, v.createdBy])).toEqual([
@@ -88,6 +92,11 @@ describe("TailorService", () => {
 
     expect(result.tailored).toBe(false)
     expect(result.resume.subtitle).toBe("Draft · not tailored")
+    // The duplicate stands, linked to the posting all the same.
+    expect(result.resume.job).toEqual({
+      company: "Acme",
+      title: "Senior Engineer",
+    })
 
     const record = await h.resumeService.get(result.resume.id)
     const original = await h.resumeService.get(base.id)

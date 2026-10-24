@@ -1,5 +1,6 @@
 import type { Resume } from "@workspace/resume-schema"
 
+import { AppError } from "../domain/errors"
 import type { VersionRecord, VersionSummary } from "../domain/version"
 import type {
   CreateVersionInput,
@@ -45,6 +46,12 @@ export class InMemoryVersionRepository implements VersionRepository {
   async create(input: CreateVersionInput): Promise<CreateVersionResult> {
     const resume = this.db.resumes.find((r) => r.id === input.resumeId)
     if (!resume) throw new Error(`resume ${input.resumeId} not found`)
+    if (
+      input.expectedRevision !== undefined &&
+      resume.revision !== input.expectedRevision
+    ) {
+      throw new AppError("CONFLICT", "Resume changed")
+    }
 
     // Dedupe against the current version only, matching the RPC: saving twice
     // with no edit is a no-op, but restoring an old version and saving again

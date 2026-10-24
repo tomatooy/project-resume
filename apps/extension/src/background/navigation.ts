@@ -1,5 +1,6 @@
 import { classifyPage } from "../lib/pages"
-import { locate, transition, updateTabState } from "./tab-state"
+import { hereFor, pageFor } from "./page"
+import { transition, updateTabState } from "./tab-state"
 import { refreshHost, resetTitle } from "./widget"
 
 export async function activePage(tabId?: number) {
@@ -8,7 +9,7 @@ export async function activePage(tabId?: number) {
     return {
       tab,
       focused: tab.active,
-      page: classifyPage(tab.url ?? ""),
+      page: await pageFor(tabId, tab.url),
     }
   }
   const window = await chrome.windows.getLastFocused()
@@ -16,13 +17,16 @@ export async function activePage(tabId?: number) {
   return {
     tab,
     focused: window.focused,
-    page: classifyPage(tab?.url ?? ""),
+    page:
+      tab?.id === undefined
+        ? classifyPage(tab?.url ?? "")
+        : await pageFor(tab.id, tab.url),
   }
 }
 
 /** Applies a top-frame navigation to the tab's display state. */
 export async function settle(tabId: number, url: string, document: boolean) {
-  const here = locate(url)
+  const here = await hereFor(tabId, url)
   const { before, after } = await updateTabState(tabId, (state) =>
     transition(state, here, { type: "navigate", document })
   )
