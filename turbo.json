@@ -4,8 +4,14 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": [".output/**", "dist/**"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env*",
+        "$TURBO_ROOT$/.env*",
+        "$TURBO_ROOT$/bunfig.toml"
+      ],
+      "env": ["PUBLIC_*", "VITE_*", "NODE_ENV", "CLOUDFLARE_ENV"],
+      "outputs": [".output/**", "dist/**", ".wrangler/deploy/**"]
     },
     "lint": {
       "dependsOn": ["^lint"]
@@ -18,7 +24,8 @@
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "passThroughEnv": ["PUBLIC_*", "VITE_*", "NODE_ENV", "CLOUDFLARE_ENV"]
     },
     "test": {
       "dependsOn": ["^test"],

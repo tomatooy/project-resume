@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "resume-studio",
+  "name": "vs-resume",
+  "workers_dev": true,
   "main": "src/server.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -10,7 +11,9 @@
     // The provider switch lives in `packages/agent/src/models.ts`.
     "AI_MODEL_SMART": "deepseek-v4-flash",
     "AI_MODEL_FAST": "deepseek-v4-flash",
-    "TYPESAFE_DEFAULT_MODEL": "jev-latest"
+    "TYPESAFE_DEFAULT_MODEL": "jev-latest",
+    // Exact release extension origins; .dev.vars overrides this locally.
+    "EXTENSION_ORIGINS": ""
   },
   // DEEPSEEK_API_KEY is a secret: `wrangler secret put DEEPSEEK_API_KEY` in
   // production, `apps/web/.dev.vars` locally. Never a var.
@@ -18,6 +21,7 @@
   // secret setup. Without it, autofill's infer degrades to rules.
   // OPENAI_API_KEY is optional, for the standalone Decisions client. Use
   // .dev.vars locally and `wrangler secret put OPENAI_API_KEY` in production.
+  // TAILOR_ENCRYPTION_KEY_V1: base64 encoding of 32 random bytes, also a secret.
   "workflows": [
     {
       "name": "resume-tailoring",

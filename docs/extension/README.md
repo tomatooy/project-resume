@@ -4,16 +4,16 @@ The independent Chrome app is `apps/extension`. It uses the existing web Worker 
 
 ## Configure and load
 
-1. Copy `apps/extension/.env.example` to `apps/extension/.env.local`. Set `VITE_APP_ORIGIN`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY`. The origin must identify the backend deployment, not a separate extension API. HTTP is supported only for localhost development.
-2. Run `bun install --frozen-lockfile`, then `bun run --filter @workspace/extension build` yourself. For unpacked development, `bun run --filter @workspace/extension dev` runs a build watcher; it does not start the web app.
+1. Copy `apps/extension/.env.example` to `apps/extension/.env.local` for development. Copy `apps/extension/.env.production.example` to `apps/extension/.env.production.local` for production. Set `VITE_APP_ORIGIN`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY` in each file. The origin identifies the main app's backend. Production builds require hosted HTTPS URLs.
+2. Run `bun install --frozen-lockfile`, then `bun run build:extension:dev` for an unpacked local build or `bun run build:extension` for production. `bun run dev:extension` watches in development mode; it does not start the web app. Both modes write to `apps/extension/dist`, so rebuild and reload the extension when switching.
 3. In Chrome 127 or newer, open `chrome://extensions`, enable Developer mode, select **Load unpacked**, and choose `apps/extension/dist`.
-4. Record the extension ID shown by Chrome. For a stable development/release identity, set `VITE_EXTENSION_PUBLIC_KEY` to the extension's public key and rebuild. Never put a private signing key in this variable.
+4. Record the extension ID shown by Chrome. For a stable development/release identity, set `VITE_EXTENSION_PUBLIC_KEY` in the corresponding environment file to the extension's public key and rebuild. Never put a private signing key in this variable.
 5. Add the exact callback `https://<extension-id>.chromiumapp.org/auth/callback` to the Supabase Auth redirect allowlist. The extension uses a separate Google PKCE session; it does not copy the app's session or refresh token. Add each development and production ID explicitly.
-6. Configure the existing web Worker with `EXTENSION_ORIGINS=chrome-extension://<extension-id>` (comma-separated for multiple exact IDs). For local development this belongs in `apps/web/.dev.vars`; production may use Worker vars. Its public Supabase configuration must identify the same project as the extension.
+6. Configure the existing web Worker with `EXTENSION_ORIGINS=chrome-extension://<extension-id>` (comma-separated for multiple exact IDs). For local development this belongs in `apps/web/.dev.vars`; production belongs in `vars.EXTENSION_ORIGINS` in `apps/web/wrangler.jsonc`. The production allowlist starts empty until the release ID is known. Its public Supabase configuration must identify the same project as the extension.
 7. Configure `TAILOR_ENCRYPTION_KEY_V1` as a Worker secret and in `.dev.vars` locally. Use a random 32-byte key encoded as base64. Keep it for the lifetime of in-flight attempts. Neither this secret nor a model key belongs in the extension.
 8. Apply the `20260924*` database migrations through the normal environment migration process, including the Realtime publication for job bindings and tailoring operations. The `TAILOR_WORKFLOW` binding in `apps/web/wrangler.jsonc` names `resume-tailoring`, class `TailorWorkflow`, exported from `src/server.ts`. Deploy the compatible backend before distributing the extension.
 
-Actual production origins and extension IDs are not known to the repository and have not been invented. Cloudflare account entitlement, deployed workflow exports, Google callback behavior, and model latency require the manual environment checks below. No build, deployment, or browser verification was performed by the implementing agent.
+The production backend is `https://vs-resume.ouyangzongxin.workers.dev`, using the Supabase project `gbwyxuqprtumutqmluju`. The release extension ID and public key still need to be supplied. Follow the [deployment checklist](../deployment.md) before distributing a production extension build.
 
 ## OAuth returns to the main app
 

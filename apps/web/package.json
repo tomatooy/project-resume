@@ -11,6 +11,8 @@
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit",
     "deploy": "vite build && wrangler deploy",
+    "deploy:check": "vite build && wrangler deploy --dry-run",
+    "cf": "wrangler",
     "cf-typegen": "wrangler types",
     "test": "vitest run",
     "db:check": "bun run scripts/check-adapters.ts"

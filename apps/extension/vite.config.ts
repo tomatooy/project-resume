@@ -15,7 +15,7 @@ const root = fileURLToPath(new URL(".", import.meta.url))
  * also gives it its own scope in the isolated world it shares with the widget
  * host and any reinjected copy.
  */
-function contentScript(root: string): Plugin {
+function contentScript(root: string, mode: string): Plugin {
   let code = ""
   return {
     name: "content-script",
@@ -23,6 +23,7 @@ function contentScript(root: string): Plugin {
     async buildStart() {
       const result = await build({
         root,
+        mode,
         configFile: false,
         logLevel: "warn",
         build: {
@@ -55,12 +56,35 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, root, "VITE_")
   const origin = z.url().parse(env.VITE_APP_ORIGIN)
   const supabase = z.url().parse(env.VITE_SUPABASE_URL)
+  const key = z.string().trim().min(1).parse(env.VITE_SUPABASE_PUBLISHABLE_KEY)
+  if (mode === "production") {
+    for (const value of [origin, supabase]) {
+      const url = new URL(value)
+      if (
+        url.protocol !== "https:" ||
+        url.hostname === "localhost" ||
+        url.hostname.endsWith(".localhost") ||
+        url.hostname.startsWith("127.") ||
+        url.hostname === "[::1]" ||
+        url.hostname === "0.0.0.0"
+      ) {
+        throw new Error(
+          "Production extension builds require hosted HTTPS VITE_APP_ORIGIN and VITE_SUPABASE_URL. Set apps/extension/.env.production.local."
+        )
+      }
+    }
+    if (key.startsWith("sb_secret_")) {
+      throw new Error(
+        "Use a Supabase publishable key in public build configuration."
+      )
+    }
+  }
   return {
     optimizeDeps: { exclude: ["pdfjs-dist"] },
     plugins: [
       react(),
       tailwind(),
-      contentScript(root),
+      contentScript(root, mode),
       {
         name: "extension-manifest",
         generateBundle(_options, bundle) {
