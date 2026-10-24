@@ -316,7 +316,7 @@ export function App() {
               ? "Review your PDF, download it, or make a few final edits."
               : "You can retry with the saved job description, or edit your copy."}
         </p>
-        {op.status === "succeeded" && data.canApply && (
+        {op.status === "succeeded" && (
           <Button
             className="w-full"
             disabled={pending}
@@ -330,7 +330,7 @@ export function App() {
             <Button
               ref={previewButton}
               className="flex-1"
-              variant={data.canApply ? "outline" : "default"}
+              variant="outline"
               onClick={() => setPreviewId(readyKey)}
             >
               <FilePdfIcon /> Preview resume
