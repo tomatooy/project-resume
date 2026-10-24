@@ -41,7 +41,13 @@ export function Widget() {
             )
           }}
         >
-          <img src="/icons/32.png" width={32} height={32} alt="" />
+          <img
+            src="/logo.svg"
+            width={32}
+            height={32}
+            alt=""
+            className="dark:invert"
+          />
         </Button>
         <Button
           className="edge-drag edge-control"

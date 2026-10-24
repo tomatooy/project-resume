@@ -389,7 +389,7 @@ describe("AutofillService.start", () => {
         resumeVersionId: started.versionId,
       }),
     ])
-    expect(started.fileName).toBe("ada-lovelace-resume.pdf")
+    expect(started.fileName).toBe("SWE(Stripe).pdf")
     const head = await h.resumeService.get(resume.id)
     expect(started.document).toEqual({
       data: head.data,

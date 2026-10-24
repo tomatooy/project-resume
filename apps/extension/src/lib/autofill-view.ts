@@ -36,6 +36,7 @@ export const ItemSchema = z.object({
 export type Item = z.infer<typeof ItemSchema>
 
 export const AutofillViewSchema = z.object({
+  postingKey: z.string().nullable().default(null),
   /** Null until the page's first scan arrives. */
   vendor: AutofillVendorSchema.nullable(),
   company: z.string().nullable(),

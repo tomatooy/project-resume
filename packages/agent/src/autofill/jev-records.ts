@@ -1,7 +1,6 @@
 import {
   applicantEvidence,
   type ApplicantEvidence,
-  type ApplicantSource,
   evidenceContext,
   type Json,
   jsonObject,
@@ -20,17 +19,11 @@ import { noul, type Question, type TypeSafeClient } from "@workspace/typesafe"
 
 import { dataBlock, JEV_DATA_RULE } from "../prompts/autofill"
 import { beforeDeadline } from "./deadline"
-import type { RecordJudgeInput, RecordJudgeOutput } from "./jev"
+import type { SourceJudgeInput } from "./jev"
 
 type Verdict = JudgeOutput["choices"][string]
-/** One call's answer to a field, and the source it came from when known. */
-type Reading<T> = { value: T; source: ApplicantSource | null }
-
-/** Source priority: Profile, then Notes, then the resume. */
-const SOURCES: ApplicantSource[] = ["profile", "notes", "resume"]
-/** A records answer whose source Jev did not name ranks last. */
-const rank = (source: ApplicantSource | null): number =>
-  source === null ? SOURCES.length : SOURCES.indexOf(source)
+type Source = NonNullable<SourceJudgeInput["source"]>
+type Reading<T> = { value: T; source: Source }
 
 const empty = (): JudgeOutput => ({
   choices: {},
@@ -38,11 +31,11 @@ const empty = (): JudgeOutput => ({
   open: {},
   usage: { inputTokens: 0, outputTokens: 0 },
 })
-const missing = (blocked = false): Verdict => ({
+const missing = (): Verdict => ({
   option: null,
   applicant: false,
   confidence: 0,
-  blocked,
+  blocked: false,
 })
 
 function addUsage(total: ModelUsage, usage: ModelUsage): void {
@@ -51,49 +44,21 @@ function addUsage(total: ModelUsage, usage: ModelUsage): void {
 }
 
 /**
- * The first of the ranked answers, so the higher-priority source wins when
- * the calls disagree. "conflict" when an answer that disagrees has no source
- * to rank it by; undefined when there is no answer.
- */
-function winner<T>(
-  answers: Reading<T>[],
-  same: (a: T, b: T) => boolean
-): Reading<T> | "conflict" | undefined {
-  const [first, ...rest] = answers
-  if (!first) return undefined
-  const unranked = rest.some(
-    (other) => other.source === null && !same(first.value, other.value)
-  )
-  return unranked ? "conflict" : first
-}
-
-const sameChoice = (a: Verdict, b: Verdict): boolean =>
-  a.option === b.option && a.applicant === b.applicant
-
-/** The options a multi-select answer selects, as a comparable key. */
-const selection = (yes: number[]): string =>
-  yes.map((p) => (p >= MULTI_YES ? 1 : 0)).join("")
-
-/**
- * Notes and Profile/resume calls in parallel, then one evidence check for a
- * weak pick. A passing answer from either call is used: a choice at
- * CHOICE_MIN or above, or a multi-select with an option at MULTI_YES or
- * above. A weak choice counts only when neither call passes, and then must
- * pass verification. When the calls disagree, Profile beats Notes and Notes
- * beat the resume; a records answer without a named source cannot be
- * ranked, so the field is asked. A failed call gives no answer.
+ * Notes and Profile calls in parallel. Profile wins among passing answers;
+ * weak choices need evidence verification. A failed call gives no answer.
  */
 export function createRecordJudge(
   client: TypeSafeClient,
-  once: (input: RecordJudgeInput) => Promise<RecordJudgeOutput>
+  once: (input: SourceJudgeInput) => Promise<JudgeOutput>
 ): AutofillModels["judge"] {
   return async (input) => {
     const { context, choices, multi, open } = input
     const records = jsonObject(context)
-    const facts = applicantEvidence(context)
+    const { profile, notes: noteFacts } = applicantEvidence(context)
+    const facts = { profile, notes: noteFacts }
     const notes = notesOf(context)
-    const hasRecords = facts.profile.length + facts.resume.length > 0
-    const call = (request: RecordJudgeInput, needed: boolean) =>
+    const hasProfile = profile.length > 0
+    const call = (request: SourceJudgeInput, needed: boolean) =>
       needed
         ? beforeDeadline(
             {
@@ -104,8 +69,8 @@ export function createRecordJudge(
             },
             (call) => once({ ...request, ...call })
           )
-        : Promise.resolve<RecordJudgeOutput>(empty())
-    const [noted, recorded] = await Promise.allSettled([
+        : Promise.resolve<JudgeOutput>(empty())
+    const [noted, profiled] = await Promise.allSettled([
       call(
         { ...input, context: { notes }, open: [], source: "notes" },
         Boolean(notes.trim()) && choices.length + multi.length > 0
@@ -116,65 +81,53 @@ export function createRecordJudge(
           context: {
             today: records.today ?? "",
             profile: records.profile ?? {},
-            resume: records.resume ?? null,
           },
-          choices: hasRecords ? choices : [],
-          multi: hasRecords ? multi : [],
+          choices: hasProfile ? choices : [],
+          multi: hasProfile ? multi : [],
           open,
-          source: "records",
+          source: "profile",
         },
-        (hasRecords && choices.length + multi.length > 0) || open.length > 0
+        (hasProfile && choices.length + multi.length > 0) || open.length > 0
       ),
     ])
     const noteOutput = noted.status === "fulfilled" ? noted.value : null
-    const recordOutput = recorded.status === "fulfilled" ? recorded.value : null
+    const profileOutput =
+      profiled.status === "fulfilled" ? profiled.value : null
     /** Each call's reading of a field, highest priority first. */
     const readingsOf = <T>(
-      key: string,
       read: (judged: JudgeOutput) => T | undefined
     ): Reading<T>[] => {
-      const named = recordOutput?.sources?.[key] ?? null
-      return [
-        { judged: noteOutput, source: "notes" as const },
-        {
-          judged: recordOutput,
-          // A source with no facts cannot hold the evidence.
-          source: named && facts[named].length > 0 ? named : null,
-        },
+      const readings: { judged: JudgeOutput | null; source: Source }[] = [
+        { judged: profileOutput, source: "profile" },
+        { judged: noteOutput, source: "notes" },
       ]
-        .flatMap(({ judged, source }) => {
-          const value = judged ? read(judged) : undefined
-          return value === undefined ? [] : [{ value, source }]
-        })
-        .sort((a, b) => rank(a.source) - rank(b.source))
+      return readings.flatMap(({ judged, source }) => {
+        const value = judged ? read(judged) : undefined
+        return value === undefined ? [] : [{ value, source }]
+      })
     }
     const output = empty()
-    output.degraded = noteOutput === null || recordOutput === null
-    for (const result of [noteOutput, recordOutput])
+    output.degraded = noteOutput === null || profileOutput === null
+    for (const result of [noteOutput, profileOutput])
       if (result) addUsage(output.usage, result.usage)
-    output.open = recordOutput?.open ?? {}
+    output.open = profileOutput?.open ?? {}
     output.preferences = {}
     const unanswered: string[] = []
     for (const item of choices) {
-      const readings = readingsOf(
-        item.key,
-        (judged) => judged.choices[item.key]
-      )
+      const readings = readingsOf((judged) => judged.choices[item.key])
       const answers = readings.filter(
         ({ value }) => value.option !== null || value.applicant
       )
       const passing = answers.filter(
-        ({ value }) => value.confidence >= CHOICE_MIN
+        ({ value }) => value.confidence > CHOICE_MIN
       )
-      const chosen = winner(passing.length > 0 ? passing : answers, sameChoice)
-      if (chosen === "conflict") output.choices[item.key] = missing(true)
-      else if (chosen?.source)
+      const chosen = passing[0] ?? answers[0]
+      if (chosen)
         output.choices[item.key] = {
           ...chosen.value,
           source: chosen.source,
           evidence: facts[chosen.source].map(({ ref }) => ref),
         }
-      else if (chosen) output.choices[item.key] = chosen.value
       else {
         // No answer: the top reading keeps its scores for the how-heard guess.
         output.choices[item.key] = readings[0]?.value ?? missing()
@@ -182,13 +135,11 @@ export function createRecordJudge(
       }
     }
     for (const item of multi) {
-      const readings = readingsOf(item.key, (judged) => judged.multi[item.key])
-      const chosen = winner(
-        readings.filter(({ value }) => value.some((p) => p >= MULTI_YES)),
-        (a, b) => selection(a) === selection(b)
+      const readings = readingsOf((judged) => judged.multi[item.key])
+      const chosen = readings.find(({ value }) =>
+        value.some((p) => p >= MULTI_YES)
       )
-      if (chosen === "conflict") output.multi[item.key] = []
-      else if (chosen) output.multi[item.key] = chosen.value
+      if (chosen) output.multi[item.key] = chosen.value
       else {
         const top = readings[0]
         if (top) output.multi[item.key] = top.value
@@ -208,7 +159,7 @@ export function createRecordJudge(
 async function verify(
   client: TypeSafeClient,
   input: JudgeInput,
-  facts: Record<ApplicantSource, ApplicantEvidence[]>,
+  facts: Record<Source, ApplicantEvidence[]>,
   output: JudgeOutput
 ): Promise<void> {
   const candidates = input.choices.flatMap((item) => {
@@ -217,12 +168,12 @@ async function verify(
     const option = verdict?.option
     if (
       !verdict ||
-      !source ||
+      (source !== "profile" && source !== "notes") ||
       option === null ||
       option === undefined ||
       verdict.applicant ||
       verdict.blocked ||
-      verdict.confidence >= CHOICE_MIN
+      verdict.confidence > CHOICE_MIN
     )
       return []
     const value = item.options[option]

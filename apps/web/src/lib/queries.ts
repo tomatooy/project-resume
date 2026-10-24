@@ -42,7 +42,12 @@ import {
 } from "./api"
 import { ApiError, type ChatHistory } from "./types"
 import type { ResumeState } from "@/features/resume/store"
-import { UserSkillInputSchema, type SkillDraft } from "@workspace/resume-core"
+import {
+  ResumeSortSchema,
+  UserSkillInputSchema,
+  type ResumeSort,
+  type SkillDraft,
+} from "@workspace/resume-core"
 import type { Profile } from "@workspace/autofill"
 
 export function cacheWorkspaceResume(
@@ -131,16 +136,16 @@ export async function saveWorkspaceSkill(
 
 /* -------------------------------------------------------------- queries */
 
-export const resumesQuery = () =>
+export const resumesQuery = (sortBy: ResumeSort = "updatedAt") =>
   infiniteQueryOptions({
-    queryKey: ["resumes", "pages"] as const,
-    queryFn: ({ pageParam }) => listResumePage({ cursor: pageParam }),
+    queryKey: ["resumes", "pages", sortBy] as const,
+    queryFn: ({ pageParam }) => listResumePage({ cursor: pageParam, sortBy }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
   })
 
-export function useResumes(enabled = true) {
-  const query = useInfiniteQuery({ ...resumesQuery(), enabled })
+export function useResumes(sortBy: ResumeSort = "updatedAt", enabled = true) {
+  const query = useInfiniteQuery({ ...resumesQuery(sortBy), enabled })
   const data = query.data
     ? [
         ...new Map(
@@ -160,10 +165,12 @@ export const resumeSummaryQuery = (id: string) =>
   })
 export function useResumeSummaries(ids: string[]) {
   const client = useQueryClient()
-  const cached =
-    client
-      .getQueryData(resumesQuery().queryKey)
-      ?.pages.flatMap((page) => page.items) ?? []
+  const cached = ResumeSortSchema.options.flatMap(
+    (sortBy) =>
+      client
+        .getQueryData(resumesQuery(sortBy).queryKey)
+        ?.pages.flatMap((page) => page.items) ?? []
+  )
   return useQueries({
     queries: [...new Set(ids)].map((id) => ({
       ...resumeSummaryQuery(id),
@@ -172,15 +179,17 @@ export function useResumeSummaries(ids: string[]) {
   })
 }
 export async function invalidateResumes(client: QueryClient): Promise<void> {
-  await client.cancelQueries({ queryKey: resumesQuery().queryKey })
-  client.setQueryData(resumesQuery().queryKey, (data) =>
-    data
-      ? {
-          pages: data.pages.slice(0, 1),
-          pageParams: data.pageParams.slice(0, 1),
-        }
-      : data
-  )
+  await client.cancelQueries({ queryKey: ["resumes", "pages"] })
+  for (const sortBy of ResumeSortSchema.options) {
+    client.setQueryData(resumesQuery(sortBy).queryKey, (data) =>
+      data
+        ? {
+            pages: data.pages.slice(0, 1),
+            pageParams: data.pageParams.slice(0, 1),
+          }
+        : data
+    )
+  }
   await client.invalidateQueries({ queryKey: ["resumes"] })
 }
 

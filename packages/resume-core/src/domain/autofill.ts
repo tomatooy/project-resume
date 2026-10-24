@@ -7,6 +7,8 @@ import {
   FieldsSchema,
   FillSchema,
   LIMITS,
+  LocationTargetSchema,
+  OptionSchema,
   ProfileFieldKeySchema,
   ProfileSchema,
   ProfileSectionSchema,
@@ -200,6 +202,25 @@ export const InferResultSchema = z.object({
   quota: QuotaSchema,
 })
 export type InferResult = z.infer<typeof InferResultSchema>
+
+export const ResolveLocationInputSchema = AiRequestSchema.extend({
+  target: LocationTargetSchema,
+  options: z
+    .array(OptionSchema)
+    .min(1)
+    .max(20)
+    .refine(
+      (options) => new Set(options.map(({ id }) => id)).size === options.length,
+      { message: "Option ids must be unique" }
+    ),
+})
+export type ResolveLocationInput = z.infer<typeof ResolveLocationInputSchema>
+
+export const ResolveLocationResultSchema = z.object({
+  option: OptionSchema.nullable(),
+  quota: QuotaSchema,
+})
+export type ResolveLocationResult = z.infer<typeof ResolveLocationResultSchema>
 
 export const AnswerInputSchema = AiRequestSchema.extend({
   fields: FieldsSchema,

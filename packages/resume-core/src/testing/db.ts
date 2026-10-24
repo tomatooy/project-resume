@@ -24,6 +24,7 @@ export type ResumeRow = {
   templateOptions: TemplateOptions
   currentVersionId: string | null
   revision: number
+  createdAt: string
   updatedAt: string
   deletedAt: string | null
 }

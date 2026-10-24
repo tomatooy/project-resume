@@ -194,7 +194,12 @@ function entryField(entry: HTMLElement, path: string): ScannedField | null {
       element: input,
       kind: "combo",
       choices: [],
-      combo: school ? schoolComboParts(input) : ariaComboParts(input),
+      combo: school
+        ? schoolComboParts(input)
+        : {
+            ...ariaComboParts(input),
+            location: path === "_systemfield_location",
+          },
     }
     return {
       ...live,

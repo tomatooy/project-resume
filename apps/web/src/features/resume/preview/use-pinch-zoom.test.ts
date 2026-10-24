@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { ZOOM_MAX, ZOOM_MIN } from "@workspace/resume-preview"
-import { pinchedZoom } from "./use-pinch-zoom"
+import { pinchedZoom, ZOOM_MAX, ZOOM_MIN } from "@workspace/resume-preview"
 
 describe("pinchedZoom", () => {
   it("follows the direction of the pinch", () => {

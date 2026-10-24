@@ -27,7 +27,7 @@ import { toJson } from "./json"
 type Row = Database["public"]["Tables"]["resumes"]["Row"]
 type HeadRow = Pick<
   Row,
-  "id" | "title" | "subtitle" | "template_id" | "updated_at"
+  "id" | "title" | "subtitle" | "template_id" | "created_at" | "updated_at"
 >
 type SummaryRow = HeadRow & {
   /** Only the origin link: every summary query filters the embed to it. */
@@ -40,7 +40,7 @@ const RECORD_COLUMNS =
   "id,user_id,title,subtitle,data,schema_version,template_id,template_options,current_version_id,revision,created_at,updated_at,deleted_at"
 
 const SUMMARY_COLUMNS =
-  "id, title, subtitle, template_id, updated_at, resume_job_targets(is_origin, job_targets(company, title))"
+  "id, title, subtitle, template_id, created_at, updated_at, resume_job_targets(is_origin, job_targets(company, title))"
 
 /**
  * `template_id` is plain text in the database so that adding a template needs
@@ -55,6 +55,7 @@ function toHead(row: HeadRow): Omit<ResumeSummary, "job"> {
     title: row.title,
     subtitle: row.subtitle,
     templateId: toTemplateId(row.template_id),
+    createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
 }
@@ -112,6 +113,8 @@ export class SupabaseResumeRepository implements ResumeRepository {
   }
 
   async page(input: ResumePageInput) {
+    const sortBy = input.sortBy ?? "updatedAt"
+    const column = sortBy === "createdAt" ? "created_at" : "updated_at"
     const cursor = input.cursor ? parseResumeCursor(input.cursor) : null
     let query = this.db
       .from("resumes")
@@ -120,10 +123,10 @@ export class SupabaseResumeRepository implements ResumeRepository {
       .eq("resume_job_targets.is_origin", true)
     if (cursor)
       query = query.or(
-        `updated_at.lt.${cursor.updatedAt},and(updated_at.eq.${cursor.updatedAt},id.lt.${cursor.id})`
+        `${column}.lt.${cursor.timestamp},and(${column}.eq.${cursor.timestamp},id.lt.${cursor.id})`
       )
     const { data, error, count } = await query
-      .order("updated_at", { ascending: false })
+      .order(column, { ascending: false })
       .order("id", { ascending: false })
       .limit(PAGE_SIZE + 1)
     if (error) throw error
@@ -131,7 +134,8 @@ export class SupabaseResumeRepository implements ResumeRepository {
     const last = items.at(-1)
     return {
       items,
-      nextCursor: data.length > PAGE_SIZE && last ? resumeCursor(last) : null,
+      nextCursor:
+        data.length > PAGE_SIZE && last ? resumeCursor(last, sortBy) : null,
       ...(!cursor ? { total: count ?? 0 } : {}),
     }
   }
@@ -164,7 +168,7 @@ export class SupabaseResumeRepository implements ResumeRepository {
       .rpc("resume_search_candidates", {
         p_tokens: tokens,
         p_phase: phase,
-        p_before_at: cursor?.updatedAt,
+        p_before_at: cursor?.timestamp,
         p_before_id: cursor?.id,
       })
       .select(RECORD_COLUMNS)

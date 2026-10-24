@@ -212,6 +212,6 @@ export class ResumeService {
 
 /** The rail's card fields, off a record the search already holds. */
 function toSummary(record: ResumeRecord): ResumeSearchGroup["resume"] {
-  const { id, title, subtitle, templateId, updatedAt } = record
-  return { id, title, subtitle, templateId, updatedAt }
+  const { id, title, subtitle, templateId, createdAt, updatedAt } = record
+  return { id, title, subtitle, templateId, createdAt, updatedAt }
 }

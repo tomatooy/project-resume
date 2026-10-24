@@ -2,7 +2,10 @@ import {
   applicantContext,
   type ContextInput,
   companiesMatch,
+  compatibleLocation,
+  effectiveIdentity,
   type Fill,
+  matchLocation,
   missingAnswers,
   plainQuestions,
   ruleFills,
@@ -26,6 +29,8 @@ import type {
   NotesUndoResult,
   PlanInput,
   PlanResult,
+  ResolveLocationInput,
+  ResolveLocationResult,
   ResumeChoice,
   StartInput,
   StartResult,
@@ -75,6 +80,7 @@ import type { VersionService } from "./version-service"
 
 /** How many recent origin links the company rule looks through. */
 const ORIGINS_SCANNED = 50
+const LOCATION_MS = 8_000
 
 const NO_USAGE: ModelUsage = { inputTokens: 0, outputTokens: 0 }
 /** What a call that had nothing to ask returns, without being made. */
@@ -150,6 +156,27 @@ export class AutofillService {
       linkedin: input.linkedin !== null,
       today: this.deps.clock(),
     })
+    const identity = effectiveIdentity(profile, record?.data.basics ?? null)
+    const locations = new Set(
+      rules.classes
+        .filter(
+          ({ key }) => key === "address.location" || key === "address.city"
+        )
+        .map(({ fieldId }) => fieldId)
+    )
+    const withLocation = (fill: Fill): Fill =>
+      fill.kind === "search" && locations.has(fill.fieldId) && identity.city
+        ? {
+            ...fill,
+            location: {
+              city: identity.city,
+              ...(identity.state ? { region: identity.state } : {}),
+              ...(profile.contact.country
+                ? { country: profile.contact.country }
+                : {}),
+            },
+          }
+        : fill
     const earlier = await this.deps.applications.find(
       page.vendor,
       page.postingKey
@@ -159,8 +186,8 @@ export class AutofillService {
       resumeChoice: chosen?.choice ?? null,
       job,
       jobMatch: jobMatch(job, page),
-      fills: rules.fills,
-      overwrites: rules.overwrites,
+      fills: rules.fills.map(withLocation),
+      overwrites: rules.overwrites.map(withLocation),
       classes: rules.classes,
       earlier: earlier
         ? { at: earlier.updatedAt, resumeTitle: earlier.resumeTitle }
@@ -200,7 +227,7 @@ export class AutofillService {
     return {
       applicationId: id,
       versionId: version.id,
-      fileName: resumeFileName(resume.data.basics.name),
+      fileName: resumeFileName(resume.title),
       document: {
         data: resume.data,
         templateId: resume.templateId,
@@ -251,6 +278,73 @@ export class AutofillService {
       (count) => this.answerFields(keyed, context, { ready, started, count })
     )
     return this.respond(input, result)
+  }
+
+  /** Resolve only rendered candidates, with the existing metered Jev judge. */
+  async resolveLocation(
+    input: ResolveLocationInput
+  ): Promise<ResolveLocationResult> {
+    const started = Date.now()
+    await this.deps.runs.assertWithinHourlyLimit("autofill")
+    if (!(await this.deps.resumes.findById(input.resumeId)))
+      throw new AppError("NOT_FOUND", "Resume not found")
+    const options = input.options.filter(({ label }) =>
+      compatibleLocation(input.target, label)
+    )
+    const exact = matchLocation(
+      input.target,
+      options.map(({ label }) => label)
+    )
+    if (exact !== null)
+      return this.respond(input, { option: options[exact] ?? null })
+    if (!options.length || !this.deps.models.ready().judge)
+      return this.respond(input, { option: null })
+    const option = await this.metered(
+      input.resumeId,
+      "autofill.infer",
+      started,
+      async (count) => {
+        const step = deadlineAt(started + LOCATION_MS)
+        const output = await within(step.call.signal, () =>
+          this.deps.models.judge({
+            ...step.call,
+            context: {},
+            reply: { text: JSON.stringify(input.target) },
+            choices: [
+              {
+                key: "location",
+                label: "Current location",
+                intent: "location",
+                options: options.map(({ label }) => label),
+              },
+            ],
+            multi: [],
+            open: [],
+          })
+        )
+          .then(count)
+          .catch(() => null)
+        step.clear()
+        const verdict = output?.choices.location
+        const candidate =
+          verdict &&
+          !verdict.applicant &&
+          !verdict.unmatched &&
+          !verdict.blocked &&
+          verdict.confidence >= 0.9 &&
+          verdict.option !== null
+            ? options[verdict.option]
+            : undefined
+        const unique =
+          candidate &&
+          options.filter(({ label }) => label === candidate.label).length === 1
+        return {
+          value: unique ? candidate : null,
+          failure: output ? null : stepFailure(step.call.signal),
+        }
+      }
+    )
+    return this.respond(input, { option })
   }
 
   /**

@@ -2,6 +2,7 @@ import {
   applicantContext,
   emptyProfile,
   type Profile,
+  profileFromResume,
 } from "@workspace/autofill"
 import {
   CHOICE_MIN,
@@ -103,18 +104,6 @@ describe("autofill judge", () => {
             m_0_0: { type: "noul", noul: 0.95 },
             m_0_1: { type: "noul", noul: 0.9 },
             m_0_2: { type: "noul", noul: 0.01 },
-            s_0: {
-              type: "choice",
-              choice: "profile",
-              confidence: 1,
-              probabilities: { profile: 1, resume: 0, insufficient: 0 },
-            },
-            s_1: {
-              type: "choice",
-              choice: "profile",
-              confidence: 1,
-              probabilities: { profile: 1, resume: 0, insufficient: 0 },
-            },
           },
           usage: { input_tokens: 10, output_tokens: 5 },
         }),
@@ -322,11 +311,11 @@ function liveJudge(
 }
 
 describe.skipIf(!liveEnabled)("autofill judge with live Jev", () => {
-  it("reads Profile preferences and resume education from structured state", async () => {
+  it("reads Profile preferences and education from structured state", async () => {
     const result = await liveJudge({
       context: applicantContext({
         profile: {
-          ...emptyProfile,
+          ...profileFromResume(emptyProfile, onePage),
           preferences: { ...emptyProfile.preferences, workModes: ["remote"] },
         },
         resume: {
@@ -356,13 +345,12 @@ describe.skipIf(!liveEnabled)("autofill judge with live Jev", () => {
     })
     expect(result.choices.degree, JSON.stringify(result)).toMatchObject({
       option: 1,
-      source: "resume",
+      source: "profile",
     })
     for (const key of ["mode", "degree"]) {
       const verdict = result.choices[key]
       expect(
-        verdict &&
-          (verdict.confidence >= CHOICE_MIN || verifiedChoice(verdict)),
+        verdict && (verdict.confidence > CHOICE_MIN || verifiedChoice(verdict)),
         JSON.stringify(verdict)
       ).toBe(true)
     }
@@ -402,13 +390,13 @@ describe.skipIf(!liveEnabled)("autofill judge with live Jev", () => {
       applicant: false,
     })
     expect(
-      quora && (quora.confidence >= CHOICE_MIN || verifiedChoice(quora))
+      quora && (quora.confidence > CHOICE_MIN || verifiedChoice(quora))
     ).toBe(true)
     const other = result.choices.other
     expect(
       other?.option !== null &&
         other &&
-        (other.confidence >= CHOICE_MIN || verifiedChoice(other)),
+        (other.confidence > CHOICE_MIN || verifiedChoice(other)),
       JSON.stringify(other)
     ).toBe(false)
     expect(result.choices.covenant?.option).toBeNull()
@@ -472,7 +460,7 @@ describe.skipIf(!liveEnabled)("autofill judge with live Jev", () => {
       const interview = result.choices.interview
       expect(
         interview &&
-          (interview.confidence >= CHOICE_MIN || verifiedChoice(interview))
+          (interview.confidence > CHOICE_MIN || verifiedChoice(interview))
       ).toBe(true)
       expect(result.choices.hours?.option).toBeNull()
     },

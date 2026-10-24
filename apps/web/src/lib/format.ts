@@ -27,6 +27,14 @@ export function absoluteTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
+export function absoluteDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
 export function pluralize(
   count: number,
   one: string,

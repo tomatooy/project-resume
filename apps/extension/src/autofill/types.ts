@@ -28,6 +28,8 @@ export type DriverKind =
 export type ComboParts = {
   input: HTMLInputElement
   opener: HTMLElement
+  location?: boolean
+  loading?(): boolean
   /** Vendors that search on keyboard events instead of input/change. */
   setQuery?(value: string): void
   options(): HTMLElement[]
@@ -37,6 +39,11 @@ export type ComboParts = {
   values(): string[]
   clearer(): HTMLElement | null
 }
+
+export type ResolveLocation = (
+  fieldId: string,
+  options: Option[]
+) => Promise<Option | null>
 
 export type ScannedField = {
   descriptor: FieldDescriptor
@@ -59,7 +66,11 @@ export type FieldHandle = {
   descriptor: FieldDescriptor
   hasValue(): boolean
   readOptions(cancelled?: () => boolean): Promise<Option[] | null>
-  write(fill: Fill, cancelled?: () => boolean): Promise<WriteOutcome>
+  write(
+    fill: Fill,
+    cancelled?: () => boolean,
+    resolveLocation?: ResolveLocation
+  ): Promise<WriteOutcome>
   clear(): Promise<void>
   focus(): void
 }

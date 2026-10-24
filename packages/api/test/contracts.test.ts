@@ -35,6 +35,7 @@ it("keeps the web summary shape and explicit JSON routes", () => {
     title: "Resume",
     subtitle: "Draft",
     templateId: "lisbon",
+    createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
   // A summary sent before `job` existed still parses, with no origin job.

@@ -1,28 +1,31 @@
 import type { Fill, Option } from "@workspace/autofill/fields"
 import { normalizeText, searchMatch } from "@workspace/autofill/match"
-import { closeCombo, openCombo } from "./combobox"
+import {
+  closeCombo,
+  comboOptionLabel,
+  openCombo,
+  setComboQuery,
+} from "./combobox"
 import {
   LIMITS,
-  clip,
   fireEdit,
+  inScriptClick,
   scriptClick,
   setNativeValue,
-  textWithBreaks,
   waitFor,
 } from "./dom"
+import { findLocation, type SearchResult } from "./location-search"
 import type {
   ComboParts,
   FieldHandle,
   LiveField,
   ScannedField,
+  ResolveLocation,
   WriteOutcome,
 } from "./types"
 
 type OptionsFill = Extract<Fill, { kind: "options" }>
 type SearchFill = Extract<Fill, { kind: "search" }>
-type SearchResult =
-  | { interrupted: true }
-  | { interrupted: false; label: string }
 
 const OPEN_MS = 2_000
 const SEARCH_MS = 5_000
@@ -77,12 +80,6 @@ const squash = (text: string): string => normalizeText(text).replaceAll(" ", "")
 const sameText = (shown: string, wanted: string): boolean =>
   shown === wanted ||
   (squash(wanted) !== "" && squash(shown) === squash(wanted))
-
-const optionLabel = (element: HTMLElement): string =>
-  clip(textWithBreaks(element).split("\n").join(" "), LIMITS.option)
-
-const comboOptionLabel = (parts: ComboParts, option: HTMLElement): string =>
-  clip(parts.optionLabel?.(option) ?? optionLabel(option), LIMITS.option)
 
 const settled = async (check: () => boolean): Promise<boolean> =>
   (await waitFor(() => (check() ? true : null), CONFIRM_MS)) !== null
@@ -246,30 +243,51 @@ async function chooseInCombo(
 
 /** Clears only the query typed by this search. */
 function abandonSearch(parts: ComboParts): WriteOutcome {
+  if (parts.input.value !== "") setComboQuery(parts, "")
   close(parts)
-  if (parts.input.value !== "") setQuery(parts, "")
+  parts.input.blur()
   return "unmatched"
-}
-
-function setQuery(parts: ComboParts, value: string): void {
-  if (parts.setQuery) parts.setQuery(value)
-  else setNativeValue(parts.input, value, { blur: false })
 }
 
 /** Types the query and picks the result that matches the target. */
 async function searchCombo(
   parts: ComboParts,
   fill: SearchFill,
-  cancelled: () => boolean
+  cancelled: () => boolean,
+  resolveLocation?: ResolveLocation
 ): Promise<WriteOutcome> {
+  let interrupted = false
+  const interrupt = (event: Event) => {
+    if (event.isTrusted && !inScriptClick()) interrupted = true
+  }
+  const doc = parts.input.ownerDocument
+  const events = ["pointerdown", "keydown", "input", "change"]
+  for (const event of events) doc.addEventListener(event, interrupt, true)
+  try {
+    return await searchAndCommit(
+      parts,
+      fill,
+      () => interrupted || cancelled(),
+      resolveLocation
+    )
+  } finally {
+    for (const event of events) doc.removeEventListener(event, interrupt, true)
+  }
+}
+
+async function findSearch(
+  parts: ComboParts,
+  fill: SearchFill,
+  cancelled: () => boolean
+): Promise<SearchResult | null> {
   const { input } = parts
   input.focus()
-  setQuery(parts, fill.query)
+  setComboQuery(parts, fill.query)
   const started = Date.now()
   // Controlled widgets need an open gesture even after the query changes.
   await openCombo(parts, SEARCH_MS, cancelled)
   // Results may arrive late or in parts, so this waits for one that matches.
-  const result = await waitFor<SearchResult>(
+  return waitFor<SearchResult>(
     () => {
       if (cancelled()) return { interrupted: true }
       const options = parts.options()
@@ -285,6 +303,19 @@ async function searchCombo(
     },
     Math.max(0, SEARCH_MS - (Date.now() - started))
   )
+}
+
+async function searchAndCommit(
+  parts: ComboParts,
+  fill: SearchFill,
+  cancelled: () => boolean,
+  resolveLocation?: ResolveLocation
+): Promise<WriteOutcome> {
+  const { input } = parts
+  const result =
+    parts.location || fill.location
+      ? await findLocation(parts, fill, cancelled, resolveLocation)
+      : await findSearch(parts, fill, cancelled)
   if (cancelled() || result?.interrupted) return "skipped"
   const found = result
   if (!found) return abandonSearch(parts)
@@ -341,7 +372,8 @@ async function writeCheck(
 function write(
   field: ScannedField,
   fill: Fill,
-  cancelled: () => boolean
+  cancelled: () => boolean,
+  resolveLocation?: ResolveLocation
 ): Promise<WriteOutcome> {
   if (cancelled()) return Promise.resolve("skipped")
   // Files go through the resume attach, never through a fill.
@@ -362,7 +394,7 @@ function write(
       return picks ? choose(field, picks) : Promise.resolve("unmatched")
     }
     case "search": {
-      if (combo) return searchCombo(combo, fill, cancelled)
+      if (combo) return searchCombo(combo, fill, cancelled, resolveLocation)
       if (field.kind !== "select") return Promise.resolve("failed")
       const index = searchMatch(
         fill.target,
@@ -457,7 +489,7 @@ async function clearCombo(parts: ComboParts): Promise<void> {
     }
   }
   // An ARIA combobox holds its value as its text.
-  if (parts.values().length > 0 && parts.input.value !== "") setQuery(parts, "")
+  if (parts.input.value !== "") setComboQuery(parts, "")
 }
 
 function uncheck(radio: HTMLInputElement): void {
@@ -539,8 +571,13 @@ export function handleFor(field: ScannedField): FieldHandle {
     descriptor: field.descriptor,
     hasValue: () => hasValueNow(field),
     readOptions: (cancelled = () => false) => readOptions(field, cancelled),
-    write: (fill, cancelled = () => false) =>
-      write(field, fill, () => cancelled() || !field.element.isConnected),
+    write: (fill, cancelled = () => false, resolveLocation) =>
+      write(
+        field,
+        fill,
+        () => cancelled() || !field.element.isConnected,
+        resolveLocation
+      ),
     clear: () => clear(field),
     focus: () => focus(field),
   }

@@ -6,8 +6,8 @@ import { resumeFileName } from "@workspace/resume-schema"
  * showing is the file the user gets. Returns the filename it wrote, for the
  * caller's toast.
  */
-export function downloadPdf(blob: Blob, name: string): string {
-  const filename = resumeFileName(name)
+export function downloadPdf(blob: Blob, title: string): string {
+  const filename = resumeFileName(title)
   downloadBlob(blob, filename)
   return filename
 }

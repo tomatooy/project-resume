@@ -1,6 +1,6 @@
 import { type RefObject, useEffect, useRef } from "react"
 
-import { clampZoom, type PreviewStore } from "@workspace/resume-preview"
+import { clampZoom, type PreviewStore } from "./preview-store"
 
 /**
  * How far a single wheel event may take the zoom. A pinch arrives as a stream

@@ -1,10 +1,17 @@
-import type { Resume } from "@workspace/resume-schema"
+import {
+  EducationItemSchema,
+  ExperienceItemSchema,
+  type Resume,
+  SkillsGroupSchema,
+} from "@workspace/resume-schema"
 import { z } from "zod"
 
 import type { CanonicalKey, ProfileSection } from "./keys"
 import { US_STATES } from "./match"
 
 export const PROFILE_SCHEMA_VERSION = 1
+// A resume can hold 20 sections with 50 items each.
+export const PROFILE_HISTORY_LIMIT = 1_000
 
 const E164 = /^\+[1-9]\d{6,14}$/
 
@@ -126,13 +133,21 @@ const OtherSchema = z.object({
 })
 
 /**
- * Every section prefaults to `{}`, so `ProfileSchema.parse({})` is the full
- * empty Profile. (`.default` would return `{}` unparsed.)
+ * Objects prefault to `{}` and lists default to `[]`, including older profiles.
  */
 export const ProfileSchema = z.object({
   personal: PersonalSchema.prefault({}),
   contact: ContactSchema.prefault({}),
   links: LinksSchema.prefault({}),
+  experience: z
+    .array(ExperienceItemSchema)
+    .max(PROFILE_HISTORY_LIMIT)
+    .default([]),
+  education: z
+    .array(EducationItemSchema)
+    .max(PROFILE_HISTORY_LIMIT)
+    .default([]),
+  skills: z.array(SkillsGroupSchema).max(PROFILE_HISTORY_LIMIT).default([]),
   workAuth: WorkAuthSchema.prefault({}),
   preferences: PreferencesSchema.prefault({}),
   eeo: EeoSchema.prefault({}),
@@ -141,6 +156,34 @@ export const ProfileSchema = z.object({
 export type Profile = z.infer<typeof ProfileSchema>
 
 export const emptyProfile: Profile = ProfileSchema.parse({})
+
+type History = Pick<Profile, "experience" | "education" | "skills">
+
+export function resumeHistory(resume: Resume | null): History {
+  const items = resume?.sections.flatMap((section) => section.items) ?? []
+  return {
+    experience: items.filter((item) => item.kind === "experience"),
+    education: items.filter((item) => item.kind === "education"),
+    skills: items.filter((item) => item.kind === "skills"),
+  }
+}
+
+/** Whole sections win, so details from different jobs or schools never mix. */
+export function effectiveHistory(
+  profile: Profile,
+  resume: Resume | null
+): History {
+  const fallback = resumeHistory(resume)
+  return {
+    experience: profile.experience.length
+      ? profile.experience
+      : fallback.experience,
+    education: profile.education.length
+      ? profile.education
+      : fallback.education,
+    skills: profile.skills.length ? profile.skills : fallback.skills,
+  }
+}
 
 export function splitName(full: string): {
   first: string
@@ -297,5 +340,6 @@ export function profileFromResume(profile: Profile, resume: Resume): Profile {
       state: identity.state,
     },
     links: importLinks(profile.links, resume.basics.links),
+    ...structuredClone(effectiveHistory(profile, resume)),
   }
 }

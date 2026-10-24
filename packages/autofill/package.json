@@ -23,6 +23,7 @@
     "./fields": "./src/fields.ts",
     "./fixtures": "./src/fixtures/index.ts",
     "./match": "./src/match.ts",
+    "./location": "./src/location.ts",
     "./notes": "./src/notes.ts",
     "./options": "./src/options.ts"
   }

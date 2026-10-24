@@ -31,6 +31,14 @@ export function fieldId(path: string): string {
 const LABEL =
   "text-[11px] font-semibold tracking-[0.04em] text-muted-foreground uppercase"
 
+export function Grid({ children }: { children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
+      {children}
+    </div>
+  )
+}
+
 export function Field({
   id,
   label,

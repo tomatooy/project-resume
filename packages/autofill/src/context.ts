@@ -63,6 +63,9 @@ function profileJson(profile: Profile): JsonObject {
     personal: profile.personal,
     contact: profile.contact,
     links: profile.links,
+    experience: profile.experience.map(itemJson),
+    education: profile.education.map(itemJson),
+    skills: profile.skills.map(itemJson),
     workAuth: profile.workAuth,
     preferences: {
       startKind,
@@ -130,7 +133,10 @@ function itemJson(item: Item): JsonObject {
   }
 }
 
-function resumeJson({ basics, sections }: Resume): JsonObject {
+function resumeJson(
+  { basics, sections }: Resume,
+  profile: Profile
+): JsonObject {
   return {
     basics: present({
       name: basics.name,
@@ -141,11 +147,24 @@ function resumeJson({ basics, sections }: Resume): JsonObject {
       links: basics.links.map(({ label, url }) => ({ label, url })),
       summary: basics.summary,
     }),
-    sections: sections.map((section) => ({
-      title: section.title,
-      type: section.type,
-      items: section.items.map(itemJson),
-    })),
+    sections: sections
+      .filter((section) => {
+        switch (section.type) {
+          case "experience":
+            return profile.experience.length === 0
+          case "education":
+            return profile.education.length === 0
+          case "skills":
+            return profile.skills.length === 0
+          default:
+            return true
+        }
+      })
+      .map((section) => ({
+        title: section.title,
+        type: section.type,
+        items: section.items.map(itemJson),
+      })),
   }
 }
 
@@ -158,7 +177,7 @@ export function applicantContext(input: ContextInput): Json {
     today: isoDate(input.today),
     profile: compactJson(profileJson(input.profile)) ?? {},
     resume: input.resume
-      ? (compactJson(resumeJson(input.resume)) ?? null)
+      ? (compactJson(resumeJson(input.resume, input.profile)) ?? null)
       : null,
     notes: input.notes,
   }

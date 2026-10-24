@@ -22,6 +22,7 @@ export const ResumeSummarySchema = z.object({
   title: z.string(),
   subtitle: z.string(),
   templateId: TemplateIdSchema,
+  createdAt: z.string(),
   updatedAt: z.string(),
   /**
    * The posting linked as the resume's origin, null for a resume not made
@@ -78,15 +79,19 @@ export type HeadWrite = {
 }
 
 export const PAGE_SIZE = 30
+export const ResumeSortSchema = z.enum(["updatedAt", "createdAt"])
+export type ResumeSort = z.infer<typeof ResumeSortSchema>
+
 export const ResumePageInputSchema = z.object({
+  sortBy: ResumeSortSchema.optional(),
   cursor: z
     .string()
     .max(128)
     .refine((value) => {
-      const [updatedAt, id] = value.split("|")
+      const [timestamp, id] = value.split("|")
       return (
         value.split("|").length === 2 &&
-        ResumeCursorSchema.safeParse({ updatedAt, id }).success
+        ResumeCursorSchema.safeParse({ timestamp, id }).success
       )
     }, "Invalid cursor")
     .optional(),
@@ -99,15 +104,16 @@ export const ResumePageSchema = z.object({
 })
 export type ResumePage = z.infer<typeof ResumePageSchema>
 const ResumeCursorSchema = z.object({
-  updatedAt: z.iso.datetime({ offset: true }),
+  timestamp: z.iso.datetime({ offset: true }),
   id: z.uuid(),
 })
 export function resumeCursor(
-  row: Pick<ResumeSummary, "updatedAt" | "id">
+  row: Pick<ResumeSummary, "updatedAt" | "createdAt" | "id">,
+  sortBy: ResumeSort = "updatedAt"
 ): string {
-  return `${row.updatedAt}|${row.id}`
+  return `${row[sortBy]}|${row.id}`
 }
 export function parseResumeCursor(cursor: string) {
-  const [updatedAt, id] = cursor.split("|")
-  return ResumeCursorSchema.parse({ updatedAt, id })
+  const [timestamp, id] = cursor.split("|")
+  return ResumeCursorSchema.parse({ timestamp, id })
 }

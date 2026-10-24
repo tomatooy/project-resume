@@ -1,7 +1,7 @@
 import type { Fill } from "@workspace/autofill/fields"
 import { fillText, traceTable } from "./debug"
 import type { Owner } from "./owner"
-import type { FieldHandle, WriteOutcome } from "./types"
+import type { FieldHandle, ResolveLocation, WriteOutcome } from "./types"
 
 /** Why a write ended as it did, for the trace. */
 const WHY: Record<WriteOutcome, string> = {
@@ -20,7 +20,8 @@ export async function writeAll(
   handleFor: (id: string) => FieldHandle | undefined,
   fills: Fill[],
   force: ReadonlySet<string>,
-  owner: Owner
+  owner: Owner,
+  resolveLocation?: ResolveLocation
 ): Promise<Record<string, WriteOutcome>> {
   const results = new Map<string, WriteOutcome>()
   const rows: Record<string, string>[] = []
@@ -47,7 +48,11 @@ export async function writeAll(
     }
     owner.markOurs(id)
     const outcome = await handle
-      .write(fill, () => owner.isOwned(id) || handleFor(id) === undefined)
+      .write(
+        fill,
+        () => owner.isOwned(id) || handleFor(id) === undefined,
+        resolveLocation
+      )
       .catch((): WriteOutcome => "failed")
     // A failed write may leave part of its value, or land late; either is
     // ours, not the user's. Skipped and unmatched leave the field as it was.

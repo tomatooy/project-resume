@@ -17,3 +17,5 @@ export {
 } from "./preview-store"
 export type { PreviewInput } from "./render-queue"
 export { downloadBlob } from "./download"
+export { pinchedZoom, usePinchZoom } from "./use-pinch-zoom"
+export { useThrottledValue } from "./use-throttled-value"

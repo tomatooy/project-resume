@@ -13,23 +13,35 @@ import {
   send,
   sendResumePage,
   sendResumePreview,
-  type PreviewRequest,
+  type ResumePreviewRequest,
   type Snapshot,
   type Message,
 } from "../lib/messages"
 
 const key = ["extension", "current"]
-export function resumePreviewQuery(input: PreviewRequest) {
+export function resumePreviewKey(input: ResumePreviewRequest) {
+  return "postingKey" in input
+    ? [
+        "extension",
+        "preview",
+        input.accountId,
+        "autofill",
+        input.postingKey,
+        input.resumeId,
+      ]
+    : [
+        "extension",
+        "preview",
+        input.accountId,
+        input.identity.platform,
+        input.identity.externalJobId,
+        input.resumeId,
+        input.operationId,
+      ]
+}
+export function resumePreviewQuery(input: ResumePreviewRequest) {
   return queryOptions({
-    queryKey: [
-      "extension",
-      "preview",
-      input.accountId,
-      input.identity.platform,
-      input.identity.externalJobId,
-      input.resumeId,
-      input.operationId,
-    ],
+    queryKey: resumePreviewKey(input),
     queryFn: () => sendResumePreview(input),
     staleTime: 0,
     gcTime: 0,

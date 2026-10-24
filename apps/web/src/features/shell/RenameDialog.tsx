@@ -44,7 +44,7 @@ export function RenameDialog({
           <DialogHeader>
             <DialogTitle>Rename resume</DialogTitle>
             <DialogDescription>
-              Only you see this name. It does not appear on the PDF.
+              Used for your PDF filename with spaces removed.
             </DialogDescription>
           </DialogHeader>
 

@@ -5,6 +5,9 @@ export const ProfileSectionSchema = z.enum([
   "personal",
   "contact",
   "links",
+  "experience",
+  "education",
+  "skills",
   "work-authorization",
   "preferences",
   "eeo",
@@ -15,7 +18,7 @@ export type ProfileSection = z.infer<typeof ProfileSectionSchema>
 
 /**
  * What a form field asks for, independent of how the page words it. Rules
- * fill a field by its key; `resume.*` keys read the chosen resume.
+ * fill a field by its key; `resume.*` facts prefer saved profile sections.
  */
 export const CanonicalKeySchema = z.enum([
   "name.full",

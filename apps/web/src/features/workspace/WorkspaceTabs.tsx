@@ -124,7 +124,7 @@ export function WorkspaceTabs({ children }: { children: ReactNode }) {
         >
           <div
             ref={strip}
-            className="flex min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-y-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
             <SortableContext
               items={tabs.map(tabKey)}

@@ -6,6 +6,8 @@ import {
   GenerateResultSchema,
   InferInputSchema,
   InferResultSchema,
+  ResolveLocationInputSchema,
+  ResolveLocationResultSchema,
   NotesMergeInputSchema,
   NotesMergeResultSchema,
   NotesUndoInputSchema,
@@ -110,6 +112,10 @@ export const contract = {
       .route({ method: "POST", path: "/autofill/infer" })
       .input(InferInputSchema)
       .output(InferResultSchema),
+    resolveLocation: base
+      .route({ method: "POST", path: "/autofill/resolve-location" })
+      .input(ResolveLocationInputSchema)
+      .output(ResolveLocationResultSchema),
     answer: base
       .route({ method: "POST", path: "/autofill/answer" })
       .input(AnswerInputSchema)

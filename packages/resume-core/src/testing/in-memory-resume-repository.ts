@@ -46,19 +46,23 @@ export class InMemoryResumeRepository implements ResumeRepository {
   }
 
   async page(input: ResumePageInput) {
-    const all = await this.list()
+    const sortBy = input.sortBy ?? "updatedAt"
+    const all = (await this.list()).sort(
+      (a, b) => b[sortBy].localeCompare(a[sortBy]) || b.id.localeCompare(a.id)
+    )
     const cursor = input.cursor ? parseResumeCursor(input.cursor) : null
     const rows = all.filter(
       (row) =>
         !cursor ||
-        row.updatedAt < cursor.updatedAt ||
-        (row.updatedAt === cursor.updatedAt && row.id < cursor.id)
+        row[sortBy] < cursor.timestamp ||
+        (row[sortBy] === cursor.timestamp && row.id < cursor.id)
     )
     const items = rows.slice(0, PAGE_SIZE)
     const last = items.at(-1)
     return {
       items,
-      nextCursor: rows.length > PAGE_SIZE && last ? resumeCursor(last) : null,
+      nextCursor:
+        rows.length > PAGE_SIZE && last ? resumeCursor(last, sortBy) : null,
       ...(!cursor ? { total: all.length } : {}),
     }
   }
@@ -77,8 +81,8 @@ export class InMemoryResumeRepository implements ResumeRepository {
     const rows = (await this.listRecords()).filter(
       (row) =>
         (!cursor ||
-          row.updatedAt < cursor.updatedAt ||
-          (row.updatedAt === cursor.updatedAt && row.id < cursor.id)) &&
+          row.updatedAt < cursor.timestamp ||
+          (row.updatedAt === cursor.timestamp && row.id < cursor.id)) &&
         (phase === "body" || matchTokens(row.title, tokens).length > 0)
     )
     const records = rows.slice(0, 50)
@@ -95,12 +99,14 @@ export class InMemoryResumeRepository implements ResumeRepository {
   }
 
   async create(input: NewResume): Promise<ResumeRecord> {
+    const timestamp = nowIso(this.db)
     const row = {
       id: this.db.uuid(),
       ...input,
       currentVersionId: null,
       revision: 1,
-      updatedAt: nowIso(this.db),
+      createdAt: timestamp,
+      updatedAt: timestamp,
       deletedAt: null as string | null,
     }
     this.db.resumes.push(row)
@@ -175,6 +181,7 @@ function toHead(row: Row): Omit<ResumeSummary, "job"> {
     title: row.title,
     subtitle: row.subtitle,
     templateId: row.templateId,
+    createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
 }

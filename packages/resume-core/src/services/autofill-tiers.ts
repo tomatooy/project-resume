@@ -25,8 +25,8 @@ import type {
   ShortTextOutput,
 } from "../ports/autofill-models"
 
-/** A closed answer fills at this confidence or above (spec 12.1). */
-export const CHOICE_MIN = 0.8
+/** A single choice fills above this confidence or after evidence checks. */
+export const CHOICE_MIN = 0.5
 /** Evidence checks are Noul probabilities, separate from choice confidence. */
 export const SUPPORT_MIN = 0.9
 export const CONTRADICTION_MAX = 0.1
@@ -307,7 +307,7 @@ function choiceOutcome(
   if (
     verdict.blocked ||
     option === null ||
-    !(confidence >= CHOICE_MIN || verifiedChoice(verdict))
+    !(confidence > CHOICE_MIN || verifiedChoice(verdict))
   )
     return "ask"
   if (lane === "check") {
@@ -608,7 +608,7 @@ export function answerInputs(
  * Fills from what the models made of the reply, in page order, as `settle`
  * does for infer. A null output is a call that failed or was not made, and
  * its fields stay open. Closed fields fill by option index: a choice or
- * checkbox at CHOICE_MIN, a multi-select with the options at MULTI_YES or
+ * checkbox above CHOICE_MIN, a multi-select with the options at MULTI_YES or
  * above. One the reply answers with something no option says marks every
  * question naming it unmatched. Search and text values pass the infer checks,
  * and one that fails them is left open.

@@ -76,6 +76,13 @@ const FillBaseSchema = z.object({
   source: z.enum(["rule", "ai"]),
 })
 
+export const LocationTargetSchema = z.object({
+  city: z.string().trim().min(1).max(200),
+  region: z.string().trim().min(1).max(200).optional(),
+  country: z.string().trim().min(1).max(200).optional(),
+})
+export type LocationTarget = z.infer<typeof LocationTargetSchema>
+
 export const FillSchema = z
   .discriminatedUnion("kind", [
     FillBaseSchema.extend({
@@ -91,6 +98,9 @@ export const FillSchema = z
       kind: z.literal("search"),
       query: z.string().min(1).max(200),
       target: z.string().min(1).max(200),
+      location: LocationTargetSchema.optional(),
+      /** A previously confirmed result, reused on restore without another AI call. */
+      selection: z.string().min(1).max(LIMITS.option).optional(),
     }),
     FillBaseSchema.extend({
       kind: z.literal("check"),

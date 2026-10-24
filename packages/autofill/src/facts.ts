@@ -1,6 +1,8 @@
-import type { Item, Resume } from "@workspace/resume-schema"
+import type { Resume } from "@workspace/resume-schema"
 
-/** What a form may ask that only the resume answers. */
+import { effectiveHistory, type Profile, resumeHistory } from "./profile"
+
+/** Work, education and skill answers shared by the profile and resume. */
 export type ResumeFacts = {
   company: string | null
   title: string | null
@@ -11,15 +13,6 @@ export type ResumeFacts = {
   graduation: string | null
   years: number | null
   skills: string | null
-}
-
-type ItemOf<K extends Item["kind"]> = Extract<Item, { kind: K }>
-
-/** Every item of one kind, in resume order. */
-function itemsOf<K extends Item["kind"]>(resume: Resume, kind: K): ItemOf<K>[] {
-  return resume.sections.flatMap((section) =>
-    section.items.filter((item): item is ItemOf<K> => item.kind === kind)
-  )
 }
 
 /** Months since year 0 at the start of a YYYY-MM month. */
@@ -53,12 +46,15 @@ function yearsWorked(
   return Math.floor(months / 12)
 }
 
-export function resumeFacts(resume: Resume, today: Date): ResumeFacts {
-  const jobs = itemsOf(resume, "experience")
+function historyFacts(
+  history: Pick<Profile, "experience" | "education" | "skills">,
+  today: Date
+): ResumeFacts {
+  const jobs = history.experience
   const job = jobs[0]
-  const school = itemsOf(resume, "education")[0]
+  const school = history.education[0]
   const end = school?.end
-  const skills = itemsOf(resume, "skills").flatMap((group) => group.skills)
+  const skills = history.skills.flatMap((group) => group.skills)
   return {
     company: job?.company ?? null,
     title: job?.role ?? null,
@@ -69,4 +65,16 @@ export function resumeFacts(resume: Resume, today: Date): ResumeFacts {
     years: yearsWorked(jobs, today),
     skills: skills.length > 0 ? skills.join(", ") : null,
   }
+}
+
+export function resumeFacts(resume: Resume, today: Date): ResumeFacts {
+  return historyFacts(resumeHistory(resume), today)
+}
+
+export function effectiveFacts(
+  profile: Profile,
+  resume: Resume | null,
+  today: Date
+): ResumeFacts {
+  return historyFacts(effectiveHistory(profile, resume), today)
 }

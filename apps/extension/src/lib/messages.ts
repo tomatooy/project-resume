@@ -29,12 +29,21 @@ export const SnapshotSchema = z.object({
   page: PageSchema,
   account: z.object({ id: z.string(), email: z.string() }).nullable(),
   lookup: JobLookupSchema.nullable(),
+  canApply: z.boolean().optional(),
   resumes: z.array(ResumeSummarySchema),
   nextResumeCursor: z.string().nullable().default(null),
   lastBaseId: z.string().nullable(),
   autofill: AutofillViewSchema.nullable().default(null),
 })
 export type Snapshot = z.infer<typeof SnapshotSchema>
+const AutofillPreviewRequestSchema = z.object({
+  accountId: z.string(),
+  resumeId: z.uuid(),
+  postingKey: z.string().min(1),
+})
+export type AutofillPreviewRequest = z.infer<
+  typeof AutofillPreviewRequestSchema
+>
 export const MessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("state") }),
   z.object({ type: z.literal("connect") }),
@@ -60,12 +69,14 @@ export const MessageSchema = z.discriminatedUnion("type", [
     resumeId: z.uuid(),
     identity: JobIdentitySchema,
   }),
+  z.object({ type: z.literal("apply"), identity: JobIdentitySchema }),
   // A section opens that part of the Autofill profile page.
   z.object({
     type: z.literal("open-app"),
     section: ProfileSectionSchema.optional(),
   }),
   z.object({ type: z.literal("autofill"), action: AutofillActionSchema }),
+  AutofillPreviewRequestSchema.extend({ type: z.literal("autofill-edit") }),
 ])
 export type Message = z.infer<typeof MessageSchema>
 export const ReplySchema = z.discriminatedUnion("ok", [
@@ -116,15 +127,24 @@ export type PreviewRequest = Omit<
   z.infer<typeof ResumePreviewMessageSchema>,
   "type"
 >
+export const AutofillResumePreviewMessageSchema =
+  AutofillPreviewRequestSchema.extend({
+    type: z.literal("autofill-resume-preview"),
+  })
+export type ResumePreviewRequest = PreviewRequest | AutofillPreviewRequest
 
-export async function sendResumePreview(input: PreviewRequest) {
+export async function sendResumePreview(input: ResumePreviewRequest) {
   const reply = z
     .discriminatedUnion("ok", [
       z.object({ ok: z.literal(true), preview: ResumePreviewSchema }),
       ReplySchema.options[1],
     ])
     .parse(
-      await chrome.runtime.sendMessage({ ...input, type: "resume-preview" })
+      await chrome.runtime.sendMessage({
+        ...input,
+        type:
+          "postingKey" in input ? "autofill-resume-preview" : "resume-preview",
+      })
     )
   if (!reply.ok)
     throw new ExtensionError(reply.message, reply.code, reply.retryAfterSeconds)

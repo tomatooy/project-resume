@@ -53,7 +53,7 @@ function jevStage(request: Parameters<TypeSafeClient["systemOne"]>[0]): string {
   if (typeof state === "object" && state !== null && !Array.isArray(state)) {
     if ("reply" in state) return "Reply"
     if ("notes" in state) return "Notes"
-    if ("profile" in state || "resume" in state) return "Profile + resume"
+    if ("profile" in state) return "Profile"
   }
   if (
     Object.keys(request.questions).some(

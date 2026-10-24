@@ -1,7 +1,7 @@
 import type { Resume } from "@workspace/resume-schema"
 
 import { classifyField } from "./classify"
-import { type ResumeFacts, resumeFacts } from "./facts"
+import { effectiveFacts, type ResumeFacts } from "./facts"
 import {
   type AutofillVendor,
   type CanonicalKey,
@@ -607,7 +607,7 @@ export function ruleFills(
   const data: Data = {
     profile: ctx.profile,
     identity: effectiveIdentity(ctx.profile, ctx.resume?.basics ?? null),
-    facts: ctx.resume ? resumeFacts(ctx.resume, ctx.today) : null,
+    facts: effectiveFacts(ctx.profile, ctx.resume, ctx.today),
     linkedin: ctx.linkedin,
     today: ctx.today,
   }

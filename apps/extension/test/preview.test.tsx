@@ -126,12 +126,12 @@ it("downloads exactly the displayed PDF and supports fit, zoom and editing", asy
   fireEvent.click(download)
   expect(mock.download).toHaveBeenCalledExactlyOnceWith(
     blob,
-    "jo-lee-resume.pdf"
+    "Productengineer.pdf"
   )
   fireEvent.click(screen.getByRole("button", { name: "Zoom in" }))
   expect(screen.getByText("PDF at 125%")).toBeTruthy()
   fireEvent.click(screen.getByRole("button", { name: "Fit width" }))
-  expect(screen.getByText("PDF at 100%")).toBeTruthy()
+  expect(await screen.findByText("PDF at 100%")).toBeTruthy()
   fireEvent.click(screen.getByRole("button", { name: "Edit in app" }))
   expect(actions.onEdit).toHaveBeenCalledOnce()
 })

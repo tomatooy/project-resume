@@ -16,13 +16,13 @@ import {
   useResumes,
 } from "@/lib/queries"
 import { ApiError } from "@/lib/types"
-import { CONFLICT_NOTICE } from "./use-profile-autosave"
+import { CONFLICT_NOTICE, type ProfileAutosave } from "./use-profile-autosave"
 
 const NOTE = "text-[12px] leading-[1.55] text-muted-foreground"
 
 /**
  * Before the first save there is no Profile to edit, so the page offers to
- * copy the basics of one resume or to start with empty fields. Either way the
+ * copy one resume or to start with empty fields. Either way the
  * first save creates the Profile and the page then shows its sections.
  */
 export function ImportFromResume() {
@@ -43,8 +43,9 @@ export function ImportFromResume() {
     <div className="mt-7 rounded-[10px] border border-border bg-background p-4">
       <h3 className="text-[13px] font-semibold">Set up your profile</h3>
       <p className={`mt-1 max-w-[62ch] ${NOTE}`}>
-        Copy the name, email, phone, city and links from one of your resumes, or
-        start with empty fields. You can change everything afterwards.
+        Copy contact details, links, work experience, education and skills from
+        one of your resumes, or start with empty fields. You can change
+        everything afterwards.
       </p>
       <div className="mt-3 flex gap-2">
         <Button
@@ -73,6 +74,56 @@ export function ImportFromResume() {
               return profileFromResume(emptyProfile, resume.data)
             })
           }
+        />
+      ) : null}
+    </div>
+  )
+}
+
+export function ImportProfileFields({
+  update,
+}: Pick<ProfileAutosave, "update">) {
+  const client = useQueryClient()
+  const [picking, setPicking] = useState(false)
+  const [pending, setPending] = useState(false)
+
+  async function importResume(id: string) {
+    setPending(true)
+    try {
+      const resume = await client.fetchQuery(resumeQuery(id))
+      update((current) => profileFromResume(current, resume.data))
+      setPicking(false)
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Couldn't import the resume."
+      )
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <div className="mt-5 rounded-[10px] border border-border bg-background p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className={NOTE}>
+          Fill empty fields and sections from a resume. Your saved answers stay
+          as they are.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-expanded={picking}
+          disabled={pending}
+          onClick={() => setPicking(!picking)}
+        >
+          <FileTextIcon />
+          {pending ? "Importing…" : "Import from resume"}
+        </Button>
+      </div>
+      {picking ? (
+        <ResumeChoices
+          disabled={pending}
+          onPick={(id) => void importResume(id)}
         />
       ) : null}
     </div>

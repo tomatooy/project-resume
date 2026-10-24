@@ -46,11 +46,21 @@ function locationParts(input: HTMLInputElement): ComboParts {
   return {
     input,
     opener: input,
+    location: true,
+    loading: () => {
+      const indicator = container?.querySelector(".dropdown-loading-results")
+      return indicator instanceof HTMLElement && isShown(indicator)
+    },
     setQuery: (value) => {
       setNativeValue(input, value, { blur: false })
-      // Lever searches on keyup and ignores arrow keys.
+      // Lever searches on keydown; arrow keys only navigate.
       input.dispatchEvent(
-        new KeyboardEvent("keyup", { key: "End", code: "End", bubbles: true })
+        new KeyboardEvent("keydown", {
+          key: "End",
+          code: "End",
+          bubbles: true,
+          cancelable: true,
+        })
       )
     },
     options: () =>
@@ -59,6 +69,9 @@ function locationParts(input: HTMLInputElement): ComboParts {
           option instanceof HTMLElement && isShown(option)
       ),
     values: () => {
+      const selected = container?.querySelector("#selected-location")
+      if (!(selected instanceof HTMLInputElement) || !selected.value.trim())
+        return []
       const value = input.value.trim()
       return value ? [value] : []
     },
@@ -129,7 +142,13 @@ function adjusted(field: ScannedField): ScannedField {
           ? "Custom pronouns"
           : text || descriptor.label,
       ...(phone ? { control: "tel" } : url ? { control: "url" } : {}),
-      ...(combo ? { control: "combobox", optionState: "search" } : {}),
+      ...(combo
+        ? {
+            control: "combobox",
+            optionState: "search",
+            hasValue: combo.values().length > 0,
+          }
+        : {}),
       required:
         descriptor.required || label?.querySelector(".required") != null,
       ...(help ? { help: clip(help, LIMITS.help) } : {}),

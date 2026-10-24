@@ -3,6 +3,7 @@ import {
   FieldDescriptorSchema,
   FieldsSchema,
   LIMITS,
+  OptionSchema,
 } from "@workspace/autofill/fields"
 import { z } from "zod"
 
@@ -46,6 +47,12 @@ export const ScanSchema = z.object({
 export const ContentMessageSchema = z.discriminatedUnion("type", [
   ScanSchema,
   z.object({
+    type: z.literal("autofill-resolve-location"),
+    requestId: z.uuid(),
+    fieldId: FieldIdSchema,
+    options: z.array(OptionSchema).min(1).max(20),
+  }),
+  z.object({
     type: z.literal("autofill-owned"),
     fieldIds: z.array(FieldIdSchema).max(LIMITS.fields),
   }),
@@ -72,6 +79,7 @@ type WorkerCommand =
       fills: Fill[]
       force: string[]
       identities: Record<string, string>
+      requestId?: string
     }
   | {
       type: "autofill-attach"

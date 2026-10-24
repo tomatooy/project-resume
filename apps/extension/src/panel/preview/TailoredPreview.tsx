@@ -16,11 +16,15 @@ import {
   PreviewProvider,
   ZOOM_MAX,
   ZOOM_MIN,
+  clampZoom,
   downloadBlob,
   nextZoomStep,
   previousZoomStep,
+  usePinchZoom,
   usePreview,
   usePreviewDemand,
+  usePreviewStore,
+  useThrottledValue,
 } from "@workspace/resume-preview"
 import { resumeFileName } from "@workspace/resume-schema"
 import { Button } from "@workspace/ui/components/button"
@@ -36,7 +40,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { ExtensionError, type PreviewRequest } from "../../lib/messages"
+import { ExtensionError, type ResumePreviewRequest } from "../../lib/messages"
 import { resumePreviewQuery } from "../queries"
 
 /** What the preview offers when it fails, by what went wrong. */
@@ -72,7 +76,7 @@ const PdfViewer = lazy(() =>
 )
 
 type Props = {
-  request: PreviewRequest
+  request: ResumePreviewRequest
   onBack: () => void
   onEdit: () => void
   onConnect: () => void
@@ -161,7 +165,11 @@ export function TailoredPreview({
               : "Check your connection and try again. Your saved resume is safe."
           }
           action={failureAction}
-          actionLabel={failure.actionLabel}
+          actionLabel={
+            failure.action === "back" && "postingKey" in request
+              ? "Back to autofill"
+              : failure.actionLabel
+          }
         />
       ) : query.data ? (
         <ResumePreviewDocument
@@ -223,16 +231,19 @@ function PreviewDocument({
   onEdit: () => void
   editing: boolean
 }) {
+  const store = usePreviewStore()
   usePreviewDemand()
-  const { blob, stale, loading, error, renderedInput } = usePreview(
+  const { blob, stale, loading, error, renderedInput, zoom } = usePreview(
     (state) => state
   )
   const [ready, setReady] = useState<{ blob: Blob; pages: number } | null>(null)
   const [failed, setFailed] = useState<Blob | null>(null)
   const [downloaded, setDownloaded] = useState<Blob | null>(null)
-  const [zoom, setZoom] = useState(100)
   const [width, setWidth] = useState(0)
-  const viewport = useRef<HTMLDivElement>(null)
+  const renderedZoom = useThrottledValue(zoom, 100)
+  const viewport = usePinchZoom(store, renderedZoom)
+  const setZoom = (next: number) =>
+    store.setState((state) => ({ ...state, zoom: clampZoom(next) }))
   useEffect(() => {
     const element = viewport.current
     if (!element) return
@@ -241,7 +252,7 @@ function PreviewDocument({
     })
     observer.observe(element)
     return () => observer.disconnect()
-  }, [])
+  }, [viewport])
   const painted = useCallback((next: Blob, pages: number) => {
     setReady((previous) =>
       previous?.blob === next && previous.pages === pages
@@ -314,7 +325,7 @@ function PreviewDocument({
                 <PdfViewer
                   blob={blob}
                   baseWidth={width}
-                  zoom={zoom}
+                  zoom={renderedZoom}
                   onReady={painted}
                   onError={setFailed}
                 />
@@ -346,7 +357,7 @@ function PreviewDocument({
               aria-label="Zoom out"
               title="Zoom out"
               disabled={!current || zoom <= ZOOM_MIN}
-              onClick={() => setZoom(previousZoomStep)}
+              onClick={() => setZoom(previousZoomStep(zoom))}
             >
               <MinusIcon />
             </Button>
@@ -354,7 +365,7 @@ function PreviewDocument({
               className="w-10 text-center text-xs tabular-nums"
               aria-label="Zoom"
             >
-              {zoom}%
+              {Math.round(zoom)}%
             </output>
             <Button
               variant="ghost"
@@ -362,7 +373,7 @@ function PreviewDocument({
               aria-label="Zoom in"
               title="Zoom in"
               disabled={!current || zoom >= ZOOM_MAX}
-              onClick={() => setZoom(nextZoomStep)}
+              onClick={() => setZoom(nextZoomStep(zoom))}
             >
               <PlusIcon />
             </Button>
@@ -375,7 +386,7 @@ function PreviewDocument({
               disabled={!available}
               onClick={() => {
                 if (!available || !blob) return
-                downloadBlob(blob, resumeFileName(resume.data.basics.name))
+                downloadBlob(blob, resumeFileName(resume.title))
                 setDownloaded(blob)
               }}
             >

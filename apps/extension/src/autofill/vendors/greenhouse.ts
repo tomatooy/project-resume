@@ -87,7 +87,7 @@ function reactSelects(form: Element): ScannedField[] {
       element: input,
       kind: "combo",
       choices: [],
-      combo,
+      combo: { ...combo, location: input.id === "candidate-location" },
     }
     const help = helpFor(input, isDescription)
     found.push({

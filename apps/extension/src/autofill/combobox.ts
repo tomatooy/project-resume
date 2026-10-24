@@ -1,4 +1,12 @@
-import { byIds, isShown, waitFor } from "./dom"
+import {
+  byIds,
+  clip,
+  isShown,
+  LIMITS,
+  setNativeValue,
+  textWithBreaks,
+  waitFor,
+} from "./dom"
 import type { ComboParts } from "./types"
 
 function optionsIn(nodes: (Element | null)[]): HTMLElement[] {
@@ -19,6 +27,20 @@ function optionsIn(nodes: (Element | null)[]): HTMLElement[] {
 const textOf = (node: Element): string =>
   (node.textContent ?? "").replace(/\s+/g, " ").trim()
 
+export const comboOptionLabel = (
+  parts: ComboParts,
+  option: HTMLElement
+): string =>
+  clip(
+    parts.optionLabel?.(option) ?? textWithBreaks(option).split("\n").join(" "),
+    LIMITS.option
+  )
+
+export function setComboQuery(parts: ComboParts, value: string): void {
+  if (parts.setQuery) parts.setQuery(value)
+  else setNativeValue(parts.input, value, { blur: false })
+}
+
 /** The react-select control holds its value; its parent may hold the menu. */
 export function reactSelectParts(input: HTMLInputElement): ComboParts | null {
   const control = input.closest(".select__control")
@@ -27,6 +49,10 @@ export function reactSelectParts(input: HTMLInputElement): ComboParts | null {
   return {
     input,
     opener: control,
+    loading: () => {
+      const indicator = container.querySelector(".select__loading-indicator")
+      return indicator instanceof HTMLElement && isShown(indicator)
+    },
     // A menu rendered in a portal is found through `aria-controls`.
     options: () => {
       const linked = optionsIn([
@@ -54,14 +80,20 @@ export function reactSelectParts(input: HTMLInputElement): ComboParts | null {
 
 /** An ARIA 1.2 combobox whose value is its text, as on Ashby (Ashby 13). */
 export function ariaComboParts(input: HTMLInputElement): ComboParts {
+  const menus = () => [
+    ...byIds(input, input.getAttribute("aria-controls")),
+    ...byIds(input, input.getAttribute("aria-owns")),
+  ]
   return {
     input,
     opener: input,
-    options: () =>
-      optionsIn([
-        ...byIds(input, input.getAttribute("aria-controls")),
-        ...byIds(input, input.getAttribute("aria-owns")),
-      ]),
+    loading: () =>
+      menus().some(
+        (menu) =>
+          menu?.getAttribute("aria-busy") === "true" ||
+          /^loading[.\s\u2026]*$/i.test(menu?.textContent?.trim() ?? "")
+      ),
+    options: () => optionsIn(menus()),
     values: () => {
       const value = input.value.trim()
       return value ? [value] : []

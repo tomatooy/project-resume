@@ -8,14 +8,20 @@ import {
   MessageSchema,
   ResumePageMessageSchema,
   ResumePreviewMessageSchema,
+  AutofillResumePreviewMessageSchema,
   ExtensionError,
+  type AutofillPreviewRequest,
   type PreviewRequest,
   type Message,
   type Snapshot,
 } from "../lib/messages"
 import { autofillVendor } from "../lib/pages"
 import { act, autofillSnapshot } from "./autofill/controller"
+import { autofillFrame, sameDocument } from "./autofill/frames"
+import { readSession } from "./autofill/session"
+import { scanUrl } from "../autofill/posting-url"
 import { activePage } from "./navigation"
+import { jobApplication } from "./job-application"
 import { hasPageHost, hereFor } from "./page"
 import { readTabState, view } from "./tab-state"
 
@@ -67,6 +73,7 @@ export async function snapshot(tabId?: number): Promise<Snapshot> {
     page,
     account: user,
     lookup: null,
+    canApply: false,
     resumes: [],
     nextResumeCursor: null,
     lastBaseId: null,
@@ -91,6 +98,13 @@ export async function snapshot(tabId?: number): Promise<Snapshot> {
   }
   if (!user || page.kind !== "job") return result
   result.lookup = await api.jobs.lookup(page.identity)
+  if (result.lookup.kind === "bound" && tab?.id !== undefined) {
+    result.canApply = await jobApplication(
+      tab.id,
+      page.sourceUrl,
+      page.identity.externalJobId
+    ).catch(() => false)
+  }
   if (result.lookup.kind === "none") {
     const first = await api.resumes.page({})
     result.resumes = first.items
@@ -174,6 +188,13 @@ async function execute(
     })
     return snapshot(tabId)
   }
+  if (message.type === "autofill-edit") {
+    await verifyAutofillResume(message, tabId)
+    await chrome.tabs.create({
+      url: `${config().appOrigin}/r/${message.resumeId}/edit`,
+    })
+    return snapshot(tabId)
+  }
   const user = await account()
   if (!user) throw new Error("Connect your account")
   const current = await activePage()
@@ -185,7 +206,26 @@ async function execute(
   )
     throw new Error("The selected job changed. Try again.")
   const found = await api.jobs.lookup(message.identity)
-  if (message.type === "edit") {
+  if (message.type === "apply") {
+    if (found.kind !== "bound" || found.operation.status !== "succeeded")
+      throw new ExtensionError(
+        "The tailored resume is no longer ready.",
+        "changed"
+      )
+    if ((await account())?.id !== user.id)
+      throw new Error("Account changed. Try again.")
+    const opened = await jobApplication(
+      current.tab.id,
+      current.page.sourceUrl,
+      message.identity.externalJobId,
+      true
+    )
+    if (!opened)
+      throw new ExtensionError(
+        "The Apply button is no longer available. Reopen the job and try again.",
+        "unavailable"
+      )
+  } else if (message.type === "edit") {
     if (found.kind !== "bound" || found.resumeId !== message.resumeId)
       throw new Error("Resume is no longer available")
     await chrome.tabs.create({
@@ -278,6 +318,60 @@ const untrusted = {
   message: "Open VS:Résumé from the toolbar to continue.",
 }
 
+async function verifyAutofillResume(
+  input: AutofillPreviewRequest,
+  tabId?: number
+): Promise<number> {
+  if ((await account())?.id !== input.accountId)
+    throw new ExtensionError(
+      "Connect your account again to preview this resume.",
+      "auth"
+    )
+  const { tab, page } = await activePage(tabId)
+  const id = tabId ?? tab?.id
+  if (id === undefined || autofillVendor(page) === null)
+    throw new ExtensionError(
+      "The application changed. Open its resume again.",
+      "changed"
+    )
+  const [session, frame] = await Promise.all([
+    readSession(id),
+    autofillFrame(id),
+  ])
+  if (
+    !session ||
+    !frame ||
+    !sameDocument(session, frame) ||
+    session.url !== scanUrl(frame.url) ||
+    session.postingKey !== input.postingKey ||
+    (session.resumeId ?? session.plan?.resumeId) !== input.resumeId
+  )
+    throw new ExtensionError(
+      "The selected resume or application changed. Open the preview again.",
+      "changed"
+    )
+  if ((await account())?.id !== input.accountId)
+    throw new ExtensionError(
+      "Connect your account again to preview this resume.",
+      "auth"
+    )
+  return id
+}
+
+export async function resumePreviewForAutofill(
+  input: AutofillPreviewRequest,
+  tabId?: number
+) {
+  const id = await verifyAutofillResume(input, tabId)
+  const preview = await api.resumes.preview({ id: input.resumeId })
+  if ((await verifyAutofillResume(input, tabId)) !== id)
+    throw new ExtensionError(
+      "The application changed. Open its resume again.",
+      "changed"
+    )
+  return preview
+}
+
 export async function resumePreviewForJob(
   input: PreviewRequest,
   tabId?: number
@@ -332,7 +426,12 @@ export function registerMessages() {
   chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
     if (!panelSender(sender)) return false
     const pageRequest = ResumePageMessageSchema.safeParse(raw)
-    const previewRequest = ResumePreviewMessageSchema.safeParse(raw)
+    const previewRequest = z
+      .discriminatedUnion("type", [
+        ResumePreviewMessageSchema,
+        AutofillResumePreviewMessageSchema,
+      ])
+      .safeParse(raw)
     const parsed = MessageSchema.safeParse(raw)
     if (!pageRequest.success && !previewRequest.success && !parsed.success)
       return false
@@ -344,7 +443,10 @@ export function registerMessages() {
       }
       if (previewRequest.success) {
         try {
-          const preview = await resumePreviewForJob(previewRequest.data, tabId)
+          const preview =
+            previewRequest.data.type === "autofill-resume-preview"
+              ? await resumePreviewForAutofill(previewRequest.data, tabId)
+              : await resumePreviewForJob(previewRequest.data, tabId)
           if (!(await trustedPanel(sender))) {
             respond(untrusted)
             return
@@ -374,6 +476,7 @@ export function registerMessages() {
       try {
         respond({ ok: true, snapshot: await handleMessage(parsed.data, tabId) })
       } catch (error) {
+        const extension = error instanceof ExtensionError ? error : null
         const capture = error instanceof CaptureError
         const auth =
           z.object({ code: z.literal("UNAUTHENTICATED") }).safeParse(error)
@@ -386,12 +489,16 @@ export function registerMessages() {
           .safeParse(error)
         respond({
           ok: false,
-          code: capture ? "capture" : auth ? "auth" : "unavailable",
-          message: capture
-            ? "Could not read the job description. Try again."
-            : auth
-              ? "Connect your account again to continue."
-              : "Could not reach VS:Résumé. Try again.",
+          code:
+            extension?.code ??
+            (capture ? "capture" : auth ? "auth" : "unavailable"),
+          message:
+            extension?.message ??
+            (capture
+              ? "Could not read the job description. Try again."
+              : auth
+                ? "Connect your account again to continue."
+                : "Could not reach VS:Résumé. Try again."),
           retryAfterSeconds: rate.success
             ? rate.data.data.retryAfterSeconds
             : undefined,

@@ -1,3 +1,5 @@
+import { FilePdfIcon } from "@phosphor-icons/react"
+import type { Ref } from "react"
 import { Button } from "@workspace/ui/components/button"
 import {
   Select,
@@ -18,19 +20,36 @@ export function ResumePicker({
   more,
   disabled,
   onPick,
+  onPreview,
+  previewButtonRef,
+  previewDisabled,
 }: {
   value: string
   rows: Resume[]
   more: (() => void) | null
   disabled: boolean
   onPick: (resumeId: string) => void
+  onPreview: () => void
+  previewButtonRef: Ref<HTMLButtonElement>
+  previewDisabled: boolean
 }) {
   const selected = rows.find(({ id }) => id === value)
   return (
     <div className="space-y-1.5">
-      <label htmlFor="autofill-resume" className="font-medium text-xs">
-        Resume
-      </label>
+      <div className="flex items-center justify-between gap-2">
+        <label htmlFor="autofill-resume" className="font-medium text-xs">
+          Resume
+        </label>
+        <Button
+          ref={previewButtonRef}
+          variant="outline"
+          size="xs"
+          disabled={disabled || previewDisabled}
+          onClick={onPreview}
+        >
+          <FilePdfIcon /> Preview resume
+        </Button>
+      </div>
       <Select
         value={value}
         onValueChange={(id) => {

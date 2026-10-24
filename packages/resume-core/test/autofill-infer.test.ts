@@ -291,7 +291,7 @@ describe("AutofillService.infer", () => {
             [api.label]: {
               option: 0,
               applicant: false,
-              confidence: 0.52,
+              confidence: 0.45,
               blocked,
               verification: { support, contradiction },
             },
@@ -361,7 +361,7 @@ describe("AutofillService.infer", () => {
     }
   )
 
-  it("fills a choice at confidence 0.8 or more", async () => {
+  it("fills a choice above confidence 0.5", async () => {
     const at = (confidence: number) =>
       session({
         judge: judgeBy({
@@ -369,7 +369,7 @@ describe("AutofillService.infer", () => {
         }),
       })
 
-    const sure = await infer(await at(0.8), [api])
+    const sure = await infer(await at(0.51), [api])
     expect(sure.fills).toEqual([
       {
         fieldId: "api",
@@ -381,7 +381,7 @@ describe("AutofillService.infer", () => {
     ])
     expect(asked(sure)).toEqual([])
 
-    const unsure = await infer(await at(0.79), [api])
+    const unsure = await infer(await at(0.5), [api])
     expect(unsure.fills).toEqual([])
     expect(asked(unsure)).toEqual(["api"])
   })

@@ -18,6 +18,7 @@ import {
 import { draft, run, syncOverlay, writeFills } from "./controller"
 import { registerOrigin, takeOrigin } from "./origin"
 import { sendToContent } from "./send"
+import { resolveLocationRequest } from "./location-resolution"
 import {
   type AutofillSession,
   applyScan,
@@ -128,6 +129,8 @@ async function onContent(
   message: ContentMessage
 ): Promise<void> {
   switch (message.type) {
+    case "autofill-resolve-location":
+      return
     case "autofill-scan":
       if (message.url !== scanUrl(frame.url)) return
       await takeScan(
@@ -194,6 +197,17 @@ export function registerAutofill(): void {
     }
     const parsed = ContentMessageSchema.safeParse(raw)
     if (!parsed.success) return false
+    if (parsed.data.type === "autofill-resolve-location") {
+      const message = parsed.data
+      void contentFrame(sender)
+        .then(async (from) => ({
+          option: from
+            ? await resolveLocationRequest(from.tabId, from.frame, message)
+            : null,
+        }))
+        .then(respond, () => respond({ option: null }))
+      return true
+    }
     // The content script only learns that the message arrived.
     respond({ ok: true })
     void (async () => {

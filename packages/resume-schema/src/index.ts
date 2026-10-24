@@ -4,8 +4,9 @@
  * What is listed here is what the rest of the workspace may depend on: the
  * document and its node types, the patch contract and its two apply modes,
  * the validity and diff readers, templates, ids, and the import shape. The
- * per-item schemas, the id plumbing and `ValidationContext` stay inside;
- * the last one on purpose, since a caller holding it could validate a patch
+ * education, experience and skills schemas also back the autofill profile.
+ * The id plumbing and `ValidationContext` stay inside; the last one on purpose,
+ * since a caller holding it could validate a patch
  * against limits the skill registry never granted.
  *
  * `textFields` is here because reading and writing now share it: the rail
@@ -21,6 +22,9 @@ export {
   ResumeSchema,
   type Section,
   type SectionTypeName,
+  EducationItemSchema,
+  ExperienceItemSchema,
+  SkillsGroupSchema,
   hasBullets,
 } from "./schema"
 export {

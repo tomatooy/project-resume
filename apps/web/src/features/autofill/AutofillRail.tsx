@@ -1,16 +1,20 @@
 import {
+  BriefcaseIcon,
   DotsThreeCircleIcon,
   EnvelopeSimpleIcon,
+  GraduationCapIcon,
   IdentificationBadgeIcon,
   LinkSimpleIcon,
   NotePencilIcon,
   type Icon,
   SlidersHorizontalIcon,
+  WrenchIcon,
   UserIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react"
 import { Link } from "@tanstack/react-router"
 import type { ProfileSection } from "@workspace/autofill"
+import type { ReactNode } from "react"
 
 /**
  * The page's sections, in the order a form asks for them. The anchors are the
@@ -20,6 +24,9 @@ export const SECTIONS: readonly { anchor: ProfileSection; title: string }[] = [
   { anchor: "personal", title: "Personal" },
   { anchor: "contact", title: "Contact" },
   { anchor: "links", title: "Links" },
+  { anchor: "experience", title: "Work experience" },
+  { anchor: "education", title: "Education" },
+  { anchor: "skills", title: "Skills" },
   { anchor: "work-authorization", title: "Work authorization" },
   { anchor: "preferences", title: "Preferences" },
   { anchor: "eeo", title: "EEO" },
@@ -31,6 +38,9 @@ const ICONS: Record<ProfileSection, Icon> = {
   personal: UserIcon,
   contact: EnvelopeSimpleIcon,
   links: LinkSimpleIcon,
+  experience: BriefcaseIcon,
+  education: GraduationCapIcon,
+  skills: WrenchIcon,
   "work-authorization": IdentificationBadgeIcon,
   preferences: SlidersHorizontalIcon,
   eeo: UsersThreeIcon,
@@ -42,15 +52,17 @@ const ICONS: Record<ProfileSection, Icon> = {
  * The profile's outline, in the rail where the resume list usually is. Each
  * row opens the page at its section, from whichever tab is in front.
  */
-export function AutofillRail() {
+export function AutofillRail({ title }: { title?: ReactNode }) {
   return (
     <>
       <div className="flex h-[42px] flex-none items-center px-2.5">
-        <span className="text-[10px] font-semibold tracking-[0.07em] text-muted-foreground uppercase">
-          Autofill profile
-        </span>
+        {title ?? (
+          <span className="text-[10px] font-semibold tracking-[0.07em] text-muted-foreground uppercase">
+            Autofill profile
+          </span>
+        )}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-1.5 pb-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {SECTIONS.map(({ anchor, title }) => {
           const Glyph = ICONS[anchor]
           return (

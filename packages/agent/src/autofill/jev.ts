@@ -1,4 +1,9 @@
-import { type Json, matchNotePreferences } from "@workspace/autofill"
+import {
+  type Json,
+  jsonObject,
+  matchNotePreferences,
+  notesOf,
+} from "@workspace/autofill"
 import {
   type AutofillModels,
   type JudgeInput,
@@ -31,8 +36,8 @@ const RETRY = {
   respectRetryAfter: false,
 }
 
-const FROM_RECORDS =
-  "Use state.profile and state.resume. Prefer an explicit Profile answer when they disagree; otherwise use resume evidence. Blank values are missing; false and zero are answers. Match equivalent wording. Use insufficient only when neither source contains relevant evidence for this field."
+const FROM_PROFILE =
+  "Use only state.profile. Blank values are missing; false and zero are answers. Match equivalent wording. Use insufficient when the profile contains no relevant evidence for this field."
 const FROM_NOTES =
   "Use only state.notes. Respect qualifiers and company scope. A stated preference supports an available preferred option. A fallback order is a filling preference, not evidence of a past event."
 /** Answer mode: the reply decides, and the records only help read it. */
@@ -43,11 +48,13 @@ const SELECT =
   "Do the applicant's records support this option as an answer to the field? Judge each option independently."
 const OPEN = "Is this an open-ended question that needs a written answer?"
 const REPLY_PICK = `Which option does the applicant's reply choose for this field on a job application? ${FROM_REPLY}`
+const LOCATION_PICK =
+  "The reply contains the intended city, region and country as structured data. Choose an option only if it denotes that same city. Recognize equivalent names and abbreviations. Reject nearby cities, suburbs, broader regions and conflicting countries or regions. If the target is ambiguous or no single option is equivalent, choose insufficient. Never choose an option just because it is first or textually similar."
 const REPLY_SELECT = `Does the applicant's reply choose this option for this field on a job application? ${FROM_REPLY}`
 const REPLY_ANSWERS = `Does the applicant's reply answer this field on a job application? ${FROM_REPLY}`
 
 const INSUFFICIENT =
-  "Neither state.profile nor state.resume contains relevant evidence for this field."
+  "state.profile contains no relevant evidence for this field."
 const NOTES_INSUFFICIENT =
   "state.notes contains no factual answer for this field. A fallback order alone is not a factual answer."
 const APPLICANT =
@@ -61,8 +68,6 @@ const SELECTED = {
   false: "The records show this option does not apply to the applicant.",
 }
 const EXPLICIT = `Does state.notes contain a fact or stated preference that answers this field, including a partial or negative answer? A fallback order alone is not a factual answer. ${FROM_NOTES}`
-const EVIDENCE_SOURCE =
-  "Which source contains the evidence answering this field? Use Profile when it contains an answer; otherwise use the resume. Missing Profile values do not override resume evidence."
 const APPLICABLE =
   "Does the note concern the same application question as this field? Compare the information requested, not whether the note proves a past event. A preferred source of job opportunities concerns 'How did you hear about us?'. A platform used professionally is different from a source of job opportunities. If the note names an employer, the application must be known to be for that employer; generic 'the company' is not a named employer."
 const CHOSEN = {
@@ -101,7 +106,7 @@ const instructions = (ask: string, lines: string[]): string =>
 const choiceCriteria = (
   options: string[],
   reply: boolean,
-  source: RecordJudgeInput["source"]
+  source: SourceJudgeInput["source"]
 ): Record<string, EntryType> => ({
   ...Object.fromEntries(
     options.map((option, k) => [`o${k + 1}`, dataBlock(option)])
@@ -114,21 +119,21 @@ const choiceCriteria = (
       }),
 })
 
-/** Jev takes text, an object or an array as its state, never a bare scalar. */
-const stateOf = (context: Json): EntryType =>
-  typeof context === "number" || typeof context === "boolean"
-    ? String(context)
-    : context
-
-export type RecordJudgeInput = JudgeInput & {
-  source?: "notes" | "records"
+/** Shared callers also carry resumes; only these records reach Jev. */
+function profileContext(context: Json): Json {
+  const records = jsonObject(context)
+  return {
+    today: records.today ?? "",
+    profile: jsonObject(records.profile),
+    notes: notesOf(context),
+  }
 }
-/** `sources`: the record each answer came from, when Jev names one. */
-export type RecordJudgeOutput = JudgeOutput & {
-  sources?: Record<string, "profile" | "resume">
+
+export type SourceJudgeInput = JudgeInput & {
+  source?: "notes" | "profile"
 }
 type Asked = Pick<
-  RecordJudgeInput,
+  SourceJudgeInput,
   "reply" | "choices" | "multi" | "open" | "source"
 >
 type Questions = Record<string, Question>
@@ -150,11 +155,26 @@ function questionsOf(
 ): { questions: Questions; preferences: PreferenceCandidate[] } {
   const answering = reply !== undefined
   const questions: Questions = {}
-  const from = source === "notes" ? FROM_NOTES : FROM_RECORDS
+  const from = source === "notes" ? FROM_NOTES : FROM_PROFILE
   for (const [i, item] of choices.entries()) {
     questions[`c_${i}`] = choice(
-      instructions(answering ? REPLY_PICK : `${PICK} ${from}`, itemLines(item)),
-      choiceCriteria(item.options, answering, source)
+      instructions(
+        item.intent === "location"
+          ? LOCATION_PICK
+          : answering
+            ? REPLY_PICK
+            : `${PICK} ${from}`,
+        itemLines(item)
+      ),
+      item.intent === "location"
+        ? {
+            ...Object.fromEntries(
+              item.options.map((option, k) => [`o${k + 1}`, dataBlock(option)])
+            ),
+            insufficient:
+              "No unique option denotes the intended city with compatible region and country.",
+          }
+        : choiceCriteria(item.options, answering, source)
     )
   }
   for (const [i, item] of multi.entries()) {
@@ -171,19 +191,6 @@ function questionsOf(
       questions[`a_${i}`] = noul(
         instructions(REPLY_ANSWERS, itemLines(item)),
         ANSWERED
-      )
-    }
-  }
-  if (!answering && source === "records") {
-    for (const [i, item] of [...choices, ...multi].entries()) {
-      questions[`s_${i}`] = choice(
-        instructions(EVIDENCE_SOURCE, fieldLines(item)),
-        {
-          profile: "state.profile contains evidence answering this field.",
-          resume:
-            "state.resume contains evidence answering this field and state.profile does not.",
-          insufficient: INSUFFICIENT,
-        }
       )
     }
   }
@@ -286,9 +293,8 @@ function preferredOptions(
 /**
  * The judge port on Jev (spec 12.1): every closed field, multi-select option
  * and open-question check in one `systemOne` request, with the applicant
- * context as its state and page text only inside data blocks. With a
- * `reply`, the state is the reply with the records beside it, and each field
- * is decided from the reply (spec 8.2).
+ * profile or Notes as its state and page text only inside data blocks. With
+ * a `reply`, the profile and Notes only help interpret it (spec 8.2).
  */
 export function createJudge(client: TypeSafeClient): AutofillModels["judge"] {
   const once = async ({
@@ -297,7 +303,7 @@ export function createJudge(client: TypeSafeClient): AutofillModels["judge"] {
     context,
     reply,
     ...asked
-  }: RecordJudgeInput): Promise<RecordJudgeOutput> => {
+  }: SourceJudgeInput): Promise<JudgeOutput> => {
     const notes =
       !reply &&
       context !== null &&
@@ -321,7 +327,7 @@ export function createJudge(client: TypeSafeClient): AutofillModels["judge"] {
 
     const state: EntryType = reply
       ? { reply: reply.text, records: context }
-      : stateOf(context)
+      : jsonObject(context)
     const { answers, usage } = await client.systemOne(
       { state, questions },
       {
@@ -355,15 +361,6 @@ export function createJudge(client: TypeSafeClient): AutofillModels["judge"] {
       const answer = yesOf(answers[`o_${i}`])
       if (answer) written[item.key] = answer.noul
     }
-    const sources: NonNullable<RecordJudgeOutput["sources"]> = {}
-    if (asked.source === "records") {
-      for (const [i, item] of [...asked.choices, ...asked.multi].entries()) {
-        const answer = answers[`s_${i}`]
-        const source = answer?.type === "choice" ? answer.choice : null
-        if (source === "profile" || source === "resume")
-          sources[item.key] = source
-      }
-    }
     return {
       choices: verdicts,
       multi: selected,
@@ -371,7 +368,6 @@ export function createJudge(client: TypeSafeClient): AutofillModels["judge"] {
         ? { preferences: preferredOptions(answers, candidates) }
         : {}),
       ...(reply ? { addressed } : {}),
-      ...(asked.source === "records" ? { sources } : {}),
       open: written,
       usage: {
         inputTokens: usage.input_tokens,
@@ -380,5 +376,8 @@ export function createJudge(client: TypeSafeClient): AutofillModels["judge"] {
     }
   }
   const records = createRecordJudge(client, once)
-  return (input) => (input.reply ? once(input) : records(input))
+  return (input) => {
+    const request = { ...input, context: profileContext(input.context) }
+    return input.reply ? once(request) : records(request)
+  }
 }

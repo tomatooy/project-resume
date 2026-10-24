@@ -3,10 +3,14 @@ import { useId } from "react"
 
 export function Brand({
   className,
+  logoClassName,
   engraved = false,
+  showName = true,
 }: {
   className?: string
+  logoClassName?: string
   engraved?: boolean
+  showName?: boolean
 }) {
   const engravingId = useId()
 
@@ -18,13 +22,16 @@ export function Brand({
       )}
     >
       <img
-        src="/logo.webp"
+        src="/logo.svg"
         alt=""
-        width={192}
-        height={192}
-        className="size-6 shrink-0 object-contain"
+        width={512}
+        height={512}
+        className={cn(
+          "size-6 shrink-0 object-contain dark:invert",
+          logoClassName
+        )}
       />
-      {engraved ? (
+      {engraved && showName ? (
         <svg
           aria-hidden="true"
           focusable="false"
@@ -53,12 +60,14 @@ export function Brand({
           </defs>
         </svg>
       ) : null}
-      <span
-        className={engraved ? "text-engraved" : undefined}
-        style={engraved ? { filter: `url("#${engravingId}")` } : undefined}
-      >
-        VS:Résumé
-      </span>
+      {showName ? (
+        <span
+          className={engraved ? "text-engraved" : undefined}
+          style={engraved ? { filter: `url("#${engravingId}")` } : undefined}
+        >
+          VS:Résumé
+        </span>
+      ) : null}
     </span>
   )
 }

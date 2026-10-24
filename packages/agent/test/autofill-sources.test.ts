@@ -81,10 +81,10 @@ describe("autofill source decisions", () => {
     }
   })
 
-  it("keeps full Notes separate from structured Profile/resume state", async () => {
+  it("keeps full Notes separate from structured Profile state", async () => {
     const { run, sent } = fixture([
       { c_0: choice("o2") },
-      { c_0: choice("insufficient"), c_1: choice("o3") },
+      { c_0: choice("insufficient") },
     ])
     const profile = {
       contact: { country: "US" },
@@ -117,14 +117,9 @@ describe("autofill source decisions", () => {
     expect(sent).toHaveBeenCalledTimes(2)
     expect(sent.mock.calls[0]?.[0].state).toEqual({ notes: note })
     const records = sent.mock.calls[1]?.[0]
-    expect(records?.state).toEqual({ today: "2026-10-22", profile, resume })
+    expect(records?.state).toEqual({ today: "2026-10-22", profile })
     expect(JSON.stringify(records)).not.toContain("Quora")
-    expect(records?.questions.c_0?.instructions).toContain(
-      "state.profile.contact"
-    )
-    expect(records?.questions.c_1?.instructions).toContain(
-      "state.resume.basics.summary"
-    )
+    expect(records?.questions.c_0?.instructions).toContain("state.profile")
     expect(JSON.stringify(records?.questions)).not.toMatch(
       /Python engineer|State-only University|Master of Science|2024-12/
     )
@@ -139,29 +134,24 @@ describe("autofill source decisions", () => {
     expect(result.usage).toEqual({ inputTokens: 20, outputTokens: 4 })
   })
 
-  it("references structured records for multi-select and source applicability", async () => {
+  it("reads Profile work history for multi-select decisions", async () => {
     const { run, sent } = fixture([{}])
-    const resume = {
-      sections: [
+    const profile = {
+      preferences: { workModes: ["remote"] },
+      experience: [
         {
-          type: "experience",
-          title: "Experience",
-          items: [
-            {
-              company: "State-only Employer",
-              role: "Developer",
-              start: "2023-01",
-              end: "2024-12",
-              bullets: [
-                "Used Terraform in internal CI, no Kubernetes deployments.",
-              ],
-            },
+          company: "State-only Employer",
+          role: "Developer",
+          start: "2023-01",
+          end: "2024-12",
+          bullets: [
+            "Used Terraform in internal CI, no Kubernetes deployments.",
           ],
         },
       ],
     }
     await run(
-      { profile: { preferences: { workModes: ["remote"] } }, resume },
+      { profile },
       {
         choices: [],
         multi: [
@@ -175,16 +165,9 @@ describe("autofill source decisions", () => {
     )
     expect(sent).toHaveBeenCalledOnce()
     const request = sent.mock.calls[0]?.[0]
-    expect(request?.state).toMatchObject({ resume })
-    for (const key of ["m_0_0", "m_0_1", "a_0"]) {
-      expect(request?.questions[key]?.instructions).toContain(
-        "state.profile.preferences"
-      )
-    }
-    for (const key of ["m_1_0", "m_1_1", "a_1"]) {
-      expect(request?.questions[key]?.instructions).toContain(
-        "state.resume.sections.0.items.0"
-      )
+    expect(request?.state).toMatchObject({ profile })
+    for (const key of ["m_0_0", "m_0_1"]) {
+      expect(request?.questions[key]?.instructions).toContain("state.profile")
     }
     expect(JSON.stringify(request?.questions)).not.toMatch(
       /State-only Employer|2023-01|2024-12|internal CI/
@@ -193,7 +176,7 @@ describe("autofill source decisions", () => {
 
   it("verifies a weak candidate without changing its original confidence", async () => {
     const { run, sent } = fixture([
-      { c_0: choice("o2", 0.52) },
+      { c_0: choice("o2", 0.45) },
       { support_0: noul(0.97), contradiction_0: noul(0.01) },
     ])
     const result = await run({ notes: note })
@@ -201,7 +184,7 @@ describe("autofill source decisions", () => {
     expect(verdict).toMatchObject({
       option: 1,
       source: "notes",
-      confidence: 0.52,
+      confidence: 0.45,
       verification: { support: 0.97, contradiction: 0.01 },
     })
     expect(verdict && verifiedChoice(verdict)).toBe(true)
@@ -224,9 +207,9 @@ describe("autofill source decisions", () => {
     expect(result.usage.inputTokens).toBe(20)
   })
 
-  it("keeps resume verification evidence in state for both checks", async () => {
+  it("keeps Profile education evidence in state for both checks", async () => {
     const { run, sent } = fixture([
-      { c_0: choice("o2", 0.6) },
+      { c_0: choice("o2", 0.45) },
       { support_0: noul(0.97), contradiction_0: noul(0.01) },
     ])
     const education = {
@@ -236,11 +219,7 @@ describe("autofill source decisions", () => {
     }
     const result = await run(
       {
-        resume: {
-          sections: [
-            { type: "education", title: "Education", items: [education] },
-          ],
-        },
+        profile: { education: [education] },
       },
       {
         choices: [
@@ -254,15 +233,15 @@ describe("autofill source decisions", () => {
     )
     expect(result.choices.degree).toMatchObject({
       option: 1,
-      source: "resume",
+      source: "profile",
       verification: { support: 0.97, contradiction: 0.01 },
     })
     const verification = sent.mock.calls[1]?.[0]
     expect(verification?.state).toMatchObject({
       evidence: {
         v_0: {
-          source: "resume",
-          evidence: [{ ref: "resume.sections.0.items.0", value: education }],
+          source: "profile",
+          evidence: [{ ref: "profile.education", value: [education] }],
         },
       },
     })
@@ -283,7 +262,7 @@ describe("autofill source decisions", () => {
     "does not accept failed verification $support / $contradiction",
     async ({ support, contradiction }) => {
       const { run } = fixture([
-        { c_0: choice("o2", 0.52) },
+        { c_0: choice("o2", 0.45) },
         { support_0: noul(support), contradiction_0: noul(contradiction) },
       ])
       const verdict = (await run({ notes: note })).choices.language
@@ -293,25 +272,25 @@ describe("autofill source decisions", () => {
 
   it("does not boost two weak agreeing choices", async () => {
     const { run, sent } = fixture([
-      { c_0: choice("o2", 0.6) },
-      { c_0: choice("o2", 0.65) },
+      { c_0: choice("o2", 0.4) },
+      { c_0: choice("o2", 0.45) },
       { support_0: noul(0.7), contradiction_0: noul(0.01) },
     ])
     const verdict = (
       await run({
         notes: note,
-        resume: { basics: { summary: "Prefers Java for interviews" } },
+        profile: { skills: [{ label: "Languages", skills: ["Java"] }] },
       })
     ).choices.language
     expect(sent).toHaveBeenCalledTimes(3)
-    expect(verdict?.confidence).toBe(0.6)
+    expect(verdict?.confidence).toBe(0.45)
     expect(verdict && verifiedChoice(verdict)).toBe(false)
   })
 
   it("keeps an uncertain explicit Profile answer ahead of confident contradictory Notes", async () => {
     const { run, sent } = fixture([
       { c_0: choice("o1", 0.99) },
-      { c_0: choice("o2", 0.55) },
+      { c_0: choice("o2", 0.45) },
       { support_0: noul(0.97), contradiction_0: noul(0.01) },
     ])
     const result = await run(
@@ -332,7 +311,7 @@ describe("autofill source decisions", () => {
     expect(result.choices.language).toMatchObject({
       option: 1,
       source: "profile",
-      confidence: 0.55,
+      confidence: 0.45,
     })
     expect(JSON.stringify(sent.mock.calls[2]?.[0])).toContain("workModes")
     expect(JSON.stringify(sent.mock.calls[2]?.[0])).not.toContain(

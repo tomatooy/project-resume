@@ -8,6 +8,7 @@ import {
   PlusIcon,
   XIcon,
 } from "@phosphor-icons/react"
+import { useQuery } from "@tanstack/react-query"
 import {
   templateList,
   type FontScale,
@@ -29,7 +30,7 @@ import { toast } from "sonner"
 import { IconButton } from "@/features/shell/IconButton"
 import { PaneTitle } from "@/features/shell/PaneTitle"
 import { ClientOnly } from "@/lib/client-only"
-import { useThrottledValue } from "@/lib/use-throttled-value"
+import { resumeSummaryQuery } from "@/lib/queries"
 import { useResumeState, useSession } from "../session-context"
 import { downloadPdf } from "./download"
 import {
@@ -41,11 +42,12 @@ import {
   clampZoom,
   nextZoomStep,
   previousZoomStep,
+  usePinchZoom,
+  useThrottledValue,
   ZOOM_MAX,
   ZOOM_MIN,
 } from "@workspace/resume-preview"
 import { TemplateThumb } from "./TemplateThumb"
-import { usePinchZoom } from "./use-pinch-zoom"
 import { useTemplateThumbs } from "./use-template-thumbs"
 
 const PdfViewer = lazy(() =>
@@ -99,7 +101,8 @@ export function PreviewPane({
   onToggleMaximize?: () => void
 }) {
   const session = useSession()
-  const ownerName = useResumeState((s) => s.doc.basics.name)
+  const resumeId = useResumeState((s) => s.resumeId)
+  const { data: resume } = useQuery(resumeSummaryQuery(resumeId))
   const templateId = useResumeState((s) => s.templateId)
   const options = useResumeState((s) => s.templateOptions)
   const store = usePreviewStore()
@@ -206,10 +209,11 @@ export function PreviewPane({
               document, and everything else here touches that document. */}
           <IconButton
             label="Download the PDF"
-            disabled={!blob || loading || stale}
+            disabled={!resume || !blob || loading || stale}
             onClick={() =>
               blob &&
-              toast.success(`Downloaded ${downloadPdf(blob, ownerName)}`)
+              resume &&
+              toast.success(`Downloaded ${downloadPdf(blob, resume.title)}`)
             }
           >
             <DownloadSimpleIcon />

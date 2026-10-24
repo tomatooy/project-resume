@@ -152,6 +152,9 @@ export const router = shared.router({
     infer: shared.autofill.infer.handler(({ input, context }) =>
       context.services.autofill.infer(input)
     ),
+    resolveLocation: shared.autofill.resolveLocation.handler(
+      ({ input, context }) => context.services.autofill.resolveLocation(input)
+    ),
     answer: shared.autofill.answer.handler(({ input, context }) =>
       context.services.autofill.answer(input)
     ),

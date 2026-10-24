@@ -37,6 +37,7 @@ type ProfilePatch = { [S in keyof Profile]?: Partial<Profile[S]> }
 /** The sample Profile with some answers changed. */
 function withProfile(patch: ProfilePatch): Profile {
   return {
+    ...sampleProfile,
     personal: { ...sampleProfile.personal, ...patch.personal },
     contact: { ...sampleProfile.contact, ...patch.contact },
     links: { ...sampleProfile.links, ...patch.links },

@@ -1,4 +1,5 @@
 import type { ProfileSection } from "@workspace/autofill/fields"
+import type { Ref } from "react"
 import { Button } from "@workspace/ui/components/button"
 import { Spinner } from "@workspace/ui/components/spinner"
 import {
@@ -18,7 +19,6 @@ import {
 } from "../../lib/autofill-copy"
 import type { AutofillAction, AutofillView } from "../../lib/autofill-view"
 import type { Snapshot } from "../../lib/messages"
-import { useResumeAttach } from "./attach"
 import { Groups } from "./Groups"
 import { Questions } from "./Questions"
 import { ResumePicker } from "./ResumePicker"
@@ -29,6 +29,8 @@ type Props = {
   onAction: (action: AutofillAction) => void
   onOpenProfile: (section: ProfileSection) => void
   onOpenApp: () => void
+  onPreview: () => void
+  previewButtonRef: Ref<HTMLButtonElement>
   /** Another panel action is in flight. */
   pending: boolean
   /** The autofill action in flight, apart from focus and draft. */
@@ -42,10 +44,11 @@ export function AutofillPanel({
   onAction,
   onOpenProfile,
   onOpenApp,
+  onPreview,
+  previewButtonRef,
   pending,
   sending,
 }: Props) {
-  useResumeAttach(view.attach, onAction)
   const busy = pending || sending !== null || view.running
   const limited = view.quota?.remaining === 0
   const line = pageLine(view.company, view.title)
@@ -81,10 +84,7 @@ export function AutofillPanel({
       </>
     )
   const mismatch =
-    view.jobMatch === "mismatch" &&
-    !view.useAnyway &&
-    view.job !== null &&
-    view.company !== null
+    view.jobMatch === "mismatch" && view.job !== null && view.company !== null
       ? mismatchLine(view.job.company, view.company)
       : null
   const missing = view.missing[0]
@@ -105,19 +105,14 @@ export function AutofillPanel({
           more={resumes.more}
           disabled={busy}
           onPick={(resumeId) => onAction({ kind: "resume", resumeId })}
+          onPreview={onPreview}
+          previewButtonRef={previewButtonRef}
+          previewDisabled={view.postingKey === null}
         />
       )}
       {mismatch && (
-        <div className="space-y-2 rounded-lg bg-warning/10 p-3">
+        <div className="rounded-lg bg-warning/10 p-3">
           <p className="text-warning">{mismatch}</p>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => onAction({ kind: "use-anyway" })}
-          >
-            Use anyway
-          </Button>
         </div>
       )}
       <div className="flex items-center gap-3">

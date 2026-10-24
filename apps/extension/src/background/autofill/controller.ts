@@ -24,6 +24,7 @@ import type {
 import type { AutofillAction, AutofillView } from "../../lib/autofill-view"
 import { autofillFrame, sameDocument } from "./frames"
 import { sendToContent } from "./send"
+import { withLocationResolution } from "./location-resolution"
 import {
   type AutofillSession,
   applyScan,
@@ -244,18 +245,32 @@ async function sendWrites(
   session: AutofillSession,
   fills: Fill[],
   force: string[] = []
-): Promise<WriteResults> {
-  if (fills.length === 0) return {}
-  const { results } = await sendToContent(tabId, session, {
-    type: "autofill-write",
-    fills,
-    force,
-    identities: Object.fromEntries(
-      session.fields.map((field) => [field.id, fieldIdentity(field)])
-    ),
+): Promise<{ results: WriteResults; fills: Fill[] }> {
+  if (fills.length === 0) return { results: {}, fills: [] }
+  const {
+    reply: { results },
+    selections,
+  } = await withLocationResolution(tabId, session, fills, (requestId) =>
+    sendToContent(tabId, session, {
+      type: "autofill-write",
+      requestId,
+      fills,
+      force,
+      identities: Object.fromEntries(
+        session.fields.map((field) => [field.id, fieldIdentity(field)])
+      ),
+    })
+  )
+  const written = fills.map((fill): Fill => {
+    const selection = selections.get(fill.fieldId)
+    return fill.kind === "search" &&
+      results[fill.fieldId] === "written" &&
+      selection
+      ? { ...fill, selection: selection.label, source: "ai" }
+      : fill
   })
-  traceWrites(session, fills, results)
-  return results
+  traceWrites(session, written, results)
+  return { results, fills: written }
 }
 
 /** Writes fills into the session's frame and records what landed. */
@@ -266,13 +281,18 @@ export async function writeFills(
   force: string[] = []
 ): Promise<void> {
   if (fills.length === 0) return
-  const results = await sendWrites(tabId, session, fills, force)
+  const { results, fills: written } = await sendWrites(
+    tabId,
+    session,
+    fills,
+    force
+  )
   await updatePosting(tabId, session.postingKey, (current) => {
     if (!sameDocument(current, session)) return current
     const valid = matchingFields(session.fields, current.fields)
     return recordWrites(
       current,
-      fills.filter((fill) => valid.has(fill.fieldId)),
+      written.filter((fill) => valid.has(fill.fieldId)),
       results
     )
   })
@@ -503,8 +523,15 @@ async function writeRules(
   tabId: number,
   pass: Pass,
   plan: PlanResult,
-  targets: ReadonlySet<string>
+  targets: ReadonlySet<string>,
+  starting: Promise<Started | null>
 ): Promise<void> {
+  if (
+    plan.fills.some(
+      (fill) => targets.has(fill.fieldId) && fill.kind === "search"
+    )
+  )
+    await starting
   const session = await readPosting(tabId, pass.page.postingKey)
   if (!session || !sameDocument(session, pass.session)) return
   const fills = plan.fills.filter(({ fieldId }) => targets.has(fieldId))
@@ -645,7 +672,11 @@ async function askAi(
     latest,
     outcome.fills.filter(({ fieldId }) => asked.has(fieldId))
   )
-  const results = await sendWrites(tabId, pass.session, fills)
+  const { results, fills: written } = await sendWrites(
+    tabId,
+    pass.session,
+    fills
+  )
   await updatePosting(tabId, key, (current) => {
     if (!sameDocument(current, pass.session)) return current
     const valid = matchingFields(fields, current.fields)
@@ -653,7 +684,7 @@ async function askAi(
     return withAiOutcome(
       recordWrites(
         current,
-        fills.filter((fill) => valid.has(fill.fieldId)),
+        written.filter((fill) => valid.has(fill.fieldId)),
         results
       ),
       valid,
@@ -745,7 +776,13 @@ async function runPass(tabId: number, pass: Pass, mode: Mode): Promise<void> {
         )
   traceTargets(session, routes, targets, aiFields, AUTO_PASSES)
   await settle([
-    writeRules(tabId, pass, plan, new Set(targets.map(({ id }) => id))),
+    writeRules(
+      tabId,
+      pass,
+      plan,
+      new Set(targets.map(({ id }) => id)),
+      starting
+    ),
     askAi(
       tabId,
       pass,
@@ -781,10 +818,8 @@ async function pickResume(tabId: number, resumeId: string): Promise<void> {
     )
       return
     const fields = new Set(pass.session.fields.map(({ id }) => id))
-    await settle([
-      writeRules(tabId, pass, plan, fields),
-      startApplication(tabId, pass, plan, plan.resumeId),
-    ])
+    const starting = startApplication(tabId, pass, plan, plan.resumeId)
+    await settle([writeRules(tabId, pass, plan, fields, starting), starting])
   })
 }
 
@@ -839,7 +874,7 @@ async function answerQuestions(tabId: number, text: string): Promise<void> {
       latest,
       result.fills.filter(({ fieldId }) => named.has(fieldId))
     )
-    const results = await sendWrites(tabId, session, fills)
+    const { results, fills: written } = await sendWrites(tabId, session, fills)
     const outcome = result.notes
     await updatePosting(tabId, page.postingKey, (current) => {
       if (!sameDocument(current, session)) return current
@@ -847,7 +882,7 @@ async function answerQuestions(tabId: number, text: string): Promise<void> {
       return {
         ...recordWrites(
           current,
-          fills.filter((fill) => valid.has(fill.fieldId)),
+          written.filter((fill) => valid.has(fill.fieldId)),
           results
         ),
         unmatched: result.unmatched,

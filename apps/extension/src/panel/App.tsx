@@ -15,6 +15,7 @@ import { Textarea } from "@workspace/ui/components/textarea"
 import { MAX_TAILOR_INSTRUCTIONS_CHARS } from "@workspace/resume-core/contracts"
 import {
   currentQuery,
+  resumePreviewKey,
   useAutofillAction,
   useAutofillUpdates,
   useBaseResumes,
@@ -24,9 +25,14 @@ import {
   useServerUpdates,
 } from "./queries"
 import { AutofillPanel } from "./autofill/AutofillPanel"
+import { useResumeAttach } from "./autofill/attach"
 import { TailoredPreview } from "./preview/TailoredPreview"
 import { useTailorInstructions } from "./use-tailor-instructions"
-import { ExtensionError, type Message } from "../lib/messages"
+import {
+  ExtensionError,
+  type Message,
+  type ResumePreviewRequest,
+} from "../lib/messages"
 import {
   AtsVendorSchema,
   atsName,
@@ -51,6 +57,9 @@ export function App() {
     id: string
   } | null>(null)
   const data = state.data
+  useResumeAttach(data?.autofill?.attach ?? null, (next) =>
+    autofill.mutate(next)
+  )
   const instructions = useTailorInstructions(
     data?.lookup?.kind === "none" ? data.account?.id : undefined
   )
@@ -70,7 +79,7 @@ export function App() {
   }
   const lookup = data?.lookup
   const page = data?.page
-  const readyPreview =
+  const readyPreview: ResumePreviewRequest | null =
     !state.isError &&
     data?.account &&
     page?.kind === "job" &&
@@ -82,15 +91,20 @@ export function App() {
           resumeId: lookup.resumeId,
           operationId: lookup.operation.id,
         }
-      : null
+      : !state.isError &&
+          data?.account &&
+          page?.kind === "ats" &&
+          data.autofill?.form &&
+          data.autofill.resume &&
+          data.autofill.postingKey
+        ? {
+            accountId: data.account.id,
+            resumeId: data.autofill.resume.id,
+            postingKey: data.autofill.postingKey,
+          }
+        : null
   const readyKey = readyPreview
-    ? [
-        readyPreview.accountId,
-        readyPreview.identity.platform,
-        readyPreview.identity.externalJobId,
-        readyPreview.resumeId,
-        readyPreview.operationId,
-      ].join(":")
+    ? JSON.stringify([data?.tabId, ...resumePreviewKey(readyPreview)])
     : null
   const preview = previewId && previewId === readyKey ? readyPreview : null
   useEffect(() => {
@@ -186,11 +200,15 @@ export function App() {
         request={preview}
         onBack={closePreview}
         onEdit={() =>
-          act({
-            type: "edit",
-            resumeId: preview.resumeId,
-            identity: preview.identity,
-          })
+          act(
+            "postingKey" in preview
+              ? { type: "autofill-edit", ...preview }
+              : {
+                  type: "edit",
+                  resumeId: preview.resumeId,
+                  identity: preview.identity,
+                }
+          )
         }
         onConnect={() => {
           setPreviewId(null)
@@ -214,6 +232,8 @@ export function App() {
         onAction={(next) => autofill.mutate(next)}
         onOpenProfile={(section) => act({ type: "open-app", section })}
         onOpenApp={() => act({ type: "open-app" })}
+        onPreview={() => setPreviewId(readyKey)}
+        previewButtonRef={previewButton}
         pending={pending}
         sending={sending}
       />
@@ -296,11 +316,21 @@ export function App() {
               ? "Review your PDF, download it, or make a few final edits."
               : "You can retry with the saved job description, or edit your copy."}
         </p>
+        {op.status === "succeeded" && data.canApply && (
+          <Button
+            className="w-full"
+            disabled={pending}
+            onClick={() => act({ type: "apply", identity: page.identity })}
+          >
+            <ArrowSquareOutIcon /> Apply now
+          </Button>
+        )}
         <div className="flex flex-wrap gap-2">
           {op.status === "succeeded" && (
             <Button
               ref={previewButton}
               className="flex-1"
+              variant={data.canApply ? "outline" : "default"}
               onClick={() => setPreviewId(readyKey)}
             >
               <FilePdfIcon /> Preview resume
@@ -477,11 +507,11 @@ export function App() {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 font-heading text-lg tracking-tight text-foreground">
             <img
-              src="/icons/32.png"
+              src="/logo.svg"
               alt=""
               width={32}
               height={32}
-              className="size-6 grayscale"
+              className="size-6 shrink-0 object-contain dark:invert"
             />
             VS:Résumé
           </div>

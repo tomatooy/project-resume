@@ -1,5 +1,5 @@
 import {
-  BooksIcon,
+  CaretDownIcon,
   DotsThreeIcon,
   FileTextIcon,
   MagnifyingGlassIcon,
@@ -8,26 +8,29 @@ import {
 import { useQuery } from "@tanstack/react-query"
 import {
   Link,
-  useMatchRoute,
   useNavigate,
   useParams,
+  useRouterState,
 } from "@tanstack/react-router"
+import { ResumeSortSchema } from "@workspace/resume-core"
 import { Button } from "@workspace/ui/components/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { cn } from "@workspace/ui/lib/utils"
-import { useRef, useState } from "react"
+import { useRef, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 
 import { AutofillRail } from "@/features/autofill/AutofillRail"
 import { ImportDialog } from "@/features/import/ImportDialog"
-import { absoluteTime, relativeTime } from "@/lib/format"
+import { absoluteDate, absoluteTime, relativeTime } from "@/lib/format"
 import {
   SEARCH_MIN_QUERY,
   useResumes,
@@ -37,87 +40,123 @@ import {
   useDuplicateResume,
 } from "@/lib/queries"
 import { useDebouncedValue } from "@/lib/use-debounced-value"
+import { useLocalStorage } from "@/lib/use-local-storage"
 import { DeleteResumeDialog } from "./DeleteResumeDialog"
 import { IconButton } from "./IconButton"
 import { RenameDialog } from "./RenameDialog"
 import { RailSlotHost } from "./rail-slot"
 import { useOptionalWorkspace } from "@/features/workspace/context"
+import { routeTarget, tabKey } from "@/features/workspace/targets"
 import { SearchField, SearchResults } from "./ResumeSearch"
 import { SkillsRail } from "./SkillsRail"
 import { LoadMore } from "./LoadMore"
 import { RailSkeleton } from "./RailSkeleton"
+import { ResumeViewMenu } from "./ResumeViewMenu"
 
 type RailMode = "resumes" | "skills" | "autofill"
 
+const RAIL_LABELS: Record<RailMode, string> = {
+  skills: "Skills",
+  resumes: "My resumes",
+  autofill: "Autofill profile",
+}
+
 export function ResumeRail() {
-  const matchRoute = useMatchRoute()
-  const onAutofill = Boolean(matchRoute({ to: "/autofill" }))
-  // The initial route seeds the rail; browsing it leaves the active tab alone.
-  const [mode, setMode] = useState<RailMode>(() => {
-    if (onAutofill) return "autofill"
-    return matchRoute({ to: "/skills", fuzzy: true }) ? "skills" : "resumes"
+  const path = useRouterState({
+    select: (s) => (s.resolvedLocation ?? s.location).pathname,
   })
-  // Except for the profile: arriving there always brings up its sections,
-  // because the rail is how its page is navigated. Set while rendering, not in
-  // an effect, so the previous list never flashes first.
-  const [wasOnAutofill, setWasOnAutofill] = useState(onAutofill)
-  if (onAutofill !== wasOnAutofill) {
-    setWasOnAutofill(onAutofill)
-    if (onAutofill) setMode("autofill")
+  const active = routeTarget(path)
+  const activeKey = active ? tabKey(active) : "dashboard"
+  const activeMode: RailMode =
+    active?.kind === "autofill"
+      ? "autofill"
+      : active?.kind === "skill" || active?.kind === "skills"
+        ? "skills"
+        : "resumes"
+  const [mode, setMode] = useState(activeMode)
+  const [previousActiveKey, setPreviousActiveKey] = useState(activeKey)
+
+  // Tab changes select their rail; manual browsing lasts until then.
+  if (activeKey !== previousActiveKey) {
+    setPreviousActiveKey(activeKey)
+    setMode(activeMode)
   }
+  const title = <RailSwitch mode={mode} onSelect={setMode} />
 
   return (
     <nav className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       {mode === "skills" ? (
-        <SkillsRail />
+        <SkillsRail title={title} />
       ) : mode === "autofill" ? (
-        <AutofillRail />
+        <AutofillRail title={title} />
       ) : (
-        <ResumeList />
+        <ResumeList title={title} />
       )}
-      <RailSwitch
-        mode={mode}
-        onToggle={() =>
-          setMode((current) => (current === "resumes" ? "skills" : "resumes"))
-        }
-      />
     </nav>
   )
 }
 
-/** The foot of the rail: one row, naming what the rail is not showing. */
 function RailSwitch({
   mode,
-  onToggle,
+  onSelect,
 }: {
   mode: RailMode
-  onToggle: () => void
+  onSelect: (mode: RailMode) => void
 }) {
-  // The profile is reached from the user menu, so from there the way back is
-  // the resumes, as it is from the skills.
-  const toResumes = mode !== "resumes"
   return (
-    <div className="flex flex-none items-center border-t border-border p-1.5">
-      <Button
-        type="button"
-        variant="ghost"
-        onClick={onToggle}
-        className="h-[26px] w-full justify-start gap-1.5 rounded-[6px] px-2 text-[12.5px] font-normal text-foreground/60 hover:bg-accent"
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Sidebar view: ${RAIL_LABELS[mode]}`}
+            title={RAIL_LABELS[mode]}
+            className="-ml-1.5 min-w-0 max-w-full shrink justify-start gap-0 rounded-sm px-1.5 text-[10px] font-semibold tracking-[0.07em] text-muted-foreground uppercase"
+          />
+        }
       >
-        {toResumes ? (
-          <FileTextIcon className="size-3.5 flex-none opacity-70" />
-        ) : (
-          <BooksIcon className="size-3.5 flex-none opacity-70" />
-        )}
-        <span className="truncate">{toResumes ? "My resumes" : "Skills"}</span>
-      </Button>
-    </div>
+        <span className="truncate">{RAIL_LABELS[mode]}</span>
+        <CaretDownIcon
+          aria-hidden="true"
+          className="ml-1.5 size-3 text-muted-foreground"
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-64 max-w-[calc(100vw-2rem)] rounded-md"
+      >
+        <DropdownMenuRadioGroup
+          aria-label="Sidebar view"
+          value={mode}
+          onValueChange={onSelect}
+        >
+          {Object.entries(RAIL_LABELS).map(([value, label]) => (
+            <DropdownMenuRadioItem
+              key={value}
+              value={value}
+              label={label}
+              title={label}
+              closeOnClick
+              className="rounded-sm py-1.5 text-[12.5px] data-checked:bg-accent"
+            >
+              <span className="truncate">{label}</span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
 /** The user's resumes, as the rail shows them when the library is not up. */
-function ResumeList() {
-  const resumes = useResumes()
+function ResumeList({ title }: { title: ReactNode }) {
+  const [sortBy, setSortBy] = useLocalStorage(
+    "resume-studio.resume-view",
+    ResumeSortSchema,
+    "updatedAt"
+  )
+  const resumes = useResumes(sortBy)
   const { isPending } = resumes
   const params = useParams({ strict: false })
   const activeId = "resumeId" in params ? params.resumeId : undefined
@@ -126,6 +165,16 @@ function ResumeList() {
     active?.data && !resumes.data?.some((row) => row.id === activeId)
       ? [active.data, ...(resumes.data ?? [])]
       : resumes.data
+  const rows =
+    sortBy === "createdAt"
+      ? data
+          ?.slice()
+          .sort(
+            (a, b) =>
+              Date.parse(b.createdAt) - Date.parse(a.createdAt) ||
+              b.id.localeCompare(a.id)
+          )
+      : data
 
   // A row opens the tab the user is already on, so switching resumes from
   // Export does not throw them back to the editor.
@@ -176,14 +225,13 @@ function ResumeList() {
         >
           <div
             aria-hidden={searchOpen}
+            inert={searchOpen}
             className={cn(
               "flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap transition-opacity duration-150",
               searchOpen && "opacity-0"
             )}
           >
-            <span className="text-[10px] font-semibold tracking-[0.07em] text-muted-foreground uppercase">
-              My resumes
-            </span>
+            {title}
             {isPending ? (
               <Skeleton className="h-4 w-5 bg-foreground/10 motion-reduce:animate-none" />
             ) : (
@@ -201,26 +249,29 @@ function ResumeList() {
             />
           </div>
         </div>
-        <IconButton
-          ref={searchButtonRef}
-          label="Search resumes"
-          aria-expanded={searchOpen}
-          onClick={() => {
-            if (searchOpen) closeSearch()
-            else setSearchOpen(true)
-          }}
-        >
-          <MagnifyingGlassIcon weight="bold" />
-        </IconButton>
-        <IconButton
-          label="Create a new resume"
-          onClick={() => setImporting(true)}
-        >
-          <PlusIcon weight="bold" />
-        </IconButton>
+        <div className="flex flex-none items-center gap-0.5">
+          <IconButton
+            ref={searchButtonRef}
+            label="Search resumes"
+            aria-expanded={searchOpen}
+            onClick={() => {
+              if (searchOpen) closeSearch()
+              else setSearchOpen(true)
+            }}
+          >
+            <MagnifyingGlassIcon weight="bold" />
+          </IconButton>
+          <ResumeViewMenu value={sortBy} onValueChange={setSortBy} />
+          <IconButton
+            label="Create a new resume"
+            onClick={() => setImporting(true)}
+          >
+            <PlusIcon weight="bold" />
+          </IconButton>
+        </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-1.5 pb-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {searching ? (
           <SearchResults
             query={debouncedQuery}
@@ -235,10 +286,26 @@ function ResumeList() {
         ) : isPending ? (
           <RailSkeleton />
         ) : (
-          data?.map((resume) => {
+          rows?.map((resume, index) => {
             const selected = resume.id === activeId
+            const date =
+              sortBy === "createdAt" ? absoluteDate(resume.createdAt) : null
+            const previous = rows[index - 1]
+            const startsDay =
+              date !== null &&
+              (!previous || absoluteDate(previous.createdAt) !== date)
             return (
-              <div key={resume.id}>
+              <div key={resume.id} className="flex-none">
+                {startsDay && (
+                  <h3
+                    className={cn(
+                      "px-2 pt-3 pb-1 text-[10px] font-semibold text-muted-foreground",
+                      index === 0 && "pt-1"
+                    )}
+                  >
+                    {date}
+                  </h3>
+                )}
                 {/* Only the row itself is hoverable: the sections below it are
                     their own rows, not part of this one's target. */}
                 <div className="group/row relative">
@@ -260,15 +327,16 @@ function ResumeList() {
                     <span className="min-w-0 flex-1 truncate text-[12.5px]">
                       {resume.title}
                     </span>
-                    {/* One right-hand slot, two claimants: the row shows when it
-                      was last saved, and yields it to the menu on hover. */}
-                    <time
-                      dateTime={resume.updatedAt}
-                      title={absoluteTime(resume.updatedAt)}
-                      className="flex-none text-[10.5px] text-muted-foreground transition-opacity group-has-[:focus-visible]/row:opacity-0 group-hover/row:opacity-0"
-                    >
-                      {relativeTime(resume.updatedAt)}
-                    </time>
+                    {/* The row's time yields to its actions on hover. */}
+                    {sortBy === "updatedAt" && (
+                      <time
+                        dateTime={resume.updatedAt}
+                        title={absoluteTime(resume.updatedAt)}
+                        className="flex-none text-[10.5px] text-muted-foreground transition-opacity group-has-[:focus-visible]/row:opacity-0 group-hover/row:opacity-0"
+                      >
+                        {relativeTime(resume.updatedAt)}
+                      </time>
+                    )}
                   </Link>
 
                   <DropdownMenu>

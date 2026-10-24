@@ -24,6 +24,8 @@ import {
 } from "react"
 
 import { SECTIONS } from "./AutofillRail"
+import { Education, Experience, Skills } from "./HistorySections"
+import { ImportProfileFields } from "./ImportFromResume"
 import {
   CheckGroup,
   type Choice,
@@ -31,6 +33,7 @@ import {
   Field,
   type FieldControl,
   fieldId,
+  Grid,
   TextField,
   YesNoField,
 } from "./fields"
@@ -63,7 +66,7 @@ const MESSAGES = {
 const LEGEND =
   "mb-2 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground uppercase"
 
-type SectionProps = {
+export type SectionProps = {
   profile: Profile
   set: <K extends keyof Profile>(key: K, next: Profile[K]) => void
   control: FieldControl
@@ -103,6 +106,9 @@ const BODIES: Record<
   personal: Personal,
   contact: Contact,
   links: Links,
+  experience: Experience,
+  education: Education,
+  skills: Skills,
   "work-authorization": WorkAuthorization,
   preferences: Preferences,
   eeo: Eeo,
@@ -118,14 +124,17 @@ export function ProfileForm({ state }: { state: ProfileState }) {
   const { profile, update, notice } = useProfileAutosave(state)
   const [touched, setTouched] = useState<ReadonlySet<string>>(() => new Set())
   const issues = useMemo(() => profileIssues(profile), [profile])
-  const blocked = [...issues].some((path) => touched.has(path))
+  const invalid = (path: string) =>
+    touched.has(path) &&
+    [...issues].some((issue) => issue === path || issue.startsWith(`${path}.`))
+  const blocked = [...touched].some(invalid)
   const message = notice ?? (blocked ? BLOCKED : null)
 
   const props: SectionProps = {
     profile,
     set: (key, next) => update({ ...profile, [key]: next }),
     control: {
-      invalid: (path) => touched.has(path) && issues.has(path),
+      invalid,
       touch: (path) =>
         setTouched((current) =>
           current.has(path) ? current : new Set([...current, path])
@@ -143,6 +152,7 @@ export function ProfileForm({ state }: { state: ProfileState }) {
           </p>
         ) : null}
       </div>
+      <ImportProfileFields update={update} />
       {SECTIONS.map(({ anchor, title }) => {
         if (anchor === "notes") return null
         const Body = BODIES[anchor]
@@ -152,14 +162,6 @@ export function ProfileForm({ state }: { state: ProfileState }) {
           </PageSection>
         )
       })}
-    </div>
-  )
-}
-
-function Grid({ children }: { children: ReactNode }) {
-  return (
-    <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
-      {children}
     </div>
   )
 }

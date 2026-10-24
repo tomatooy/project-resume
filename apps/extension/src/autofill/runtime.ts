@@ -3,6 +3,7 @@ import type {
   WorkerMessage,
   WorkerReply,
 } from "../lib/autofill-protocol"
+import type { ResolveLocation } from "./types"
 import { fieldRow, trace, traceTable } from "./debug"
 import { createDiscovery } from "./discovery"
 import { isShown, LIMITS, scriptClick } from "./dom"
@@ -417,7 +418,37 @@ export function startAutofill(
         return true
       }
       case "autofill-write": {
-        const { fills, force, identities } = message
+        const { fills, force, identities, requestId } = message
+        const url = scanUrl(location.href)
+        const resolveLocation: ResolveLocation = async (fieldId, options) => {
+          if (!requestId || !alive() || scanUrl(location.href) !== url)
+            return null
+          const response = await send({
+            type: "autofill-resolve-location",
+            requestId,
+            fieldId,
+            options,
+          })
+          if (
+            !response ||
+            typeof response !== "object" ||
+            !("option" in response)
+          )
+            return null
+          const option = response.option
+          if (
+            !option ||
+            typeof option !== "object" ||
+            !("id" in option) ||
+            !("label" in option)
+          )
+            return null
+          return (
+            options.find(
+              ({ id, label }) => id === option.id && label === option.label
+            ) ?? null
+          )
+        }
         const failed: WorkerReply<"autofill-write"> = { results: {} }
         void perform(async (): Promise<WorkerReply<"autofill-write">> => {
           try {
@@ -427,13 +458,16 @@ export function startAutofill(
                   read()
                   const handle = handles.get(id)
                   return handle &&
+                    alive() &&
+                    scanUrl(location.href) === url &&
                     fieldIdentity(handle.descriptor) === identities[id]
                     ? handle
                     : undefined
                 },
                 fills,
                 new Set(force),
-                owner
+                owner,
+                resolveLocation
               ),
             }
           } finally {

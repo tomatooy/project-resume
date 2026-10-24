@@ -45,7 +45,7 @@ export function profileWriter(deps: {
 
 export type ProfileAutosave = {
   profile: Profile
-  update(next: Profile): void
+  update(next: Profile | ((current: Profile) => Profile)): void
   /** Set after a conflict reloaded the page; cleared by the next edit. */
   notice: string | null
 }
@@ -117,9 +117,11 @@ export function useProfileAutosave(state: ProfileState): ProfileAutosave {
   useSaverLifecycle(saver, () => doc.current.profile !== doc.current.saved)
 
   const update = useCallback(
-    (next: Profile) => {
-      doc.current = { ...doc.current, profile: next }
-      setProfile(next)
+    (next: Profile | ((current: Profile) => Profile)) => {
+      const profile =
+        typeof next === "function" ? next(doc.current.profile) : next
+      doc.current = { ...doc.current, profile }
+      setProfile(profile)
       setNotice(null)
       saver.schedule()
     },

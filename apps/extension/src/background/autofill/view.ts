@@ -20,6 +20,7 @@ const noGroups = (): AutofillView["groups"] => ({
 
 /** Before the page's first scan arrives. */
 const scanning = (): AutofillView => ({
+  postingKey: null,
   vendor: null,
   company: null,
   title: null,
@@ -165,6 +166,7 @@ export function autofillView(
         ? pinned.choice
         : (plan?.resumeChoice ?? null)
   return {
+    postingKey: session.postingKey,
     vendor: session.vendor,
     company: session.page.company,
     title: session.page.title,

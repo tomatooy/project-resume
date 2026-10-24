@@ -21,7 +21,7 @@ export const JEV_DATA_RULE =
 
 /** Which record wins when they disagree. */
 export const SOURCES_RULE =
-  "When the records disagree, the profile wins over the notes, and the notes win over the resume. A missing, null, blank or empty-list profile value is not an answer: consult the notes, then the resume. False and zero are explicit values. The resume is the source for work history and education."
+  "When the records disagree, the profile wins over the notes, and the notes win over the resume. A missing, null, blank or empty-list profile value is not an answer: consult the notes, then the resume. False and zero are explicit values. For work history, education and skills, a non-empty profile section takes precedence over the corresponding resume section. Never combine details from different jobs or schools into one entry."
 
 export const IDENTITY_RULE =
   "Never infer pronouns, gender, age, race, ethnicity, disability or any other personal trait from a name, a photo, a school or any other indirect clue."

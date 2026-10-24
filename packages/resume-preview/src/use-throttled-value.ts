@@ -1,13 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 
-/**
- * Follows a value that changes in bursts, at most once every `delayMs`.
- *
- * The leading edge keeps the first move immediate; the timer's tail commit is
- * what makes the last one land, so a burst that stops mid-interval still
- * settles on the value it ended at. A debounce is the wrong shape here: it
- * would sit still for the whole gesture and then jump.
- */
+/** Immediate leading update with a trailing commit for the final value. */
 export function useThrottledValue<T>(value: T, delayMs: number): T {
   const [throttled, setThrottled] = useState(value)
   const latest = useRef(value)
