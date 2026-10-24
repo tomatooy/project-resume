@@ -73,7 +73,6 @@ export async function snapshot(tabId?: number): Promise<Snapshot> {
     page,
     account: user,
     lookup: null,
-    canApply: false,
     resumes: [],
     nextResumeCursor: null,
     lastBaseId: null,
@@ -98,13 +97,6 @@ export async function snapshot(tabId?: number): Promise<Snapshot> {
   }
   if (!user || page.kind !== "job") return result
   result.lookup = await api.jobs.lookup(page.identity)
-  if (result.lookup.kind === "bound" && tab?.id !== undefined) {
-    result.canApply = await jobApplication(
-      tab.id,
-      page.sourceUrl,
-      page.identity.externalJobId
-    ).catch(() => false)
-  }
   if (result.lookup.kind === "none") {
     const first = await api.resumes.page({})
     result.resumes = first.items
@@ -217,8 +209,7 @@ async function execute(
     const opened = await jobApplication(
       current.tab.id,
       current.page.sourceUrl,
-      message.identity.externalJobId,
-      true
+      message.identity.externalJobId
     )
     if (!opened)
       throw new ExtensionError(

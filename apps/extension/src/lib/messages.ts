@@ -29,7 +29,6 @@ export const SnapshotSchema = z.object({
   page: PageSchema,
   account: z.object({ id: z.string(), email: z.string() }).nullable(),
   lookup: JobLookupSchema.nullable(),
-  canApply: z.boolean().optional(),
   resumes: z.array(ResumeSummarySchema),
   nextResumeCursor: z.string().nullable().default(null),
   lastBaseId: z.string().nullable(),

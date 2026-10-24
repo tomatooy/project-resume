@@ -60,7 +60,7 @@ Legacy target identity is backfilled lazily under the caller's RLS credentials u
 
 ## Tailored resume preview
 
-After tailoring succeeds, **Apply now** appears above the resume actions when the selected LinkedIn job has an available external Apply control. It rechecks the job and opens the control's application URL in a new tab. Button-only controls open the posting's application flow through its own click handler. Easy Apply, hidden or disabled controls, and postings without an Apply control do not show this button.
+After tailoring succeeds, **Apply now** always appears above the resume actions. Clicking it rechecks the selected LinkedIn job and resolves its visible, enabled Apply control, waiting briefly if the page is still rendering. An application link opens its URL in a new tab. Button-only controls open the posting's own application flow, including LinkedIn Easy Apply when provided. This action never submits an application. If no Apply control is available, the panel shows an error.
 
 After tailoring succeeds, **Preview resume** opens the latest saved copy inside the panel. The PDF fits the panel width, with zoom controls, page count, **Download PDF**, and **Edit in app**. **Expand preview** widens the existing panel to at most 760px; Back, minimize, close, and navigation restore its normal width. Escape restores an expanded preview first, then returns to the job. **Refresh preview** checks for edits saved in the web app. Downloads use the displayed PDF and stay disabled while a refresh or render is pending.
 
@@ -68,7 +68,7 @@ The web app and extension share `packages/resume-preview`: the viewer, bundled P
 
 The background worker reads authenticated `GET /api/v1/resumes/{id}/preview` through the shared API. It checks the account, selected job, successful operation, and resume binding before and after the read. Documents stay in the extension panel's memory and are released when preview closes. Only width changes reach the host page. No new extension permission or database migration is needed for preview. Deploy the compatible backend before distributing the updated extension.
 
-Manual acceptance: open a completed LinkedIn job and select **Preview resume**. Check narrow and expanded layouts, multi-page scrolling, text selection, zoom, download, and editing. Save a change in the web editor, return, and refresh. Switch jobs or accounts while loading, minimize and reopen, and try offline loading and retry. Select **Apply now** and confirm the current job's application opens; a link opens a new tab, while a button uses the posting's own flow. Confirm Easy Apply postings do not show this action. Also check that the web editor's live preview and suggestion previews still update.
+Manual acceptance: open a completed LinkedIn job and select **Preview resume**. Check narrow and expanded layouts, multi-page scrolling, text selection, zoom, download, and editing. Save a change in the web editor, return, and refresh. Switch jobs or accounts while loading, minimize and reopen, and try offline loading and retry. Confirm **Apply now** appears immediately on the ready screen, including while LinkedIn is still rendering. Select it and confirm the current job's application opens; a link opens a new tab, while a button uses the posting's own flow. Check LinkedIn Easy Apply and confirm it only opens the flow without submitting. Confirm an unavailable Apply control produces a clear error. Also check that the web editor's live preview and suggestion previews still update.
 
 ## Autofill
 
