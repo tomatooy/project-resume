@@ -13,7 +13,7 @@
     "AI_MODEL_FAST": "deepseek-v4-flash",
     "TYPESAFE_DEFAULT_MODEL": "jev-latest",
     // Exact release extension origins; .dev.vars overrides this locally.
-    "EXTENSION_ORIGINS": ""
+    "EXTENSION_ORIGINS": "chrome-extension://igdgehhgebmjhimldbnpalghppmalgjh"
   },
   // DEEPSEEK_API_KEY is a secret: `wrangler secret put DEEPSEEK_API_KEY` in
   // production, `apps/web/.dev.vars` locally. Never a var.
