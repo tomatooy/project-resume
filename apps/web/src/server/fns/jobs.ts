@@ -14,7 +14,7 @@ import { errorClassOf } from "../log"
 export const fetchJobPosting = createServerFn({ method: "POST" })
   .validator(z.object({ url: z.string().max(2000) }))
   .handler(
-    serve(async ({ services, log, data }) => {
+    serve("fetchJobPosting", async ({ services, log, data }) => {
       const startedAt = Date.now()
       try {
         const result = await services.tailor.fetchPosting(data.url)
@@ -46,7 +46,7 @@ export const tailorFromJob = createServerFn({ method: "POST" })
     })
   )
   .handler(
-    serve(async ({ services, log, data }) => {
+    serve("tailorFromJob", async ({ services, log, data }) => {
       const startedAt = Date.now()
       try {
         const result = await services.tailor.tailorFromJob(data)

@@ -1,6 +1,7 @@
 import { OpenAPIHandler } from "@orpc/openapi/fetch"
 import { createApiContext } from "./context"
 import { apiError, router } from "./router"
+import { createLogger } from "../log"
 
 const handler = new OpenAPIHandler(router)
 export function checkOrigin(
@@ -36,6 +37,7 @@ export async function handleApi(request: Request): Promise<Response> {
     headers.set("Access-Control-Allow-Origin", origin)
     headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+    headers.set("Access-Control-Expose-Headers", "X-Request-Id")
   }
   if (request.method === "OPTIONS")
     return new Response(null, { status: 204, headers })
@@ -49,6 +51,11 @@ export async function handleApi(request: Request): Promise<Response> {
     return response
   } catch (error) {
     const safe = apiError(error)
+    const log = createLogger()
+    if (safe.status >= 500)
+      log.error("api_context_failed", { status: safe.status }, error)
+    else
+      log.info("api_rejected", { status: safe.status, errorClass: safe.code })
     return Response.json(safe.toJSON(), { status: safe.status, headers })
   }
 }

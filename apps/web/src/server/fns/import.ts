@@ -15,7 +15,7 @@ import { errorClassOf } from "../log"
 export const importResume = createServerFn({ method: "POST" })
   .validator(z.object({ text: z.string().max(MAX_IMPORT_CHARS) }))
   .handler(
-    serve(async ({ services, log, data }) => {
+    serve("importResume", async ({ services, log, data }) => {
       const startedAt = Date.now()
       try {
         const { resume, model } = await services.imports.import({

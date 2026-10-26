@@ -10,6 +10,7 @@ import {
   type CredentialEnvelope,
 } from "./credential"
 import type { TailoringEnv } from "./runtime"
+import { createLogger } from "../log"
 
 export async function dispatch(
   found: JobLookup,
@@ -34,6 +35,7 @@ export async function dispatch(
   if (!dispatchAfter) return found
   found = { ...found, operation: { ...found.operation, dispatchAfter } }
   const op = found.operation
+  const log = createLogger({ operationId: op.id })
   try {
     const instance = await env.TAILOR_WORKFLOW.get(op.id)
     const state = await instance.status()
@@ -60,7 +62,8 @@ export async function dispatch(
       },
       env.TAILOR_ENCRYPTION_KEY_V1
     )
-  } catch {
+  } catch (error) {
+    log.error("tailoring_credential_failed", undefined, error)
     return boundJob(
       found.identity,
       await services.operations.fail(op.id, "dispatch_failed")
@@ -68,12 +71,15 @@ export async function dispatch(
   }
   try {
     await env.TAILOR_WORKFLOW.create({ id: op.id, params })
+    log.info("tailoring_dispatched")
     return found
-  } catch {
+  } catch (error) {
+    log.warn("tailoring_dispatch_uncertain", undefined, error)
     try {
       await (await env.TAILOR_WORKFLOW.get(op.id)).status()
       return found
-    } catch {
+    } catch (failure) {
+      log.error("tailoring_dispatch_unconfirmed", undefined, failure)
       // A timeout cannot prove create failed. Preserve the admission and replay ID.
       throw new AppError("INTERNAL", "Could not confirm submission. Try again.")
     }

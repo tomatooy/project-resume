@@ -166,6 +166,85 @@ because gitignored `.env.production.local` files are absent from a clean
 checkout. Runtime secrets remain attached to the Worker.
 [Build configuration](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/).
 
+## Production logs
+
+Deploy the logging changes through the release steps above. They take effect
+for new requests after deployment; they cannot recover details discarded by
+an older release. No additional logging service or secret is required.
+
+In Cloudflare, open **Workers & Pages > vs-resume > Observability** to search
+stored logs. The Worker persists invocation and application logs at a sampling
+rate of `1` (all requests, subject to Cloudflare limits). Application events
+are structured objects, so their fields can be filtered individually.
+[Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/).
+
+To watch new production requests from the repository root:
+
+```bash
+bun run logs:prod
+```
+
+Use `bun run logs:prod:json` for JSON output. Start the stream before
+reproducing the failure. These commands require Wrangler authentication and
+only stream new events. Use the dashboard for historical logs. To narrow a
+live stream to a particular event:
+
+```bash
+bun run logs:prod --search chat_stream_error
+```
+
+Avoid `--status error` when investigating handled failures. That flag filters
+the Worker invocation outcome, not the HTTP status or console severity, so it
+can hide a caught exception that returned HTTP 500 or failed inside an HTTP
+200 chat stream. Filter by application `level`, `event`, or `requestId` in
+the dashboard instead.
+[Wrangler tail](https://developers.cloudflare.com/workers/wrangler/commands/workers/#tail).
+
+Each application response includes `X-Request-Id`. Copy it from the failed
+request's response headers in the browser Network panel, then filter stored
+logs by `requestId`. A chat stream can return HTTP 200 before it fails, so
+check its `chat_stream_error` and `chat_finished` events too. Workflow work
+runs in a separate invocation: follow the `operationId` from
+`tailoring_dispatched` into `tailoring_step_failed`.
+
+| Field or event | What it tells you |
+| --- | --- |
+| `requestId`, `cfRay` | Application request and Cloudflare request correlation |
+| `procedure` | Server function name or API procedure, such as `updateResume` or `autofill.infer` |
+| `http_request` | Response status and time until response headers, not stream completion |
+| `server_function`, `shared_api` | Operation duration |
+| `request_failed`, `api_failed`, `api_context_failed` | Failure before the error is mapped for the client |
+| `chat_stream_error`, `chat_finish_failed`, `background_failed` | Streaming, persistence, or background failure |
+| `autofill_model_failed` | Model failure captured before the service falls back to rules or questions |
+| `tailoring_step_failed` | Durable operation ID, step, elapsed time, and original failure |
+| `error.code`, `error.name`, `error.message` | Database/provider code, class, and reviewed diagnostic text |
+| `error.status`, `error.retryable`, `error.cause` | Upstream status, retryability, and bounded cause chain |
+| `error.stack` | Up to 12 source locations, with the error's raw message removed |
+
+Missing database columns and schema-cache errors retain their schema
+identifiers. Missing API-key configuration names the variable. Constraint,
+validation, and provider failures use safe summaries, because their original
+messages can contain a resume, a database row, or a prompt. Unrecognized
+messages are omitted; `error.messageRedacted` records whether the original
+message was replaced. Browser error responses remain separate from these
+operator diagnostics.
+
+Do not put request/response bodies, headers, tokens, model output, job URLs,
+resume text, or arbitrary error messages into log metadata. Pass exceptions
+as the logger's third argument, for example
+`log.error("import_failed", { charCount }, error)`, so `server/log-error.ts`
+controls serialization. That module never copies provider response bodies,
+PostgREST details or hints, or validation input. Cloudflare's
+`redact_query_string` setting also removes query strings from its request URL
+logs and traces, including OAuth codes and server-function inputs.
+
+Server source maps are generated in Vite's `ssr` environment and uploaded
+by Wrangler. Client source maps are not enabled. Cloudflare uses uploaded
+maps for captured exception stacks; `error.stack` in an application log is
+a string of bundled source locations and is not automatically remapped.
+Keep the matching server build artifacts when investigating those locations.
+[Source maps](https://developers.cloudflare.com/workers/observability/source-maps/).
+
 ## Extension release
 
 - [ ] Set a stable `VITE_EXTENSION_PUBLIC_KEY` in

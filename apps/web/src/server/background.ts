@@ -13,7 +13,11 @@ export function createBackground(log: Logger): Background {
   return {
     run(task) {
       const settled = task().catch((error: unknown) => {
-        log.error("background_failed", { errorClass: errorClassOf(error) })
+        log.error(
+          "background_failed",
+          { errorClass: errorClassOf(error) },
+          error
+        )
       })
       void extend(settled)
     },

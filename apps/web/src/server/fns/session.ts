@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start"
 import { readUser, type SessionUser } from "../auth/require-user"
 import { createSupabaseForRequest } from "../auth/supabase"
 import { failWith } from "../errors"
+import { createLogger } from "../log"
 
 /**
  * The one function that does not go through `defineFn`: it is what the route
@@ -13,7 +14,7 @@ export const getSession = createServerFn({ method: "GET" }).handler(
     try {
       return await readUser(createSupabaseForRequest())
     } catch (error) {
-      return failWith(error)
+      return failWith(error, createLogger({ procedure: "getSession" }))
     }
   }
 )

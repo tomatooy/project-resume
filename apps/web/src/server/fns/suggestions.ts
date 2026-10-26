@@ -20,4 +20,8 @@ export const decideSuggestions = createServerFn({ method: "POST" })
       ),
     })
   )
-  .handler(serve(({ services, data }) => services.suggestions.decide(data)))
+  .handler(
+    serve("decideSuggestions", ({ services, data }) =>
+      services.suggestions.decide(data)
+    )
+  )

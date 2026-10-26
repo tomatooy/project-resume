@@ -4,7 +4,7 @@ import { setResponseStatus } from "@tanstack/react-start/server"
 import type { z } from "zod"
 
 import type { Logger } from "./log"
-import { errorClassOf } from "./log"
+import { createLogger, errorClassOf } from "./log"
 
 /**
  * Postgres error codes that mean something specific to a caller. Everything
@@ -100,10 +100,23 @@ function messageFor(code: AppError["code"]): string {
  * properties included, which is how `code` survives the trip and `api.ts` can
  * turn it back into an `ApiError` the editor's conflict banner recognises.
  */
-export function failWith(error: unknown): never {
+export function failWith(error: unknown, log: Logger = createLogger()): never {
   const appError = toAppError(error)
+  logRequestError(error, log)
   setResponseStatus(appError.status)
   throw appError
+}
+
+function logRequestError(error: unknown, log: Logger): void {
+  const appError = toAppError(error)
+  if (appError.status >= 500) {
+    log.error("request_failed", { errorClass: errorClassOf(error) }, error)
+  } else {
+    log.info("request_rejected", {
+      status: appError.status,
+      errorClass: appError.code,
+    })
+  }
 }
 
 /**
@@ -115,14 +128,7 @@ export function failWith(error: unknown): never {
 export function errorResponse(error: unknown, log: Logger): Response {
   const appError = toAppError(error)
 
-  if (appError.status >= 500) {
-    log.error("request_failed", { errorClass: errorClassOf(error) })
-  } else {
-    log.info("request_rejected", {
-      status: appError.status,
-      errorClass: appError.code,
-    })
-  }
+  logRequestError(error, log)
 
   const headers = new Headers({ "content-type": "application/json" })
   if (appError.retryAfterSeconds !== undefined) {

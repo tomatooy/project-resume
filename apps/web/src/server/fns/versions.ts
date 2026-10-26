@@ -11,7 +11,7 @@ export const listVersions = createServerFn({ method: "GET" })
     })
   )
   .handler(
-    serve(async ({ services, data, log }) => {
+    serve("listVersions", async ({ services, data, log }) => {
       const start = Date.now()
       const page = await services.versions.page(data.resumeId, data.cursor)
       log.info("versions.page", {
@@ -24,12 +24,16 @@ export const listVersions = createServerFn({ method: "GET" })
 
 export const getVersion = createServerFn({ method: "GET" })
   .validator(z.object({ id: z.uuid() }))
-  .handler(serve(({ services, data }) => services.versions.getContent(data.id)))
+  .handler(
+    serve("getVersion", ({ services, data }) =>
+      services.versions.getContent(data.id)
+    )
+  )
 
 export const createSnapshot = createServerFn({ method: "POST" })
   .validator(z.object({ resumeId: z.uuid(), label: z.string().optional() }))
   .handler(
-    serve(({ services, data }) =>
+    serve("createSnapshot", ({ services, data }) =>
       services.versions.snapshot(data.resumeId, {
         label: data.label,
         createdBy: "user",
@@ -40,7 +44,7 @@ export const createSnapshot = createServerFn({ method: "POST" })
 export const restoreVersion = createServerFn({ method: "POST" })
   .validator(z.object({ resumeId: z.uuid(), versionId: z.uuid() }))
   .handler(
-    serve(({ services, data }) =>
+    serve("restoreVersion", ({ services, data }) =>
       services.versions.restore(data.resumeId, data.versionId)
     )
   )

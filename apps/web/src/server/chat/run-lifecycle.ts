@@ -56,7 +56,17 @@ export async function settleRun(
         ? "aborted"
         : undefined
   if (status === "failed") {
-    log.error("chat_stream_error", { runId: run.id, errorClass })
+    log.error(
+      "chat_stream_error",
+      {
+        runId: run.id,
+        resumeId: run.resumeId,
+        conversationId: conversationId ?? undefined,
+        model: open.model,
+        errorClass,
+      },
+      outcome.error
+    )
   }
 
   const latencyMs = now().getTime() - open.startedAt
@@ -80,10 +90,14 @@ export async function settleRun(
       budgetExhausted: outcome.budgetExhausted,
     })
   } catch (failure) {
-    log.error("chat_finish_failed", {
-      runId: run.id,
-      errorClass: errorClassOf(failure),
-    })
+    log.error(
+      "chat_finish_failed",
+      {
+        runId: run.id,
+        errorClass: errorClassOf(failure),
+      },
+      failure
+    )
   }
   log.info("chat_finished", {
     runId: run.id,

@@ -169,6 +169,8 @@ export function runTurn(input: RunTurnInput) {
     stopWhen: [stepCountIs(MAX_STEPS), proposalAccepted],
     providerOptions: models.providerOptions.smart,
     abortSignal: input.abortSignal,
+    // The stream carries errors to onSettled; the SDK default logs raw content.
+    onError: () => {},
     onStepEnd: (step) => input.onStepEnd?.({ usage: step.usage }),
   })
 

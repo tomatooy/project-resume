@@ -1,4 +1,5 @@
 import type { JobFetcher } from "@workspace/resume-core"
+import { createLogger, errorClassOf } from "../log"
 
 /**
  * Fetches a posting on the Worker and reduces it to text.
@@ -28,13 +29,38 @@ const TIMEOUT_MS = 10_000
 
 export class WorkerJobFetcher implements JobFetcher {
   async fetch(url: string, signal?: AbortSignal): Promise<string> {
+    const start = performance.now()
+    const log = createLogger()
     const timeout = AbortSignal.timeout(TIMEOUT_MS)
-    const response = await fetch(url, {
-      headers: { "user-agent": UA, accept: "text/html" },
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    })
-    if (!response.ok) return ""
-    return htmlToText(await response.text())
+    try {
+      const response = await fetch(url, {
+        headers: { "user-agent": UA, accept: "text/html" },
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      })
+      if (!response.ok) {
+        log.warn("job_posting.fetch", {
+          status: response.status,
+          outcome: "upstream_rejected",
+          latencyMs: Math.round(performance.now() - start),
+        })
+        return ""
+      }
+      const text = htmlToText(await response.text())
+      log.info("job_posting.fetch", {
+        status: response.status,
+        outcome: "fetched",
+        charCount: text.trim().length,
+        latencyMs: Math.round(performance.now() - start),
+      })
+      return text
+    } catch (error) {
+      log.warn("job_posting.fetch", {
+        outcome: "fetch_failed",
+        errorClass: errorClassOf(error),
+        latencyMs: Math.round(performance.now() - start),
+      })
+      throw error
+    }
   }
 }
 

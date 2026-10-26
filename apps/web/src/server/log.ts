@@ -1,13 +1,16 @@
-/**
- * Structured request logging with a closed field list.
- *
- * Privacy here is by construction, not by review: the only fields that can be
- * logged are the ones named in `LogFields`, and none of them can hold resume
- * text, a message, a job description, or a patch. Adding a field means adding
- * it to this type, which is the moment to ask whether it is content.
- */
+import { AsyncLocalStorage } from "node:async_hooks"
+import { errorClassOf, errorDiagnostic } from "./log-error"
+
+export { errorClassOf } from "./log-error"
+
+// Metadata only. Exceptions go through the diagnostic allowlist separately.
 export type LogFields = {
   requestId?: string
+  cfRay?: string
+  method?: string
+  route?: string
+  operationId?: string
+  step?: string
   userId?: string
   resumeId?: string
   conversationId?: string
@@ -38,48 +41,49 @@ export type LogFields = {
 
 export type Logger = {
   info(event: string, fields?: LogFields): void
-  warn(event: string, fields?: LogFields): void
-  error(event: string, fields?: LogFields): void
+  warn(event: string, fields?: LogFields, error?: unknown): void
+  error(event: string, fields?: LogFields, error?: unknown): void
 }
 
 type Level = "info" | "warn" | "error"
 
-function write(level: Level, event: string, fields: LogFields = {}): void {
-  const line = JSON.stringify({
+const context = new AsyncLocalStorage<LogFields>()
+
+export function withLogContext<T>(fields: LogFields, work: () => T): T {
+  return context.run({ ...context.getStore(), ...fields }, work)
+}
+
+function write(
+  level: Level,
+  event: string,
+  fields: LogFields,
+  error?: unknown
+): void {
+  const line = {
     level,
     event,
+    message: event,
     ...fields,
+    ...(error === undefined
+      ? {}
+      : {
+          errorClass: errorClassOf(error),
+          error: errorDiagnostic(error),
+        }),
     at: new Date().toISOString(),
-  })
+  }
   if (level === "error") console.error(line)
   else if (level === "warn") console.warn(line)
   else console.log(line)
 }
 
 export function createLogger(base: LogFields = {}): Logger {
+  const fields = { ...context.getStore(), ...base }
   return {
-    info: (event, fields) => write("info", event, { ...base, ...fields }),
-    warn: (event, fields) => write("warn", event, { ...base, ...fields }),
-    error: (event, fields) => write("error", event, { ...base, ...fields }),
+    info: (event, extra) => write("info", event, { ...fields, ...extra }),
+    warn: (event, extra, error) =>
+      write("warn", event, { ...fields, ...extra }, error),
+    error: (event, extra, error) =>
+      write("error", event, { ...fields, ...extra }, error),
   }
-}
-
-/**
- * The class of an error, never its message. A message from PostgREST or a
- * model provider can quote the row or the prompt that failed.
- *
- * A `code` wins over the class name on purpose. The values thrown from the
- * data layer are plain PostgREST objects rather than `Error`s, and their
- * SQLSTATE is the only thing that says *what* broke: a missing column is
- * `42703`, a stale schema cache is `PGRST204`, a unique violation is `23505`.
- * Reading the name first made all of those log as `object`, which is how a
- * pending migration looked like an unexplained 500.
- */
-export function errorClassOf(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    const code = (error as { code: unknown }).code
-    if (typeof code === "string" && code.length > 0) return code
-  }
-  if (error instanceof Error) return error.name || "Error"
-  return typeof error
 }

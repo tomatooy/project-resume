@@ -14,6 +14,9 @@ const ProductionEnvironment = z.object({
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
+  environments: {
+    ssr: { build: { sourcemap: true } },
+  },
   // `.env.local` lives at the monorepo root, next to `supabase/`, because the
   // Supabase CLI reads the same file for the Google OAuth credentials. Vite
   // would otherwise look in `apps/web` and silently find nothing, which shows
@@ -57,7 +60,9 @@ const config = defineConfig({
             "Production builds require a hosted HTTPS Supabase URL."
           )
         }
-        if (result.data.PUBLIC_SUPABASE_PUBLISHABLE_KEY.startsWith("sb_secret_")) {
+        if (
+          result.data.PUBLIC_SUPABASE_PUBLISHABLE_KEY.startsWith("sb_secret_")
+        ) {
           throw new Error(
             "Use a Supabase publishable key in public build configuration."
           )

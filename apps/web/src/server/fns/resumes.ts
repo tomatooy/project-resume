@@ -17,7 +17,7 @@ const idInput = z.object({ id: z.uuid() })
 export const searchResumes = createServerFn({ method: "POST" })
   .validator(z.object({ q: z.string().trim().min(2).max(120) }))
   .handler(
-    serve(async ({ services, log, data }) => {
+    serve("searchResumes", async ({ services, log, data }) => {
       const start = Date.now()
       const result = await services.resumes.search(data.q)
       log.info("resumes.search", {
@@ -30,7 +30,9 @@ export const searchResumes = createServerFn({ method: "POST" })
 
 export const getResume = createServerFn({ method: "GET" })
   .validator(idInput)
-  .handler(serve(({ services, data }) => services.resumes.get(data.id)))
+  .handler(
+    serve("getResume", ({ services, data }) => services.resumes.get(data.id))
+  )
 
 export const createResume = createServerFn({ method: "POST" })
   .validator(
@@ -39,7 +41,9 @@ export const createResume = createServerFn({ method: "POST" })
       fromResumeId: z.uuid().optional(),
     })
   )
-  .handler(serve(({ services, data }) => services.resumes.create(data)))
+  .handler(
+    serve("createResume", ({ services, data }) => services.resumes.create(data))
+  )
 
 export const updateResume = createServerFn({ method: "POST" })
   .validator(
@@ -53,12 +57,14 @@ export const updateResume = createServerFn({ method: "POST" })
       expectedRevision: z.number().optional(),
     })
   )
-  .handler(serve(({ services, data }) => services.resumes.update(data)))
+  .handler(
+    serve("updateResume", ({ services, data }) => services.resumes.update(data))
+  )
 
 export const renameResume = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.uuid(), title: z.string() }))
   .handler(
-    serve(async ({ services, data }) => {
+    serve("renameResume", async ({ services, data }) => {
       await services.resumes.rename(data.id, data.title)
       return { ok: true as const }
     })
@@ -73,7 +79,7 @@ export const setTemplate = createServerFn({ method: "POST" })
     })
   )
   .handler(
-    serve(async ({ services, data }) => {
+    serve("setTemplate", async ({ services, data }) => {
       await services.resumes.setTemplate(
         data.id,
         data.templateId,
@@ -85,12 +91,16 @@ export const setTemplate = createServerFn({ method: "POST" })
 
 export const duplicateResume = createServerFn({ method: "POST" })
   .validator(idInput)
-  .handler(serve(({ services, data }) => services.resumes.duplicate(data.id)))
+  .handler(
+    serve("duplicateResume", ({ services, data }) =>
+      services.resumes.duplicate(data.id)
+    )
+  )
 
 export const deleteResume = createServerFn({ method: "POST" })
   .validator(idInput)
   .handler(
-    serve(async ({ services, data }) => {
+    serve("deleteResume", async ({ services, data }) => {
       await services.resumes.remove(data.id)
       return { ok: true as const }
     })

@@ -60,6 +60,9 @@ const lazyJobParser: JobParser = {
     const startedAt = Date.now()
     try {
       return await createJobParser(createModelsFromEnv()).parse(input)
+    } catch (error) {
+      createLogger().error("tailor_job_parse_failed", undefined, error)
+      throw error
     } finally {
       createLogger().info("tailor_job_parse_duration", {
         latencyMs: Date.now() - startedAt,
@@ -73,6 +76,9 @@ const lazyResumeTailor: ResumeTailor = {
     const startedAt = Date.now()
     try {
       return await createResumeTailor(createModelsFromEnv()).tailor(input)
+    } catch (error) {
+      createLogger().error("tailor_resume_generate_failed", undefined, error)
+      throw error
     } finally {
       createLogger().info("tailor_resume_generate_duration", {
         latencyMs: Date.now() - startedAt,
@@ -115,12 +121,38 @@ export function lazyAutofillModels(): AutofillModels {
       return models().model
     },
     ready: () => models().ready(),
-    judge: (input) => models().judge(input),
-    shortText: (input) => models().shortText(input),
-    questions: (input) => models().questions(input),
-    fillFromAnswer: (input) => models().fillFromAnswer(input),
-    mergeNotes: (input) => models().mergeNotes(input),
-    generate: (input) => models().generate(input),
+    judge: (input) => logAutofillCall("judge", () => models().judge(input)),
+    shortText: (input) =>
+      logAutofillCall("shortText", () => models().shortText(input)),
+    questions: (input) =>
+      logAutofillCall("questions", () => models().questions(input)),
+    fillFromAnswer: (input) =>
+      logAutofillCall("fillFromAnswer", () => models().fillFromAnswer(input)),
+    mergeNotes: (input) =>
+      logAutofillCall("mergeNotes", () => models().mergeNotes(input)),
+    generate: (input) =>
+      logAutofillCall("generate", () => models().generate(input)),
+  }
+}
+
+async function logAutofillCall<T>(
+  step: string,
+  call: () => Promise<T>
+): Promise<T> {
+  const startedAt = performance.now()
+  try {
+    return await call()
+  } catch (error) {
+    // Capture before the domain service degrades to rules or questions.
+    createLogger().error(
+      "autofill_model_failed",
+      {
+        step,
+        latencyMs: Math.round(performance.now() - startedAt),
+      },
+      error
+    )
+    throw error
   }
 }
 

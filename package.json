@@ -14,6 +14,8 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "cf": "bun run --no-env-file --cwd apps/web cf",
+    "logs:prod": "bun run cf tail vs-resume --format pretty",
+    "logs:prod:json": "bun run cf tail vs-resume --format json",
     "deploy:check": "bun run --no-env-file --cwd apps/web deploy:check",
     "deploy:web": "bun run --no-env-file --cwd apps/web deploy",
     "db:test": "bun run --filter @workspace/supabase test:db",

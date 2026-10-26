@@ -16,7 +16,7 @@ const skillIdInput = z.object({ id: z.string().min(1).max(64) })
  * name now comes from.
  */
 export const listSkills = createServerFn({ method: "GET" }).handler(
-  serve(async ({ services }) => {
+  serve("listSkills", async ({ services }) => {
     const entries = mergeSkills(await services.skills.listOverlay())
     return entries.map((entry) => ({
       id: entry.skill.id,
@@ -36,20 +36,30 @@ export const listSkills = createServerFn({ method: "GET" }).handler(
 /** One live custom skill, body included, for the editor. */
 export const getUserSkill = createServerFn({ method: "GET" })
   .validator(skillIdInput)
-  .handler(serve(({ services, data }) => services.skills.get(data.id)))
+  .handler(
+    serve("getUserSkill", ({ services, data }) => services.skills.get(data.id))
+  )
 
 export const createUserSkill = createServerFn({ method: "POST" })
   .validator(UserSkillInputSchema)
-  .handler(serve(({ services, data }) => services.skills.create(data)))
+  .handler(
+    serve("createUserSkill", ({ services, data }) =>
+      services.skills.create(data)
+    )
+  )
 
 export const updateUserSkill = createServerFn({ method: "POST" })
   .validator(UserSkillInputSchema.extend({ id: z.string().min(1).max(64) }))
-  .handler(serve(({ services, data }) => services.skills.update(data.id, data)))
+  .handler(
+    serve("updateUserSkill", ({ services, data }) =>
+      services.skills.update(data.id, data)
+    )
+  )
 
 export const deleteUserSkill = createServerFn({ method: "POST" })
   .validator(skillIdInput)
   .handler(
-    serve(async ({ services, data }) => {
+    serve("deleteUserSkill", async ({ services, data }) => {
       await services.skills.remove(data.id)
       return { ok: true as const }
     })
@@ -71,7 +81,7 @@ export const setSkillEnabled = createServerFn({ method: "POST" })
     })
   )
   .handler(
-    serve(async ({ services, data }) => {
+    serve("setSkillEnabled", async ({ services, data }) => {
       const entries = mergeSkills(await services.skills.listOverlay())
       const live = entries.some(
         (entry) => entry.skill.id === data.skillId && !entry.deleted
@@ -89,7 +99,7 @@ export const setSkillEnabled = createServerFn({ method: "POST" })
 export const importSkillMarkdown = createServerFn({ method: "POST" })
   .validator(z.object({ text: z.string() }))
   .handler(
-    serve(async ({ services, data }) =>
+    serve("importSkillMarkdown", async ({ services, data }) =>
       services.skills.importMarkdown(data.text)
     )
   )

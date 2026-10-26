@@ -9,16 +9,20 @@ const versionIdInput = z.object({ id: z.uuid() })
 
 /** The Profile, or the empty one at revision 0 before the first save. */
 export const getAutofillProfile = createServerFn({ method: "GET" }).handler(
-  serve(({ services }) => services.autofillProfile.get())
+  serve("getAutofillProfile", ({ services }) => services.autofillProfile.get())
 )
 
 /** Saved whole; a revision other than the stored one is a CONFLICT. */
 export const saveAutofillProfile = createServerFn({ method: "POST" })
   .validator(z.object({ profile: ProfileSchema, expectedRevision }))
-  .handler(serve(({ services, data }) => services.autofillProfile.save(data)))
+  .handler(
+    serve("saveAutofillProfile", ({ services, data }) =>
+      services.autofillProfile.save(data)
+    )
+  )
 
 export const getAutofillNotes = createServerFn({ method: "GET" }).handler(
-  serve(({ services }) => services.autofillNotes.get())
+  serve("getAutofillNotes", ({ services }) => services.autofillNotes.get())
 )
 
 /** `snapshot` marks the first save of an editing session (spec 8.3). */
@@ -30,20 +34,34 @@ export const saveAutofillNotes = createServerFn({ method: "POST" })
       snapshot: z.boolean(),
     })
   )
-  .handler(serve(({ services, data }) => services.autofillNotes.save(data)))
+  .handler(
+    serve("saveAutofillNotes", ({ services, data }) =>
+      services.autofillNotes.save(data)
+    )
+  )
 
 /** History: the newest 20 snapshots, without their text. */
 export const listAutofillNoteVersions = createServerFn({
   method: "GET",
-}).handler(serve(({ services }) => services.autofillNotes.versions()))
+}).handler(
+  serve("listAutofillNoteVersions", ({ services }) =>
+    services.autofillNotes.versions()
+  )
+)
 
 export const getAutofillNoteVersion = createServerFn({ method: "GET" })
   .validator(versionIdInput)
   .handler(
-    serve(({ services, data }) => services.autofillNotes.version(data.id))
+    serve("getAutofillNoteVersion", ({ services, data }) =>
+      services.autofillNotes.version(data.id)
+    )
   )
 
 /** Snapshots the current Notes with reason `restore`, then writes the old text. */
 export const restoreAutofillNoteVersion = createServerFn({ method: "POST" })
   .validator(versionIdInput.extend({ expectedRevision }))
-  .handler(serve(({ services, data }) => services.autofillNotes.restore(data)))
+  .handler(
+    serve("restoreAutofillNoteVersion", ({ services, data }) =>
+      services.autofillNotes.restore(data)
+    )
+  )

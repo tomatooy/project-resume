@@ -6,7 +6,7 @@ import { serve } from "../handler"
 export const cancelChatRun = createServerFn({ method: "POST" })
   .validator(z.object({ runId: z.uuid() }))
   .handler(
-    serve(async ({ services, data }) => {
+    serve("cancelChatRun", async ({ services, data }) => {
       await services.runs.cancel(data.runId)
       return { ok: true }
     })
@@ -16,7 +16,7 @@ export const cancelChatRun = createServerFn({ method: "POST" })
 export const getOrCreateConversation = createServerFn({ method: "POST" })
   .validator(z.object({ resumeId: z.uuid() }))
   .handler(
-    serve(({ services, data }) =>
+    serve("getOrCreateConversation", ({ services, data }) =>
       services.memory.openConversation(data.resumeId)
     )
   )
@@ -32,7 +32,7 @@ export const getOrCreateConversation = createServerFn({ method: "POST" })
 export const clearConversation = createServerFn({ method: "POST" })
   .validator(z.object({ conversationId: z.uuid() }))
   .handler(
-    serve(async ({ services, data }) => {
+    serve("clearConversation", async ({ services, data }) => {
       await services.runs.cancelRunning(data.conversationId, "cleared")
       await services.memory.clearConversation(data.conversationId)
       return { ok: true as const }

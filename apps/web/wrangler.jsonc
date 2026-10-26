@@ -5,6 +5,7 @@
   "main": "src/server.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
+  "upload_source_maps": true,
   "vars": {
     "PUBLIC_APP_NAME": "VS:Résumé",
     // Both tiers on the same model until the fast tier earns a cheaper one.
@@ -29,5 +30,14 @@
       "class_name": "TailorWorkflow"
     }
   ],
-  "observability": { "enabled": true }
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+      "head_sampling_rate": 1,
+      "persist": true
+    }
+  }
 }

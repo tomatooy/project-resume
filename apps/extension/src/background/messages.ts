@@ -248,24 +248,18 @@ async function execute(
     )
     const selectedTabId = current.tab.id
     const sourceUrl = current.page.sourceUrl
-    const posting = await api.jobs
-      .fetchPosting(message.identity)
-      .catch(async (error: unknown) => {
+    const posting =
+      (await jobPosting(selectedTabId, sourceUrl, message.identity)) ??
+      (await api.jobs.fetchPosting(message.identity).catch((error: unknown) => {
         const unreadable = z
           .object({ code: z.enum(["NOT_FOUND", "VALIDATION"]) })
           .safeParse(error)
-        if (!unreadable.success) throw error
-        const captured = await jobPosting(
-          selectedTabId,
-          sourceUrl,
-          message.identity
-        )
-        if (!captured) throw new CaptureError()
-        return captured
-      })
+        if (unreadable.success) throw new CaptureError()
+        throw error
+      }))
     const fetched = JobPostingSchema.safeParse(posting)
     if (!fetched.success) throw new CaptureError()
-    const latest = await activePage()
+    const latest = await activePage(selectedTabId)
     const fetchedPage = linkedinExtensionPage(fetched.data.url)
     if (
       latest.tab?.id !== current.tab.id ||

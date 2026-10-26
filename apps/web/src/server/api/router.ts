@@ -41,7 +41,11 @@ const shared = root.use(async ({ next, context, path }) => {
   try {
     return await next()
   } catch (error) {
-    throw apiError(error)
+    const safe = apiError(error)
+    const fields = { procedure: path.join("."), status: safe.status }
+    if (safe.status >= 500) context.log.error("api_failed", fields, error)
+    else context.log.info("api_rejected", fields)
+    throw safe
   } finally {
     context.log.info("shared_api", {
       procedure: path.join("."),

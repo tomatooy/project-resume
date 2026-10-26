@@ -825,7 +825,24 @@ Evals are `skills.eval.test.ts` and `structural.eval.test.ts` over the shared ta
 
 ### 11.2 Logging
 
-Structured JSON via `console.log` picked up by Workers observability. `server/log.ts` defines the allowed fields as a closed type (`requestId`, `userId`, `resumeId`, `conversationId`, `runId`, `hintSkillId`, `jobTargetId`, `model`, `status`, `errorClass`, `inputTokens`, `outputTokens`, `latencyMs`, `steps`, `structural`, `budgetExhausted`, `outcome`, `count`, and the tailoring outcome). Errors are logged as `errorClassOf(error)` (the error's name or code), never the message. Forbidden: message text, resume content, patch text, job descriptions, `job_targets.raw_text`, the posting URL (a job link identifies what a person is applying for), email addresses.
+Structured objects via `console.log`, `console.warn`, and `console.error` are
+indexed by Workers observability. `server/log.ts` keeps metadata in a closed
+`LogFields` type and carries request correlation through async context.
+`server/request-log.ts` adds `X-Request-Id` to responses and records status,
+route category, and latency. Server functions supply a static procedure name
+to `serve(name, handler)`; API middleware and workflow steps also log failures
+before mapping or replacing them.
+
+Exceptions go through the separate allowlist in `server/log-error.ts`:
+reviewed schema/configuration messages, fixed summaries for content-bearing
+errors, bounded source locations, upstream status, and a bounded cause chain.
+Raw provider bodies, database details/hints, and validation inputs are never
+copied. Unrecognized messages are omitted and marked `messageRedacted`.
+Forbidden: message text, resume content, patch text, job descriptions,
+`job_targets.raw_text`, posting URLs, email addresses, and credentials.
+Cloudflare request URL query strings are redacted. See
+[Production logs](../deployment.md#production-logs) for dashboard filters,
+live tail commands, sampling, and source-map limitations.
 
 ### 11.3 Metrics derived from tables
 

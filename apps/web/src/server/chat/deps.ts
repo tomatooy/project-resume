@@ -17,12 +17,11 @@ import type { ChatDeps } from "./handle-chat"
 export async function withChat(
   handler: (deps: ChatDeps) => Promise<Response>
 ): Promise<Response> {
-  const requestId = crypto.randomUUID()
-  let log = createLogger({ requestId })
+  let log = createLogger()
   try {
     const db = createSupabaseForRequest()
     const user = await requireUser(db)
-    log = createLogger({ requestId, userId: user.userId })
+    log = createLogger({ userId: user.userId })
 
     const models = createModelsFromEnv()
     const services = createServices(
