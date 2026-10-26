@@ -22,6 +22,7 @@ import { readSession } from "./autofill/session"
 import { scanUrl } from "../autofill/posting-url"
 import { activePage } from "./navigation"
 import { jobApplication } from "./job-application"
+import { jobPosting } from "./job-posting"
 import { hasPageHost, hereFor } from "./page"
 import { readTabState, view } from "./tab-state"
 
@@ -245,14 +246,22 @@ async function execute(
       message.identity.externalJobId,
       "create"
     )
+    const selectedTabId = current.tab.id
+    const sourceUrl = current.page.sourceUrl
     const posting = await api.jobs
       .fetchPosting(message.identity)
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
         const unreadable = z
           .object({ code: z.enum(["NOT_FOUND", "VALIDATION"]) })
           .safeParse(error)
-        if (unreadable.success) throw new CaptureError()
-        throw error
+        if (!unreadable.success) throw error
+        const captured = await jobPosting(
+          selectedTabId,
+          sourceUrl,
+          message.identity
+        )
+        if (!captured) throw new CaptureError()
+        return captured
       })
     const fetched = JobPostingSchema.safeParse(posting)
     if (!fetched.success) throw new CaptureError()
