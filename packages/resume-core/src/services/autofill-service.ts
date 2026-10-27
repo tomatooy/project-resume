@@ -40,13 +40,15 @@ import type { JobIdentity } from "../domain/job-identity"
 import type { JobBrief, ResumeRecord } from "../domain/resume"
 import type { AutofillProcedure, Quota } from "../domain/suggestion"
 import type { AutofillApplicationRepository } from "../ports/autofill-application-repository"
-import type {
-  AutofillModels,
-  FillFromAnswerOutput,
-  JudgeOutput,
-  ModelCall,
-  ModelUsage,
-  ShortTextOutput,
+import {
+  AutofillModelError,
+  type AutofillModels,
+  type FillFromAnswerOutput,
+  type GenerateTextOutput,
+  type JudgeOutput,
+  type ModelCall,
+  type ModelUsage,
+  type ShortTextOutput,
 } from "../ports/autofill-models"
 import type { JobTargetRepository } from "../ports/job-target-repository"
 import type { ResumeRepository } from "../ports/resume-repository"
@@ -101,6 +103,13 @@ type Metered<T> = { value: T; failure: ErrorClass | null }
 
 /** Adds a call's tokens to the run's usage and passes its output on. */
 type Count = <T extends { usage: ModelUsage }>(output: T) => T
+
+function countFailure(count: Count): (error: unknown) => never {
+  return (error) => {
+    if (error instanceof AutofillModelError) count(error)
+    throw error
+  }
+}
 
 /** Which models are configured, read once per request. */
 type Ready = ReturnType<AutofillModels["ready"]>
@@ -322,7 +331,7 @@ export class AutofillService {
             open: [],
           })
         )
-          .then(count)
+          .then(count, countFailure(count))
           .catch(() => null)
         step.clear()
         const verdict = output?.choices.location
@@ -374,7 +383,7 @@ export class AutofillService {
           context: applicantContext(context),
           ...judge,
         })
-      ).then(count)
+      ).then(count, countFailure(count))
     }
     const answering = async (): Promise<ShortTextOutput | null> => {
       if (asks.short.length === 0) return NOTHING_ANSWERED
@@ -385,7 +394,7 @@ export class AutofillService {
           context: applicantContext(context),
           fields: asks.short,
         })
-      ).then(count)
+      ).then(count, countFailure(count))
     }
     const [judged, short] = await Promise.allSettled([judging(), answering()])
     step.clear()
@@ -424,7 +433,7 @@ export class AutofillService {
         fields: questionFields(keyed, ask),
       })
     )
-      .then(count)
+      .then(count, countFailure(count))
       .catch(() => null)
     listed.clear()
     const questions = output
@@ -526,22 +535,39 @@ export class AutofillService {
       started,
       async (count): Promise<Metered<string | null>> => {
         const step = deadlineAt(started + GENERATE_MS)
-        const output = await within(step.call.signal, () =>
-          this.deps.models.generate({
-            ...step.call,
-            context: applicantContext(context),
-            field: {
-              label: field.label,
-              help: field.help,
-              singleLine: field.control !== "textarea",
-            },
-            limit: draftLimit(field),
-            ...(input.instruction ? { instruction: input.instruction } : {}),
-          })
-        )
-          .then(count)
-          .catch(() => null)
-        step.clear()
+        let output: GenerateTextOutput | null = null
+        try {
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              output = await within(step.call.signal, () =>
+                this.deps.models.generate({
+                  ...step.call,
+                  context: applicantContext(context),
+                  field: {
+                    label: field.label,
+                    help: field.help,
+                    singleLine: field.control !== "textarea",
+                  },
+                  limit: draftLimit(field),
+                  ...(input.instruction
+                    ? { instruction: input.instruction }
+                    : {}),
+                })
+              ).then(count, countFailure(count))
+              break
+            } catch (error) {
+              if (
+                !(error instanceof AutofillModelError) ||
+                !error.isRetryable ||
+                step.call.signal.aborted ||
+                Date.now() >= step.call.deadline
+              )
+                break
+            }
+          }
+        } finally {
+          step.clear()
+        }
         const draft = output ? shapeDraft(output.text, field) : ""
         return draft
           ? { value: draft, failure: null }
@@ -581,7 +607,7 @@ export class AutofillService {
           reply: { text },
           ...asks.judge,
         })
-      ).then(meter.count)
+      ).then(meter.count, countFailure(meter.count))
     }
     const writing = async (): Promise<FillFromAnswerOutput | null> => {
       if (asks.fill.fields.length === 0) return null
@@ -592,7 +618,7 @@ export class AutofillService {
           text,
           ...asks.fill,
         })
-      ).then(meter.count)
+      ).then(meter.count, countFailure(meter.count))
     }
     const [judged, written] = await Promise.allSettled([judging(), writing()])
     step.clear()
@@ -633,7 +659,7 @@ export class AutofillService {
             company: page.company,
           })
         )
-          .then(count)
+          .then(count, countFailure(count))
           .then(({ proposal }) => proposal)
       )
       .catch((): NotesOutcome => ({ kind: "failed" }))
@@ -777,7 +803,9 @@ const fieldsOf = (keyed: KeyedField[]) => keyed.map(({ field }) => field)
  */
 function deadlineAt(deadline: number): { call: ModelCall; clear: () => void } {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), deadline - Date.now())
+  const remaining = deadline - Date.now()
+  const timer = setTimeout(() => controller.abort(), Math.max(0, remaining))
+  if (remaining <= 0) controller.abort()
   return {
     call: { signal: controller.signal, deadline },
     clear: () => clearTimeout(timer),

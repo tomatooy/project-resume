@@ -8,6 +8,31 @@ import type {
 /** Token counts for the run row. */
 export type ModelUsage = { inputTokens: number; outputTokens: number }
 
+/** Keeps completed provider usage when an output cannot be used. */
+export class AutofillModelError extends Error {
+  readonly usage: ModelUsage
+  readonly isRetryable: boolean
+  readonly finishReason: string | undefined
+  readonly outputChars: number | undefined
+
+  constructor(
+    cause: unknown,
+    details: {
+      usage: ModelUsage
+      retryable?: boolean
+      finishReason?: string
+      outputChars?: number
+    }
+  ) {
+    super("Autofill model call failed", { cause })
+    this.name = "AutofillModelError"
+    this.usage = { ...details.usage }
+    this.isRetryable = details.retryable ?? false
+    this.finishReason = details.finishReason
+    this.outputChars = details.outputChars
+  }
+}
+
 /**
  * What every call carries besides its own input: the request's abort signal
  * and its deadline in epoch ms.

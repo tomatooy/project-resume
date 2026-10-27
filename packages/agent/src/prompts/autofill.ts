@@ -126,6 +126,8 @@ export const MERGE_NOTES_PROMPT = [
 export const GENERATE_PROMPT = [
   "You write the applicant's answer to one question on a job application. You are given the applicant's records as JSON (their profile, resume and notes), the question with any help text, the kind of field, and a length limit when there is one.",
 
+  "Return only the answer itself as plain text. Do not wrap it in JSON, quotation marks or a code block.",
+
   DATA_RULE,
 
   [

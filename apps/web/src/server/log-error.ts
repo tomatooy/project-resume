@@ -31,6 +31,7 @@ const CODE_MESSAGES: Readonly<Record<string, string>> = {
 }
 
 const NAME_MESSAGES: Readonly<Record<string, string>> = {
+  AutofillModelError: "Autofill model call failed",
   ZodError: "Stored data or model output did not match its schema",
   AI_APICallError: "Model provider request failed",
   AI_RetryError: "Model provider retries exhausted",
@@ -72,6 +73,76 @@ const CONFIG_NAMES = [
   "PUBLIC_SUPABASE_PUBLISHABLE_KEY",
 ]
 
+const FINISH_REASONS = new Set([
+  "stop",
+  "length",
+  "content-filter",
+  "tool-calls",
+  "error",
+  "other",
+  "unknown",
+])
+
+const ISSUE_CODES = new Set([
+  "invalid_type",
+  "too_big",
+  "too_small",
+  "invalid_format",
+  "not_multiple_of",
+  "unrecognized_keys",
+  "invalid_union",
+  "invalid_key",
+  "invalid_element",
+  "invalid_value",
+  "custom",
+])
+
+const VALUE_TYPES = new Set([
+  "string",
+  "number",
+  "boolean",
+  "object",
+  "array",
+  "null",
+  "undefined",
+  "bigint",
+  "symbol",
+  "date",
+  "map",
+  "set",
+  "file",
+  "int",
+])
+
+// Dynamic keys may contain content. Only fixed model schema keys are named.
+const SCHEMA_FIELDS = new Set([
+  "text",
+  "answers",
+  "key",
+  "value",
+  "evidence",
+  "applicant",
+  "blocked",
+  "questions",
+  "keys",
+  "options",
+  "companySpecific",
+  "add",
+  "replace",
+  "delete",
+  "hints",
+  "heading",
+  "line",
+])
+
+type ValidationInput = { value: unknown }
+type ValidationIssue = {
+  code: string
+  path: (string | number)[]
+  expected?: string
+  received?: string
+}
+
 export type ErrorDiagnostic = {
   name: string
   code?: string
@@ -80,6 +151,10 @@ export type ErrorDiagnostic = {
   stack?: string
   status?: number
   retryable?: boolean
+  finishReason?: string
+  outputChars?: number
+  usage?: { inputTokens?: number; outputTokens?: number }
+  validation?: ValidationIssue[]
   cause?: ErrorDiagnostic
 }
 
@@ -97,6 +172,94 @@ function identifier(value: unknown): string | undefined {
   return typeof value === "string" && /^[A-Za-z0-9_]{1,80}$/.test(value)
     ? value
     : undefined
+}
+
+function count(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined
+}
+
+function allowed(
+  value: unknown,
+  values: ReadonlySet<string>
+): string | undefined {
+  return typeof value === "string" && values.has(value) ? value : undefined
+}
+
+function modelDetails(error: unknown) {
+  const usage = property(error, "usage")
+  const inputTokens = count(property(usage, "inputTokens"))
+  const outputTokens = count(property(usage, "outputTokens"))
+  const text = property(error, "text")
+  return {
+    finishReason: allowed(property(error, "finishReason"), FINISH_REASONS),
+    outputChars:
+      count(property(error, "outputChars")) ??
+      (typeof text === "string" ? text.length : undefined),
+    usage:
+      inputTokens !== undefined || outputTokens !== undefined
+        ? { inputTokens, outputTokens }
+        : undefined,
+  }
+}
+
+function validationInput(
+  error: unknown,
+  name: string,
+  inherited?: ValidationInput
+): ValidationInput | undefined {
+  if (name === "AI_TypeValidationError")
+    return { value: property(error, "value") }
+  const text = property(error, "text")
+  if (
+    name === "AI_NoObjectGeneratedError" &&
+    typeof text === "string" &&
+    text.length <= 100_000
+  ) {
+    try {
+      // Inspect types only; neither values nor arbitrary keys are logged.
+      return { value: JSON.parse(text) }
+    } catch {
+      return inherited
+    }
+  }
+  return inherited
+}
+
+function validationIssues(
+  error: unknown,
+  input?: ValidationInput
+): ValidationIssue[] | undefined {
+  const issues = property(error, "issues")
+  if (!Array.isArray(issues)) return undefined
+  return issues.slice(0, 8).flatMap((issue: unknown) => {
+    const code = allowed(property(issue, "code"), ISSUE_CODES)
+    const path = property(issue, "path")
+    if (!code || !Array.isArray(path)) return []
+    let value = input?.value
+    const parts: (string | number)[] = []
+    for (const part of path) {
+      if (typeof part !== "string" && typeof part !== "number") return []
+      value = property(value, String(part))
+      if (parts.length < 8)
+        parts.push(count(part) ?? allowed(part, SCHEMA_FIELDS) ?? "[field]")
+    }
+    return [
+      {
+        code,
+        path: parts,
+        expected: allowed(property(issue, "expected"), VALUE_TYPES),
+        received: input
+          ? value === null
+            ? "null"
+            : Array.isArray(value)
+              ? "array"
+              : typeof value
+          : undefined,
+      },
+    ]
+  })
 }
 
 export function errorClassOf(error: unknown): string {
@@ -185,7 +348,8 @@ export function errorDiagnostic(error: unknown): ErrorDiagnostic {
 function diagnose(
   error: unknown,
   seen: Set<unknown>,
-  depth: number
+  depth: number,
+  inherited?: ValidationInput
 ): ErrorDiagnostic {
   seen.add(error)
   const name =
@@ -196,6 +360,7 @@ function diagnose(
   const status = property(error, "statusCode") ?? property(error, "status")
   const retryable = property(error, "isRetryable")
   const cause = property(error, "cause") ?? property(error, "lastError")
+  const input = validationInput(error, name, inherited)
   return {
     name,
     code,
@@ -211,9 +376,12 @@ function diagnose(
         ? status
         : undefined,
     retryable: typeof retryable === "boolean" ? retryable : undefined,
+    ...modelDetails(error),
+    validation:
+      name === "ZodError" ? validationIssues(error, input) : undefined,
     cause:
       cause !== undefined && cause !== null && depth < 3 && !seen.has(cause)
-        ? diagnose(cause, seen, depth + 1)
+        ? diagnose(cause, seen, depth + 1, input)
         : undefined,
   }
 }

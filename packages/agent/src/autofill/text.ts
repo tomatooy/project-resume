@@ -6,14 +6,21 @@ import {
   ProfileFieldKeySchema,
   relevantEvidence,
 } from "@workspace/autofill"
-import type {
-  AutofillModels,
-  ModelField,
-  ModelUsage,
-  NumberedQuestion,
-  ShortTextOutput,
+import {
+  AutofillModelError,
+  type AutofillModels,
+  type ModelField,
+  type ModelUsage,
+  type NumberedQuestion,
+  type ShortTextOutput,
 } from "@workspace/resume-core"
-import { Output, generateText } from "ai"
+import {
+  type FinishReason,
+  generateText,
+  type LanguageModelUsage,
+  NoOutputGeneratedError,
+  Output,
+} from "ai"
 import { z } from "zod"
 
 import type { Models } from "../models"
@@ -69,8 +76,6 @@ const MergeSchema = z.object({
   hints: z.array(z.string()),
 })
 
-const DraftSchema = z.object({ text: z.string() })
-
 const SourceSchema = z.enum(["resume", "profile", "notes"])
 type Source = z.infer<typeof SourceSchema>
 
@@ -86,6 +91,43 @@ const usageOf = (usage: {
   inputTokens: usage.inputTokens ?? 0,
   outputTokens: usage.outputTokens ?? 0,
 })
+
+function trackUsage() {
+  const usage: ModelUsage = { inputTokens: 0, outputTokens: 0 }
+  let finishReason: FinishReason | undefined
+  let outputChars: number | undefined
+  return {
+    usage,
+    onStepEnd(step: {
+      usage: LanguageModelUsage
+      finishReason: FinishReason
+      text: string
+    }) {
+      const tokens = usageOf(step.usage)
+      usage.inputTokens += tokens.inputTokens
+      usage.outputTokens += tokens.outputTokens
+      finishReason = step.finishReason
+      outputChars = step.text.length
+    },
+    failure(cause: unknown, retryable = false): AutofillModelError {
+      return new AutofillModelError(cause, {
+        usage,
+        retryable,
+        finishReason,
+        outputChars,
+      })
+    },
+  }
+}
+
+function settledUsage(
+  result: PromiseSettledResult<{ usage: ModelUsage }>
+): ModelUsage {
+  if (result.status === "fulfilled") return result.value.usage
+  return result.reason instanceof AutofillModelError
+    ? result.reason.usage
+    : { inputTokens: 0, outputTokens: 0 }
+}
 
 /* ------------------------------------------------------------- rendering */
 
@@ -123,8 +165,7 @@ const section = (title: string, lines: string[]): string =>
 /* ----------------------------------------------------------------- calls */
 
 /**
- * The DeepSeek side of the `AutofillModels` port (spec 12.2): single
- * structured calls on the fast model, no tools and no loop.
+ * Fast-model text calls, with structured output only for multi-field results.
  */
 export function createAutofillText(
   models: Models
@@ -138,16 +179,22 @@ export function createAutofillText(
     prompt: string,
     signal: AbortSignal
   ): Promise<{ output: T; usage: ModelUsage }> {
-    const result = await generateText({
-      model: models.fast,
-      output: Output.object({ schema }),
-      system,
-      prompt,
-      providerOptions: models.providerOptions.fast,
-      abortSignal: signal,
-      maxRetries: 1,
-    })
-    return { output: result.output, usage: usageOf(result.usage) }
+    const tracked = trackUsage()
+    try {
+      const result = await generateText({
+        model: models.fast,
+        output: Output.object({ schema }),
+        system,
+        prompt,
+        providerOptions: models.providerOptions.fast,
+        abortSignal: signal,
+        maxRetries: 1,
+        onStepEnd: tracked.onStepEnd,
+      })
+      return { output: result.output, usage: tracked.usage }
+    } catch (error) {
+      throw tracked.failure(error)
+    }
   }
 
   return {
@@ -242,6 +289,8 @@ export function createAutofillText(
       const noteOutput = noted.status === "fulfilled" ? noted.value : null
       const recordOutput =
         recorded.status === "fulfilled" ? recorded.value : null
+      const noteUsage = settledUsage(noted)
+      const recordUsage = settledUsage(recorded)
       const answers: ShortTextOutput["answers"] = fields.map(({ key }) => {
         const record = recordOutput?.answers.find(
           (answer) => answer.key === key
@@ -278,12 +327,8 @@ export function createAutofillText(
         answers,
         degraded: !noteOutput || !recordOutput,
         usage: {
-          inputTokens:
-            (noteOutput?.usage.inputTokens ?? 0) +
-            (recordOutput?.usage.inputTokens ?? 0),
-          outputTokens:
-            (noteOutput?.usage.outputTokens ?? 0) +
-            (recordOutput?.usage.outputTokens ?? 0),
+          inputTokens: noteUsage.inputTokens + recordUsage.inputTokens,
+          outputTokens: noteUsage.outputTokens + recordUsage.outputTokens,
         },
       }
     },
@@ -397,13 +442,26 @@ export function createAutofillText(
             : []),
         ].join("\n"),
       ].join("\n\n")
-      const { output, usage } = await ask(
-        DraftSchema,
-        GENERATE_PROMPT,
+      const tracked = trackUsage()
+      const result = await generateText({
+        model: models.fast,
+        system: GENERATE_PROMPT,
         prompt,
-        signal
-      )
-      return { text: output.text.trim(), usage }
+        providerOptions: models.providerOptions.fast,
+        abortSignal: signal,
+        maxRetries: 1,
+        onStepEnd: tracked.onStepEnd,
+      }).catch((error: unknown) => {
+        throw tracked.failure(error)
+      })
+      const text = result.text.trim()
+      if (!text) {
+        throw tracked.failure(
+          new NoOutputGeneratedError(),
+          result.finishReason !== "content-filter"
+        )
+      }
+      return { text, usage: tracked.usage }
     },
   }
 }
