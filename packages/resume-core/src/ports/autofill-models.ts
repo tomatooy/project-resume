@@ -47,8 +47,8 @@ export type ModelField = { key: string; label: string; help?: string }
 
 export type JudgeItem = ModelField & {
   options: string[]
-  /** A server-owned instruction to resolve a location entity. */
-  intent?: "location"
+  /** A server-owned instruction to match a rendered search candidate. */
+  intent?: "location" | "search"
   /** Server classification, for tracing the how-heard fallback. */
   guess?: boolean
   /** Answer mode: the numbered question the field was asked as. */

@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "./dom"
 import type { ComboParts } from "./types"
+import type { Option } from "@workspace/autofill/fields"
 
 function optionsIn(nodes: (Element | null)[]): HTMLElement[] {
   const found = new Set<HTMLElement>()
@@ -35,6 +36,32 @@ export const comboOptionLabel = (
     parts.optionLabel?.(option) ?? textWithBreaks(option).split("\n").join(" "),
     LIMITS.option
   )
+
+export const comboOptions = (parts: ComboParts): Option[] =>
+  parts.options().map((option, index) => {
+    const description = parts.optionDescription?.(option)
+    return {
+      id: `#${index + 1}`,
+      label: comboOptionLabel(parts, option),
+      ...(description ? { description: clip(description, LIMITS.option) } : {}),
+    }
+  })
+
+export const sameCandidate = (
+  a: Pick<Option, "label" | "description">,
+  b: Pick<Option, "label" | "description">
+): boolean => a.label === b.label && a.description === b.description
+
+export function candidateElement(
+  parts: ComboParts,
+  candidate: Option
+): HTMLElement | null {
+  const options = parts.options()
+  const matches = comboOptions(parts).flatMap((option, index) =>
+    sameCandidate(option, candidate) ? [options[index]] : []
+  )
+  return matches.length === 1 ? (matches[0] ?? null) : null
+}
 
 export function setComboQuery(parts: ComboParts, value: string): void {
   if (parts.setQuery) parts.setQuery(value)

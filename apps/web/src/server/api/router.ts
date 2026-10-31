@@ -6,7 +6,9 @@ import {
   ResumePreviewSchema,
 } from "@workspace/resume-core/contracts"
 import { AppError } from "@workspace/resume-core"
+import { traceAutofillRequest } from "../autofill-trace"
 import { toAppError } from "../errors"
+import { withLogContext } from "../log"
 import { dispatch } from "../tailoring/dispatch"
 import {
   assertCredentialLifetime,
@@ -37,20 +39,14 @@ export function apiError(error: unknown) {
 }
 const root = implement(contract).$context<ApiContext>()
 const shared = root.use(async ({ next, context, path }) => {
-  const start = Date.now()
   try {
-    return await next()
+    return await withLogContext({ procedure: path.join(".") }, () => next())
   } catch (error) {
     const safe = apiError(error)
     const fields = { procedure: path.join("."), status: safe.status }
     if (safe.status >= 500) context.log.error("api_failed", fields, error)
-    else context.log.info("api_rejected", fields)
+    else context.log.warn("api_rejected", fields)
     throw safe
-  } finally {
-    context.log.info("shared_api", {
-      procedure: path.join("."),
-      latencyMs: Date.now() - start,
-    })
   }
 })
 function requireLifetime(context: ApiContext) {
@@ -148,29 +144,51 @@ export const router = shared.router({
   },
   autofill: {
     plan: shared.autofill.plan.handler(({ input, context }) =>
-      context.services.autofill.plan(input)
+      traceAutofillRequest("api.plan", input, () =>
+        context.services.autofill.plan(input)
+      )
     ),
     start: shared.autofill.start.handler(({ input, context }) =>
-      context.services.autofill.start(input)
+      traceAutofillRequest("api.start", input, () =>
+        context.services.autofill.start(input)
+      )
     ),
     infer: shared.autofill.infer.handler(({ input, context }) =>
-      context.services.autofill.infer(input)
+      traceAutofillRequest("api.infer", input, () =>
+        context.services.autofill.infer(input)
+      )
     ),
     resolveLocation: shared.autofill.resolveLocation.handler(
-      ({ input, context }) => context.services.autofill.resolveLocation(input)
+      ({ input, context }) =>
+        traceAutofillRequest("api.resolveLocation", input, () =>
+          context.services.autofill.resolveLocation(input)
+        )
+    ),
+    resolveSearch: shared.autofill.resolveSearch.handler(({ input, context }) =>
+      traceAutofillRequest("api.resolveSearch", input, () =>
+        context.services.autofill.resolveSearch(input)
+      )
     ),
     answer: shared.autofill.answer.handler(({ input, context }) =>
-      context.services.autofill.answer(input)
+      traceAutofillRequest("api.answer", input, () =>
+        context.services.autofill.answer(input)
+      )
     ),
     generate: shared.autofill.generate.handler(({ input, context }) =>
-      context.services.autofill.generate(input)
+      traceAutofillRequest("api.generate", input, () =>
+        context.services.autofill.generate(input)
+      )
     ),
     notes: {
       merge: shared.autofill.notes.merge.handler(({ input, context }) =>
-        context.services.autofill.notesMerge(input)
+        traceAutofillRequest("api.notes.merge", input, () =>
+          context.services.autofill.notesMerge(input)
+        )
       ),
       undo: shared.autofill.notes.undo.handler(({ input, context }) =>
-        context.services.autofill.notesUndo(input)
+        traceAutofillRequest("api.notes.undo", input, () =>
+          context.services.autofill.notesUndo(input)
+        )
       ),
     },
   },

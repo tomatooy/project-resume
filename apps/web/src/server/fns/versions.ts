@@ -11,15 +11,9 @@ export const listVersions = createServerFn({ method: "GET" })
     })
   )
   .handler(
-    serve("listVersions", async ({ services, data, log }) => {
-      const start = Date.now()
-      const page = await services.versions.page(data.resumeId, data.cursor)
-      log.info("versions.page", {
-        count: page.items.length,
-        latencyMs: Date.now() - start,
-      })
-      return page
-    })
+    serve("listVersions", ({ services, data }) =>
+      services.versions.page(data.resumeId, data.cursor)
+    )
   )
 
 export const getVersion = createServerFn({ method: "GET" })

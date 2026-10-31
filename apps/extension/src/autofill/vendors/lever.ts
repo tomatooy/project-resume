@@ -184,7 +184,6 @@ export const lever: VendorAdapter = {
         )
       : null
   },
-  findForm: (doc) => doc.querySelector("form#application-form"),
   formLink: (_doc, url) => {
     const path = postingPath(url)
     if (!path || path.application) return null

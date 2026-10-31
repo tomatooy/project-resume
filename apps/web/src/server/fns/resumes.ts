@@ -10,22 +10,12 @@ import { serve } from "../handler"
 
 const idInput = z.object({ id: z.uuid() })
 
-/**
- * Rail search. The query is the user's own text, so it never reaches a log
- * line: only how many resumes matched does.
- */
 export const searchResumes = createServerFn({ method: "POST" })
   .validator(z.object({ q: z.string().trim().min(2).max(120) }))
   .handler(
-    serve("searchResumes", async ({ services, log, data }) => {
-      const start = Date.now()
-      const result = await services.resumes.search(data.q)
-      log.info("resumes.search", {
-        count: result.groups.length,
-        latencyMs: Date.now() - start,
-      })
-      return result
-    })
+    serve("searchResumes", ({ services, data }) =>
+      services.resumes.search(data.q)
+    )
   )
 
 export const getResume = createServerFn({ method: "GET" })

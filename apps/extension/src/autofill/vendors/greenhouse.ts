@@ -16,9 +16,9 @@ import { greenhousePosting } from "../posting-url"
 import type { LiveField, PageInfo, ScannedField, VendorAdapter } from "../types"
 import { pageInfo, siteName, TITLE_MAX, titleCompany } from "./page-info"
 
-const CLASSIC_ID = "application_form"
 /** The phone box's country flag picker, which has its own search box. */
 const FLAG_PICKER = ".iti__dropdown-content"
+const IGNORE = `${FLAG_PICKER}, .job-alert, [role=search]`
 const TITLE_PATTERNS = [/^Job Application for (?<title>.+) at (?<company>.+)$/]
 const JOB_ALERT = /Interested in building your career at (.+?)\?/
 const KEY_MAX = 300
@@ -77,7 +77,7 @@ function reactSelects(form: Element): ScannedField[] {
       !(input instanceof HTMLInputElement) ||
       input.disabled ||
       input.matches(":disabled") ||
-      input.closest(FLAG_PICKER) !== null ||
+      input.closest(IGNORE) !== null ||
       !isShown(input)
     )
       continue
@@ -97,6 +97,7 @@ function reactSelects(form: Element): ScannedField[] {
         label: labelFor(input),
         control: "combobox",
         optionState: input.id === "candidate-location" ? "search" : "pending",
+        searchable: !input.readOnly,
         // Unverified.
         ...(combo.opener.querySelector(".select__value-container--is-multi")
           ? { multiple: true }
@@ -125,9 +126,10 @@ const inPageOrder = (a: ScannedField, b: ScannedField): number => {
  * with its react-selects, in page order.
  */
 function scan(form: Element): ScannedField[] {
-  if (form.id === CLASSIC_ID) return scanGeneric(form)
   const fields = [
-    ...scanGeneric(form)
+    ...scanGeneric(form, {
+      ignore: (control) => control.closest(IGNORE) !== null,
+    })
       .filter((field) => !inFlagPicker(field))
       .map(adjusted),
     ...reactSelects(form),
@@ -180,9 +182,6 @@ export const greenhouse: VendorAdapter = {
       ? clip(`greenhouse:${path.board.toLowerCase()}:${path.jobId}`, KEY_MAX)
       : null
   },
-  findForm: (doc) =>
-    doc.querySelector("form#application-form") ??
-    doc.querySelector(`form#${CLASSIC_ID}`),
   // The form is on the posting page.
   formLink: () => null,
   scan,

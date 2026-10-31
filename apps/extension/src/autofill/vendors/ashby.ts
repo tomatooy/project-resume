@@ -1,8 +1,10 @@
 import { normalizeText } from "@workspace/autofill/match"
+import type { RecordField } from "@workspace/autofill/fields"
 import { ariaComboParts } from "../combobox"
 import {
   LIMITS,
   clip,
+  fieldId,
   isShown,
   labelFor,
   labelText,
@@ -22,17 +24,17 @@ import type {
 import { pageInfo, siteName, TITLE_MAX, titleCompany } from "./page-info"
 
 // Only `ashby-*` classes: the hashed ones change with Ashby deploys (Ashby 1).
-// Each survey, such as the US EEO one, is a form of its own (Ashby 13).
-const FORM = ".ashby-application-form-container"
-// Choice questions lack `.ashby-application-form-field-entry` (Ashby 13).
 const ENTRY = "[data-field-path]"
 /** Ashby's own "Autofill from resume" upload, which is never touched. */
 const IGNORE =
-  ".ashby-application-form-autofill-pane, .ashby-application-form-autofill-uploader"
+  ".ashby-application-form-autofill-pane, .ashby-application-form-autofill-uploader, [role=search]"
 const TITLE = ".ashby-application-form-question-title"
 const HELP = ".ashby-application-form-question-description"
 const SECTION = ".ashby-application-form-section-container"
 const CHECKBOXES = ".ashby-application-form-input-checkbox-group"
+const YESNO = ".ashby-application-form-input-yesno"
+const EDUCATION = ".ashby-application-form-input-education-entry"
+const CONSENT = ".ashby-application-form-texting-consent-description"
 /** A react-datepicker text input that shows and takes MM/DD/YYYY. */
 const DATE = "input.ashby-application-form-input-date"
 const HEADINGS = "h1, h2, h3, h4, h5, h6, legend"
@@ -61,27 +63,31 @@ function postingPath(
 const pathOf = (entry: Element): string =>
   clip(entry.getAttribute("data-field-path") ?? "", ID_MAX)
 
-/** The page has no `form` element; this holds every form container. */
-function findForm(doc: Document): Element | null {
-  const forms = [...doc.querySelectorAll(FORM)]
-  const holdsAll = (node: Element): boolean =>
-    forms.every((form) => node.contains(form))
-  for (let node = forms[0] ?? null; node; node = node.parentElement)
-    if (holdsAll(node)) return node
+const usable = (element: HTMLElement): boolean =>
+  element.closest(IGNORE) === null &&
+  !element.matches(':disabled, [aria-disabled="true"]') &&
+  isShown(element)
+
+/** Labels can describe a whole date pair or an unlabelled combobox. */
+function titleFor(element: HTMLElement): Element | null {
+  const wrapping = element.closest(TITLE)
+  if (wrapping) return wrapping
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    const title = [...node.children].find((child) => child.matches(TITLE))
+    if (title) return title
+    if (node.matches(ENTRY)) break
+  }
   return null
 }
 
-/** The question entries of every form under `root`, in page order. */
-const entriesIn = (root: ParentNode): HTMLElement[] =>
-  [...root.querySelectorAll(ENTRY)].filter(
-    (entry): entry is HTMLElement =>
-      entry instanceof HTMLElement &&
-      entry.closest(FORM) !== null &&
-      entry.closest(IGNORE) === null
-  )
-
-const requiredIn = (entry: Element): boolean =>
-  entry.querySelector('[required], [aria-required="true"]') !== null
+/** Ashby's required star is generated CSS on several widget types. */
+function requiredTitle(title: Element | null): boolean {
+  if (!title) return false
+  if (title.matches('[required], [aria-required="true"]')) return true
+  if (/[*✱]\s*$/.test(title.textContent ?? "")) return true
+  const after = getComputedStyle(title, "::after").content
+  return /^["']?[*✱]["']?$/.test(after.trim())
+}
 
 /** The heading of the entry's section, when it has one outside the entries. */
 function sectionOf(entry: Element): string {
@@ -117,7 +123,7 @@ function shownName(entry: Element): string | null {
 /** Exactly two shown buttons reading Yes and No, in page order (Ashby 6). */
 function yesNo(entry: Element): LiveField["choices"] | null {
   const buttons = [...entry.querySelectorAll("button")].filter((button) =>
-    isShown(button)
+    usable(button)
   )
   if (buttons.length !== 2) return null
   const choices = buttons.map((button) => ({
@@ -132,12 +138,10 @@ function yesNo(entry: Element): LiveField["choices"] | null {
 }
 
 /** Ashby names each box after its option, so `scanGeneric` sees lone boxes. */
-function checkboxGroup(entry: Element): LiveField | null {
-  const group = entry.querySelector(CHECKBOXES)
-  if (!(group instanceof HTMLElement)) return null
+function checkboxGroup(group: HTMLElement): LiveField | null {
   const choices = [...group.querySelectorAll("input[type=checkbox]")].flatMap(
     (box) =>
-      box instanceof HTMLInputElement
+      box instanceof HTMLInputElement && usable(box)
         ? [
             {
               element: box,
@@ -154,132 +158,185 @@ function checkboxGroup(entry: Element): LiveField | null {
 /** School results include country and domain, but commit only the name. */
 function schoolComboParts(input: HTMLInputElement): ComboParts {
   const parts = ariaComboParts(input)
+  const nameOf = (option: HTMLElement): Element | null =>
+    option.querySelector(":scope > div > div > span")
   return {
     ...parts,
     optionLabel: (option) => {
-      // First span in the name/country row, before the domain (Ashby 14).
-      const name = option.querySelector(":scope > div > div > span")
+      const name = nameOf(option)
       return name ? labelText(name) : ""
     },
-    matchSearch: (target, labels) => {
-      const wanted = normalizeText(target)
-      if (!wanted) return null
-      const matches = labels.flatMap((label, i) =>
-        normalizeText(label) === wanted ? [i] : []
-      )
-      return matches.length === 1 ? (matches[0] ?? null) : null
+    optionDescription: (option) =>
+      [...option.querySelectorAll("span")]
+        .filter((span) => span !== nameOf(option))
+        .map(labelText)
+        .filter(Boolean)
+        .join(", "),
+  }
+}
+
+function educationField(
+  element: HTMLElement,
+  title: Element | null,
+  root: Element
+): RecordField | undefined {
+  const row = element.closest(EDUCATION)
+  if (!row || !title) return undefined
+  const label = normalizeText(labelText(title))
+  const target = title.getAttribute("for") ?? ""
+  const field =
+    target.endsWith("-school") || label === "school"
+      ? "school"
+      : target.endsWith("-degree") || label === "degree"
+        ? "degree"
+        : target.endsWith("-major") || label === "field of study"
+          ? "field"
+          : target.endsWith("-startDate") || label === "start date"
+            ? "start"
+            : target.endsWith("-endDate") || label === "end date"
+              ? "end"
+              : target.endsWith("-isCurrent") || label === "still student"
+                ? "current"
+                : null
+  if (!field) return undefined
+  const scope = row.closest(ENTRY) ?? root
+  const index = [...scope.querySelectorAll(EDUCATION)].indexOf(row)
+  if (index < 0 || index >= LIMITS.fields) return undefined
+  const values =
+    element instanceof HTMLSelectElement
+      ? [...element.options].filter((option) => option.value !== "")
+      : []
+  const part =
+    (field === "start" || field === "end") && values.length > 0
+      ? values.every((option) => /^\d{4}$/.test(option.value))
+        ? "year"
+        : values.every((option) => /^(?:0?[1-9]|1[0-2])$/.test(option.value))
+          ? "month"
+          : undefined
+      : undefined
+  return { kind: "education", index, field, ...(part ? { part } : {}) }
+}
+
+function describe(field: ScannedField, root: Element): ScannedField {
+  const { element, descriptor } = field
+  const entry = element.closest(ENTRY)
+  const path = (entry && pathOf(entry)) || descriptor.id
+  const title = titleFor(element)
+  const consent = element.closest(CONSENT)
+  const record = educationField(element, title, root)
+  const helpNode =
+    consent ?? title?.parentElement?.querySelector(`:scope > ${HELP}`)
+  const help = helpNode
+    ? clip(textWithBreaks(helpNode), LIMITS.help)
+    : descriptor.help
+  const section = record
+    ? `Education ${record.index + 1}`
+    : sectionOf(element) || descriptor.section
+  const label = consent
+    ? "Text message consent"
+    : (title && labelText(title)) || descriptor.label
+  const id = record
+    ? `${path}:${record.index}:${record.field}${record.part ? `:${record.part}` : ""}`
+    : consent
+      ? `${path}:communicationConsent`
+      : path
+  const date = field.kind === "text" && element.matches(DATE)
+  return {
+    ...field,
+    ...(date ? { dateFormat: "MM/DD/YYYY" } : {}),
+    descriptor: {
+      ...descriptor,
+      id: clip(id, ID_MAX),
+      label: record?.part ? `${label} (${record.part})` : label,
+      ...(help ? { help } : {}),
+      ...(section ? { section } : {}),
+      ...(record ? { record } : {}),
+      ...(date ? { control: "date" } : {}),
+      required: descriptor.required || (!consent && requiredTitle(title)),
+      hasValue:
+        descriptor.hasValue ||
+        (field.kind === "file" &&
+          shownName(entry ?? element.parentElement ?? element) !== null),
     },
   }
 }
 
-/**
- * One entry's field: a combobox, Yes and No buttons, a checkbox list, else a
- * native control.
- */
-function entryField(entry: HTMLElement, path: string): ScannedField | null {
-  const titleNode = entry.querySelector(TITLE)
-  const title = titleNode ? labelText(titleNode) : ""
-  const helpNode = entry.querySelector(HELP)
-  const help = helpNode ? clip(textWithBreaks(helpNode), LIMITS.help) : ""
-  const section = sectionOf(entry)
-  const extras = {
-    ...(help ? { help } : {}),
-    ...(section ? { section } : {}),
+function choiceField(live: LiveField, root: Element): ScannedField {
+  return {
+    ...live,
+    descriptor: {
+      id: fieldId(live.element, root),
+      label: labelFor(live.element),
+      control: live.kind === "buttons" ? "radio" : "checkboxes",
+      ...listed(live.choices),
+      required: live.choices.some(({ element }) =>
+        element.matches('[required], [aria-required="true"]')
+      ),
+      hasValue: hasValueNow(live),
+    },
   }
+}
 
-  const input = entry.querySelector("input[role=combobox]")
-  if (input instanceof HTMLInputElement) {
-    const school = path === "_systemfield_education_history"
+/** Controls are found across the page; question wrappers supply metadata only. */
+function scan(root: Element): ScannedField[] {
+  const widgets: ScannedField[] = []
+  for (const node of root.querySelectorAll(`${YESNO}, ${ENTRY}`)) {
+    if (!(node instanceof HTMLElement) || !usable(node)) continue
+    if (!node.matches(YESNO) && node.querySelector(YESNO)) continue
+    const choices = yesNo(node)
+    if (choices)
+      widgets.push(
+        choiceField({ element: node, kind: "buttons", choices }, root)
+      )
+  }
+  for (const node of root.querySelectorAll(CHECKBOXES)) {
+    if (!(node instanceof HTMLElement) || !usable(node)) continue
+    const group = checkboxGroup(node)
+    if (group) widgets.push(choiceField(group, root))
+  }
+  const natives = scanGeneric(root, {
+    ignore: (control) =>
+      control.closest(IGNORE) !== null ||
+      widgets.some(({ element }) => element.contains(control)),
+  })
+  for (const input of root.querySelectorAll("input[role=combobox]")) {
+    if (!(input instanceof HTMLInputElement) || !usable(input)) continue
+    const record = educationField(input, titleFor(input), root)
+    const school = record?.field === "school"
+    const entry = input.closest(ENTRY)
+    const location = entry && pathOf(entry) === "_systemfield_location"
     const live: LiveField = {
       element: input,
       kind: "combo",
       choices: [],
       combo: school
         ? schoolComboParts(input)
-        : {
-            ...ariaComboParts(input),
-            location: path === "_systemfield_location",
-          },
+        : { ...ariaComboParts(input), location: Boolean(location) },
     }
-    return {
+    widgets.push({
       ...live,
       descriptor: {
-        id: path,
-        label: title || labelFor(input),
-        ...extras,
+        id: fieldId(input, root),
+        label: labelFor(input),
         control: "combobox",
-        optionState:
-          school || path === "_systemfield_location" ? "search" : "pending",
-        required: requiredIn(entry),
+        optionState: school || location ? "search" : "pending",
+        searchable: !input.readOnly,
+        required:
+          input.required || input.getAttribute("aria-required") === "true",
         hasValue: hasValueNow(live),
       },
-    }
+    })
   }
-
-  const choices = yesNo(entry)
-  if (choices) {
-    const live: LiveField = { element: entry, kind: "buttons", choices }
-    return {
-      ...live,
-      descriptor: {
-        id: path,
-        label: title,
-        ...extras,
-        control: "radio",
-        optionState: "ready",
-        options: choices.map(({ label }, i) => ({ id: `#${i + 1}`, label })),
-        required: requiredIn(entry),
-        hasValue: hasValueNow(live),
-      },
-    }
-  }
-
-  const group = checkboxGroup(entry)
-  if (group)
-    return {
-      ...group,
-      descriptor: {
-        id: path,
-        label: title,
-        ...extras,
-        control: "checkboxes",
-        ...listed(group.choices),
-        required: requiredIn(entry),
-        hasValue: hasValueNow(group),
-      },
-    }
-
-  const [field] = scanGeneric(entry, { idOf: () => path })
-  if (!field) return null
-  const { help: _help, section: _section, ...descriptor } = field.descriptor
-  // Ashby may replace the file input after an upload (Ashby 5.2).
-  const hasValue =
-    descriptor.hasValue || (field.kind === "file" && shownName(entry) !== null)
-  // Reported as a date, so the server sends YYYY-MM-DD for the driver to retype.
-  const date = field.kind === "text" && field.element.matches(DATE)
-  return {
-    ...field,
-    ...(date ? { dateFormat: "MM/DD/YYYY" as const } : {}),
-    descriptor: {
-      ...descriptor,
-      id: path,
-      label: title || descriptor.label,
-      ...(date ? { control: "date" as const } : {}),
-      ...extras,
-      hasValue,
-    },
-  }
-}
-
-function scan(root: Element): ScannedField[] {
-  const fields: ScannedField[] = []
-  for (const entry of entriesIn(root)) {
-    if (fields.length >= LIMITS.fields) break
-    const path = pathOf(entry)
-    if (path === "" || !isShown(entry)) continue
-    const field = entryField(entry, path)
-    if (field) fields.push(field)
-  }
+  const fields = [...natives, ...widgets]
+    .map((field) => describe(field, root))
+    .sort((a, b) => {
+      if (a.element === b.element) return 0
+      return a.element.compareDocumentPosition(b.element) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+        ? -1
+        : 1
+    })
+    .slice(0, LIMITS.fields)
   const ids = uniqueIds(fields.map(({ descriptor }) => descriptor.id))
   return fields.map((field, i) => ({
     ...field,
@@ -315,7 +372,6 @@ export const ashby: VendorAdapter = {
         )
       : null
   },
-  findForm,
   // The Overview tab links to the Application tab (spec 6.5).
   formLink: (_doc, url) => {
     const path = postingPath(url)
@@ -325,11 +381,8 @@ export const ashby: VendorAdapter = {
   },
   scan,
   page,
-  // Compares attributes, since jsdom has no `CSS.escape`.
   attachedName: (field) => {
-    const entry = entriesIn(field.element.ownerDocument).find(
-      (node) => node.getAttribute("data-field-path") === field.descriptor.id
-    )
+    const entry = field.element.closest(ENTRY) ?? field.element.parentElement
     return entry ? shownName(entry) : null
   },
 }

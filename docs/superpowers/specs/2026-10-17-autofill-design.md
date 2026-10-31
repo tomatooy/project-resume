@@ -723,14 +723,14 @@ previous text, writes, and prunes snapshots to 20 in one transaction.
 
 ## 16. Privacy and security
 
-- Never logged: Notes, the user's answers, field labels, options and values,
-  drafts, and Profile data. Server logs keep the existing request line
-  (procedure and latency) and fixed error classes. Run rows store no input. The
-  extension logs no field data.
-- One exception, for local debugging: a step-by-step trace prints labels,
-  options, values, Notes and answers to the console of an unpacked extension
-  build (never a Web Store install) and to the web dev server's terminal (only
-  under `vite dev`, never a build). It prints errors as their class only.
+- Autofill request/result traces are an explicit debugging exception to the
+  content-logging restriction. The local server and deployed Worker log parsed
+  API inputs/results and model inputs/results, including field labels,
+  options, values, Notes, Profile context, and generated answers. Routine
+  successful HTTP and procedure timing logs are silent. Credentials and auth
+  headers are never logged; run rows store no input.
+- The extension's console trace remains limited to unpacked builds and prints
+  errors by class. Server errors use reviewed diagnostics.
 - What the page can see: the values we write, and the draft and optional
   instruction inside the overlay; the draft is written for that page anyway.
   The Profile, Notes and tokens never enter the page.

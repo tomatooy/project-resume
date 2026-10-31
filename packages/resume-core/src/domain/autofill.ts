@@ -222,6 +222,16 @@ export const ResolveLocationResultSchema = z.object({
 })
 export type ResolveLocationResult = z.infer<typeof ResolveLocationResultSchema>
 
+export const ResolveSearchInputSchema = AiRequestSchema.extend({
+  field: FieldDescriptorSchema,
+  target: z.string().trim().min(1).max(200),
+  location: LocationTargetSchema.optional(),
+  options: ResolveLocationInputSchema.shape.options,
+})
+export type ResolveSearchInput = z.infer<typeof ResolveSearchInputSchema>
+export const ResolveSearchResultSchema = ResolveLocationResultSchema
+export type ResolveSearchResult = z.infer<typeof ResolveSearchResultSchema>
+
 export const AnswerInputSchema = AiRequestSchema.extend({
   fields: FieldsSchema,
   questions: z.array(QuestionSchema).max(200),

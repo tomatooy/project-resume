@@ -173,9 +173,10 @@ for new requests after deployment; they cannot recover details discarded by
 an older release. No additional logging service or secret is required.
 
 In Cloudflare, open **Workers & Pages > vs-resume > Observability** to search
-stored logs. The Worker persists invocation and application logs at a sampling
-rate of `1` (all requests, subject to Cloudflare limits). Application events
-are structured objects, so their fields can be filtered individually.
+stored logs. The Worker persists application logs at a sampling rate of `1`
+(subject to Cloudflare limits). Automatic invocation logs are disabled. Info
+output contains application diagnostics and autofill request/result traces;
+successful HTTP requests and procedure timings produce no application log.
 [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/).
 
 To watch new production requests from the repository root:
@@ -187,22 +188,24 @@ bun run logs:prod
 Use `bun run logs:prod:json` for JSON output. Start the stream before
 reproducing the failure. These commands require Wrangler authentication and
 only stream new events. Use the dashboard for historical logs. To narrow a
-live stream to a particular event:
+live stream to autofill:
 
 ```bash
-bun run logs:prod --search chat_stream_error
+bun run logs:prod --search autofill
 ```
 
 Avoid `--status error` when investigating handled failures. That flag filters
 the Worker invocation outcome, not the HTTP status or console severity, so it
 can hide a caught exception that returned HTTP 500 or failed inside an HTTP
-200 chat stream. Filter by application `level`, `event`, or `requestId` in
-the dashboard instead.
+200 chat stream. Filter by console severity, `event`, or `requestId` in the
+dashboard instead. Severity and timestamps come from the console runtime,
+so application events do not repeat `level`, `message`, or `at` fields.
 [Wrangler tail](https://developers.cloudflare.com/workers/wrangler/commands/workers/#tail).
 
 Each application response includes `X-Request-Id`. Copy it from the failed
 request's response headers in the browser Network panel, then filter stored
-logs by `requestId`. A chat stream can return HTTP 200 before it fails, so
+logs by `requestId`, or search for it in autofill trace text. A chat stream
+can return HTTP 200 before it fails, so
 check its `chat_stream_error` and `chat_finished` events too. Workflow work
 runs in a separate invocation: follow the `operationId` from
 `tailoring_dispatched` into `tailoring_step_failed`.
@@ -211,8 +214,10 @@ runs in a separate invocation: follow the `operationId` from
 | --- | --- |
 | `requestId`, `cfRay` | Application request and Cloudflare request correlation |
 | `procedure` | Server function name or API procedure, such as `updateResume` or `autofill.infer` |
-| `http_request` | Response status and time until response headers, not stream completion |
-| `server_function`, `shared_api` | Operation duration |
+| `http_request` | HTTP failures only, with response status and time until response headers |
+| `[autofill ...] api.* request/result` | Parsed autofill request and returned fills, questions, draft, or Notes result |
+| `[autofill ...] model.* request/result` | Model inputs and outputs, including generation and Notes merges |
+| `[autofill ...] jev [...] request/result` | Raw Jev request and result with question and option labels |
 | `request_failed`, `api_failed`, `api_context_failed` | Failure before the error is mapped for the client |
 | `chat_stream_error`, `chat_finish_failed`, `background_failed` | Streaming, persistence, or background failure |
 | `autofill_model_failed` | Model failure captured before the service falls back to rules or questions |
@@ -229,9 +234,16 @@ messages are omitted; `error.messageRedacted` records whether the original
 message was replaced. Browser error responses remain separate from these
 operator diagnostics.
 
-Do not put request/response bodies, headers, tokens, model output, job URLs,
-resume text, or arbitrary error messages into log metadata. Pass exceptions
-as the logger's third argument, for example
+Autofill traces run both locally and in the deployed Worker. Each pair prints
+the operation name, request ID, input, and result, with elapsed time on the
+result. They include field labels, options, values, applicant context, and
+model answers. This is the explicit content-logging exception for debugging
+autofill. It covers parsed API inputs and model calls, not HTTP headers or
+credentials. Test runs suppress these payload traces.
+
+Outside autofill, keep request/response bodies, headers, tokens, model output,
+job URLs, resume text, and arbitrary error messages out of log metadata.
+Pass exceptions as the logger's third argument, for example
 `log.error("import_failed", { charCount }, error)`, so `server/log-error.ts`
 controls serialization. That module never copies provider response bodies,
 PostgREST details or hints, or validation input. Cloudflare's

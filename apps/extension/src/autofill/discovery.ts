@@ -11,7 +11,7 @@ import type { ScannedField } from "./types"
 type Cached = {
   element: HTMLElement
   identity: string
-  optionState: "ready" | "unavailable"
+  optionState: "ready" | "search" | "unavailable"
   options?: Option[]
 }
 
@@ -131,7 +131,9 @@ export function createDiscovery() {
           continue
         const discovered: Cached["optionState"] = listed?.length
           ? "ready"
-          : "unavailable"
+          : field.descriptor.searchable && !field.combo?.input.readOnly
+            ? "search"
+            : "unavailable"
         cache.set(id, {
           element: field.element,
           identity: fieldIdentity(field.descriptor),

@@ -42,7 +42,7 @@ export const SHORT_TEXT_PROMPT = [
 
   [
     "Write each value the way its field expects it:",
-    "- email: an email address. url: a full web address starting with https://. number: digits only. date: YYYY-MM-DD, with the first day of the month when the records give only a month and year.",
+    "- email: an email address. url: a full web address starting with https://. number: digits only. month: YYYY-MM. date: YYYY-MM-DD; leave empty when the records do not give the day.",
     "- select or combobox: the field searches a list, such as schools or cities. Give the name to search for, spelled out in full.",
     "- A full name in one box: First Last. A phone number: (415) 555-0100. A location: San Francisco, CA. A start date in a text box: March 1, 2027, or 2 weeks' notice.",
     "- Never longer than the field's length limit.",

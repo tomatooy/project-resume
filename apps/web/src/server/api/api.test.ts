@@ -177,10 +177,7 @@ describe("shared API HTTP and SSR", () => {
     const row = second.items[0]
     if (!row) throw new Error()
     expect(await http.resumes.summary({ id: row.id })).toEqual(row)
-    expect(log.info).toHaveBeenCalledWith("shared_api", {
-      procedure: "resumes.summary",
-      latencyMs: expect.any(Number),
-    })
+    expect(log.info).not.toHaveBeenCalled()
     expect(await http.resumes.list({})).toHaveLength(35)
     await expect(
       http.resumes.page({ cursor: "invalid" })

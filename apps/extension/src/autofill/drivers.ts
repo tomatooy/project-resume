@@ -2,7 +2,9 @@ import type { Fill, Option } from "@workspace/autofill/fields"
 import { normalizeText, searchMatch } from "@workspace/autofill/match"
 import {
   closeCombo,
+  candidateElement,
   comboOptionLabel,
+  comboOptions,
   openCombo,
   setComboQuery,
 } from "./combobox"
@@ -14,13 +16,13 @@ import {
   setNativeValue,
   waitFor,
 } from "./dom"
-import { findLocation, type SearchResult } from "./location-search"
+import { findSearch } from "./search"
 import type {
   ComboParts,
   FieldHandle,
   LiveField,
   ScannedField,
-  ResolveLocation,
+  ResolveSearch,
   WriteOutcome,
 } from "./types"
 
@@ -28,7 +30,6 @@ type OptionsFill = Extract<Fill, { kind: "options" }>
 type SearchFill = Extract<Fill, { kind: "search" }>
 
 const OPEN_MS = 2_000
-const SEARCH_MS = 5_000
 // React renders a choice during its event; other pages may take a moment.
 const CONFIRM_MS = 1_000
 
@@ -81,15 +82,38 @@ const sameText = (shown: string, wanted: string): boolean =>
   shown === wanted ||
   (squash(wanted) !== "" && squash(shown) === squash(wanted))
 
-const settled = async (check: () => boolean): Promise<boolean> =>
-  (await waitFor(() => (check() ? true : null), CONFIRM_MS)) !== null
-
-/** react-select chooses on `click`, after the `mousedown` a person sends. */
-function press(element: HTMLElement): void {
-  element.dispatchEvent(
-    new MouseEvent("mousedown", { bubbles: true, cancelable: true })
+async function settled(check: () => boolean): Promise<boolean> {
+  let since: number | null = null
+  return (
+    (await waitFor(() => {
+      if (!check()) {
+        since = null
+        return null
+      }
+      since ??= Date.now()
+      return Date.now() - since >= 100 ? true : null
+    }, CONFIRM_MS)) !== null
   )
-  scriptClick(element)
+}
+
+/** Let controlled inputs render before blur commits their current value. */
+async function press(
+  element: HTMLElement,
+  options: { blur?: boolean } = {}
+): Promise<void> {
+  scriptClick(element, { mouse: true })
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  if (options.blur && element.isConnected) element.blur()
+}
+
+async function commitValue(
+  element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  value: string
+): Promise<void> {
+  element.focus({ preventScroll: true })
+  setNativeValue(element, value, { blur: false })
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  if (element.isConnected) element.blur()
 }
 
 const isOpen = (parts: ComboParts): boolean =>
@@ -131,13 +155,17 @@ const isMultiple = (field: ScannedField): boolean =>
 /** Whether the page now shows exactly the wanted choices. */
 function shows(field: ScannedField, wanted: readonly HTMLElement[]): boolean {
   if (field.kind === "buttons") {
-    // Without pressed state on the buttons, the click is all there is to go on.
     const reports = field.choices.some(
       ({ element }) =>
         element.hasAttribute("aria-pressed") ||
         element.hasAttribute("aria-checked")
     )
-    return !reports || wanted.every(isPressed)
+    return (
+      reports &&
+      field.choices.every(
+        ({ element }) => isPressed(element) === wanted.includes(element)
+      )
+    )
   }
   if (isMultiple(field))
     return field.choices.every(
@@ -148,7 +176,8 @@ function shows(field: ScannedField, wanted: readonly HTMLElement[]): boolean {
 
 async function choose(
   field: ScannedField,
-  picks: readonly number[]
+  picks: readonly number[],
+  cancelled: () => boolean
 ): Promise<WriteOutcome> {
   const multiple = isMultiple(field)
   const wanted = (multiple ? picks : picks.slice(0, 1)).flatMap((i) => {
@@ -162,32 +191,38 @@ async function choose(
       if (!(element instanceof HTMLSelectElement)) return "failed"
       const [first] = wanted
       if (element.multiple) {
+        element.focus({ preventScroll: true })
         for (const option of element.options)
           option.selected = wanted.includes(option)
-        fireEdit(element)
+        fireEdit(element, { blur: false })
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        if (element.isConnected) element.blur()
       } else if (first instanceof HTMLOptionElement)
-        setNativeValue(element, first.value)
+        await commitValue(element, first.value)
       break
     }
     case "radio":
     case "checkboxes":
       for (const { element: choice } of field.choices) {
+        if (cancelled()) return "skipped"
         const on = wanted.includes(choice)
         // A click never turns a radio off; checking another one does.
         if (isOn(choice) !== on && (on || field.kind === "checkboxes"))
-          scriptClick(choice)
+          await press(choice, { blur: true })
       }
       break
     case "buttons":
       for (const { element: choice } of field.choices) {
+        if (cancelled()) return "skipped"
         const on = wanted.includes(choice)
         if (on ? !isPressed(choice) : multiple && isPressed(choice))
-          scriptClick(choice)
+          await press(choice, { blur: true })
       }
       break
     default:
       return "failed"
   }
+  if (cancelled()) return "skipped"
   return (await settled(() => shows(field, wanted))) ? "written" : "failed"
 }
 
@@ -215,6 +250,16 @@ async function chooseInCombo(
   })
   const selected = (label: string) =>
     parts.values().some((value) => sameText(value, label))
+  if (
+    multiple &&
+    parts
+      .values()
+      .some((value) => wanted.every(({ label }) => !sameText(value, label)))
+  ) {
+    await clearCombo(parts)
+    if (cancelled()) return "skipped"
+    if (!(await settled(() => parts.values().length === 0))) return "failed"
+  }
   for (const { id, label } of wanted) {
     if (cancelled()) return "skipped"
     if (selected(label)) continue
@@ -229,13 +274,16 @@ async function chooseInCombo(
       ) ?? []
     const target = index === undefined ? undefined : options[index]
     if (!target) break
-    press(target)
+    await press(target)
   }
   if (cancelled()) return "skipped"
   close(parts)
   parts.input.blur()
   const confirmed = await settled(
-    () => !isOpen(parts) && wanted.every(({ label }) => selected(label))
+    () =>
+      !isOpen(parts) &&
+      wanted.every(({ label }) => selected(label)) &&
+      (!multiple || parts.values().length === wanted.length)
   )
   if (cancelled()) return "skipped"
   return confirmed ? "written" : "failed"
@@ -254,7 +302,7 @@ async function searchCombo(
   parts: ComboParts,
   fill: SearchFill,
   cancelled: () => boolean,
-  resolveLocation?: ResolveLocation
+  resolveSearch?: ResolveSearch
 ): Promise<WriteOutcome> {
   let interrupted = false
   const interrupt = (event: Event) => {
@@ -268,67 +316,30 @@ async function searchCombo(
       parts,
       fill,
       () => interrupted || cancelled(),
-      resolveLocation
+      resolveSearch
     )
   } finally {
     for (const event of events) doc.removeEventListener(event, interrupt, true)
   }
 }
 
-async function findSearch(
-  parts: ComboParts,
-  fill: SearchFill,
-  cancelled: () => boolean
-): Promise<SearchResult | null> {
-  const { input } = parts
-  input.focus()
-  setComboQuery(parts, fill.query)
-  const started = Date.now()
-  // Controlled widgets need an open gesture even after the query changes.
-  await openCombo(parts, SEARCH_MS, cancelled)
-  // Results may arrive late or in parts, so this waits for one that matches.
-  return waitFor<SearchResult>(
-    () => {
-      if (cancelled()) return { interrupted: true }
-      const options = parts.options()
-      const labels = options.map((option) => comboOptionLabel(parts, option))
-      const index = (parts.matchSearch ?? searchMatch)(fill.target, labels)
-      const option = index === null ? undefined : options[index]
-      return option
-        ? {
-            interrupted: false,
-            label: comboOptionLabel(parts, option),
-          }
-        : null
-    },
-    Math.max(0, SEARCH_MS - (Date.now() - started))
-  )
-}
-
 async function searchAndCommit(
   parts: ComboParts,
   fill: SearchFill,
   cancelled: () => boolean,
-  resolveLocation?: ResolveLocation
+  resolveSearch?: ResolveSearch
 ): Promise<WriteOutcome> {
   const { input } = parts
-  const result =
-    parts.location || fill.location
-      ? await findLocation(parts, fill, cancelled, resolveLocation)
-      : await findSearch(parts, fill, cancelled)
+  const result = await findSearch(parts, fill, cancelled, resolveSearch)
   if (cancelled() || result?.interrupted) return "skipped"
   const found = result
   if (!found) return abandonSearch(parts)
-  const live = parts
-    .options()
-    .filter((option) => comboOptionLabel(parts, option) === found.label)
-  if (live.length !== 1 || !live[0]) return abandonSearch(parts)
-  press(live[0])
-  const selected = () =>
-    parts.values().some((value) => sameText(value, found.label))
-  const committed = await settled(selected)
+  const live = candidateElement(parts, found.option)
+  if (!live) return abandonSearch(parts)
+  await press(live)
   if (cancelled()) return "skipped"
-  if (!committed) return "failed"
+  const selected = () =>
+    parts.values().some((value) => sameText(value, found.option.label))
   // An uncommitted search query can look selected until the input blurs.
   input.blur()
   const confirmed = await settled(() => !isOpen(parts) && selected())
@@ -337,33 +348,59 @@ async function searchAndCommit(
 }
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
+const US_DATE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/
 
 /** A fill as the field takes it: "2026-10-23" becomes "10/23/2026" for MM/DD/YYYY. */
-function typedText(field: ScannedField, value: string): string {
-  const iso = field.dateFormat ? ISO_DATE.exec(value) : null
-  return iso ? `${iso[2]}/${iso[3]}/${iso[1]}` : value
+function typedText(field: ScannedField, value: string): string | null {
+  if (field.descriptor.control === "month")
+    return /^\d{4}-(?:0[1-9]|1[0-2])$/.test(value) ? value : null
+  if (field.descriptor.control !== "date") return value
+  const us = field.dateFormat ? US_DATE.exec(value) : null
+  const formatted = us
+    ? `${us[3]}-${us[1]?.padStart(2, "0")}-${us[2]?.padStart(2, "0")}`
+    : value
+  const iso = ISO_DATE.exec(formatted)
+  if (!iso) return null
+  const date = new Date(`${formatted}T00:00:00Z`)
+  if (
+    !Number.isFinite(date.getTime()) ||
+    date.toISOString().slice(0, 10) !== formatted
+  )
+    return null
+  return field.dateFormat ? `${iso[2]}/${iso[3]}/${iso[1]}` : formatted
 }
 
 async function writeText(
   field: ScannedField,
-  value: string
+  value: string,
+  cancelled: () => boolean
 ): Promise<WriteOutcome> {
   const { element } = field
   if (field.kind !== "text" || !isTextControl(element)) return "failed"
-  setNativeValue(element, value)
-  return (await settled(() => sameText(element.value, value)))
-    ? "written"
-    : "failed"
+  if (element.readOnly || element.disabled) return "skipped"
+  if (element.maxLength > 0 && value.length > element.maxLength)
+    return "unmatched"
+  await commitValue(element, value)
+  const confirmed = await settled(
+    () =>
+      element.isConnected &&
+      element.validity.valid &&
+      sameText(element.value, value)
+  )
+  if (cancelled()) return "skipped"
+  return confirmed ? "written" : "failed"
 }
 
 async function writeCheck(
   field: ScannedField,
-  checked: boolean
+  checked: boolean,
+  cancelled: () => boolean
 ): Promise<WriteOutcome> {
   const { element } = field
   if (field.kind !== "checkbox" || !(element instanceof HTMLInputElement))
     return "failed"
-  if (element.checked !== checked) scriptClick(element)
+  if (element.checked !== checked) await press(element, { blur: true })
+  if (cancelled()) return "skipped"
   return (await settled(() => element.checked === checked))
     ? "written"
     : "failed"
@@ -373,7 +410,7 @@ function write(
   field: ScannedField,
   fill: Fill,
   cancelled: () => boolean,
-  resolveLocation?: ResolveLocation
+  resolveSearch?: ResolveSearch
 ): Promise<WriteOutcome> {
   if (cancelled()) return Promise.resolve("skipped")
   // Files go through the resume attach, never through a fill.
@@ -381,20 +418,26 @@ function write(
     return Promise.resolve("skipped")
   const { combo } = field
   switch (fill.kind) {
-    case "text":
-      return writeText(field, typedText(field, fill.value))
+    case "text": {
+      const value = typedText(field, fill.value)
+      return value === null
+        ? Promise.resolve("unmatched")
+        : writeText(field, value, cancelled)
+    }
     case "check":
-      return writeCheck(field, fill.checked)
+      return writeCheck(field, fill.checked, cancelled)
     case "options": {
       if (combo) return chooseInCombo(combo, fill, isMultiple(field), cancelled)
       const picks = resolve(
         field.choices.map(({ label }) => label),
         fill
       )
-      return picks ? choose(field, picks) : Promise.resolve("unmatched")
+      return picks
+        ? choose(field, picks, cancelled)
+        : Promise.resolve("unmatched")
     }
     case "search": {
-      if (combo) return searchCombo(combo, fill, cancelled, resolveLocation)
+      if (combo) return searchCombo(combo, fill, cancelled, resolveSearch)
       if (field.kind !== "select") return Promise.resolve("failed")
       const index = searchMatch(
         fill.target,
@@ -402,7 +445,7 @@ function write(
       )
       return index === null
         ? Promise.resolve("unmatched")
-        : choose(field, [index])
+        : choose(field, [index], cancelled)
     }
   }
 }
@@ -425,6 +468,7 @@ async function readOptions(
         const shown = combo.options()
         if (combo.input.value.trim() !== "" || shown.length === 0) return null
         if (
+          combo.loading?.() ||
           combo.input.getAttribute("aria-busy") === "true" ||
           shown.some((option) => option.closest('[aria-busy="true"]'))
         )
@@ -445,7 +489,7 @@ async function readOptions(
           })
         )
           return null
-        const next = shown.map((option) => comboOptionLabel(combo, option))
+        const next = comboOptions(combo)
         const signature = JSON.stringify(next)
         if (signature !== previous) {
           previous = signature
@@ -458,10 +502,10 @@ async function readOptions(
     if (
       !labels?.length ||
       labels.length > LIMITS.options ||
-      labels.some((label) => !label)
+      labels.some(({ label }) => !label)
     )
       return null
-    return labels.map((label, i) => ({ id: `#${i + 1}`, label }))
+    return labels
   } finally {
     if (!cancelled()) close(combo)
   }
@@ -469,10 +513,7 @@ async function readOptions(
 
 async function clearCombo(parts: ComboParts): Promise<void> {
   const clearer = parts.clearer()
-  if (clearer)
-    clearer.dispatchEvent(
-      new MouseEvent("mousedown", { bubbles: true, cancelable: true })
-    )
+  if (clearer) await press(clearer)
   else {
     parts.input.focus()
     // A multi-select drops one value per Backspace. Unverified.
@@ -490,6 +531,8 @@ async function clearCombo(parts: ComboParts): Promise<void> {
   }
   // An ARIA combobox holds its value as its text.
   if (parts.input.value !== "") setComboQuery(parts, "")
+  close(parts)
+  parts.input.blur()
 }
 
 function uncheck(radio: HTMLInputElement): void {
@@ -571,12 +614,12 @@ export function handleFor(field: ScannedField): FieldHandle {
     descriptor: field.descriptor,
     hasValue: () => hasValueNow(field),
     readOptions: (cancelled = () => false) => readOptions(field, cancelled),
-    write: (fill, cancelled = () => false, resolveLocation) =>
+    write: (fill, cancelled = () => false, resolveSearch) =>
       write(
         field,
         fill,
         () => cancelled() || !field.element.isConnected,
-        resolveLocation
+        resolveSearch
       ),
     clear: () => clear(field),
     focus: () => focus(field),

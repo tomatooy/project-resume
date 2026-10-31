@@ -323,10 +323,50 @@ let clicking = 0
  * `click()` from a script still makes a checkbox or radio fire trusted
  * `input` and `change`, so ownership ignores events while one runs.
  */
-export function scriptClick(element: HTMLElement): void {
+export function scriptClick(
+  element: HTMLElement,
+  options: { mouse?: boolean } = {}
+): void {
+  if (
+    !element.isConnected ||
+    element.matches(':disabled, [aria-disabled="true"]')
+  )
+    return
   clicking += 1
   try {
-    element.click()
+    if (options.mouse) {
+      const mouse: MouseEventInit = {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: element.ownerDocument.defaultView,
+        button: 0,
+        buttons: 1,
+        detail: 1,
+      }
+      const pointer: PointerEventInit = {
+        ...mouse,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true,
+      }
+      const down = element.dispatchEvent(
+        new PointerEvent("pointerdown", pointer)
+      )
+      if (!element.isConnected) return
+      // Preventing pointerdown suppresses compatibility mouse events.
+      if (down && element.dispatchEvent(new MouseEvent("mousedown", mouse)))
+        element.focus({ preventScroll: true })
+      if (!element.isConnected) return
+      element.dispatchEvent(
+        new PointerEvent("pointerup", { ...pointer, buttons: 0 })
+      )
+      if (down && element.isConnected)
+        element.dispatchEvent(
+          new MouseEvent("mouseup", { ...mouse, buttons: 0 })
+        )
+    }
+    if (element.isConnected) element.click()
   } finally {
     clicking -= 1
   }

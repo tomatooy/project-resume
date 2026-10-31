@@ -60,9 +60,7 @@ function write(
   error?: unknown
 ): void {
   const line = {
-    level,
     event,
-    message: event,
     ...fields,
     ...(error === undefined
       ? {}
@@ -70,11 +68,18 @@ function write(
           errorClass: errorClassOf(error),
           error: errorDiagnostic(error),
         }),
-    at: new Date().toISOString(),
   }
   if (level === "error") console.error(line)
   else if (level === "warn") console.warn(line)
   else console.log(line)
+}
+
+// Autofill payloads are an explicit debugging exception in both environments.
+export function logAutofill<T>(message: string, payload: T): void {
+  if (import.meta.env.MODE === "test") return
+  const requestId = context.getStore()?.requestId
+  const prefix = requestId ? `[autofill ${requestId}]` : "[autofill]"
+  console.log(`${prefix} ${message}\n${JSON.stringify(payload, null, 2)}`)
 }
 
 export function createLogger(base: LogFields = {}): Logger {

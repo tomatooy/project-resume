@@ -52,7 +52,6 @@ export function logRequest(
       }
       if (response.status >= 500) log.error("http_request", fields)
       else if (response.status >= 400) log.warn("http_request", fields)
-      else log.info("http_request", fields)
       // Preserve streaming bodies and cookies while allowing immutable upstream headers.
       const result = new Response(response.body, response)
       result.headers.set("X-Request-Id", requestId)

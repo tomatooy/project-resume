@@ -828,8 +828,10 @@ Evals are `skills.eval.test.ts` and `structural.eval.test.ts` over the shared ta
 Structured objects via `console.log`, `console.warn`, and `console.error` are
 indexed by Workers observability. `server/log.ts` keeps metadata in a closed
 `LogFields` type and carries request correlation through async context.
-`server/request-log.ts` adds `X-Request-Id` to responses and records status,
-route category, and latency. Server functions supply a static procedure name
+`server/request-log.ts` adds `X-Request-Id` to responses and records failed
+HTTP requests only. Routine HTTP, server-function, and shared-API success
+timings are silent. Console severity and timestamps are not duplicated in
+event fields. Server functions supply a static procedure name
 to `serve(name, handler)`; API middleware and workflow steps also log failures
 before mapping or replacing them.
 
@@ -838,8 +840,11 @@ reviewed schema/configuration messages, fixed summaries for content-bearing
 errors, bounded source locations, upstream status, and a bounded cause chain.
 Raw provider bodies, database details/hints, and validation inputs are never
 copied. Unrecognized messages are omitted and marked `messageRedacted`.
-Forbidden: message text, resume content, patch text, job descriptions,
-`job_targets.raw_text`, posting URLs, email addresses, and credentials.
+Autofill is the explicit content-logging exception: parsed API inputs/results
+and model inputs/results are logged locally and in the deployed Worker by
+`server/autofill-trace.ts`. Other logs exclude message text, resume content,
+patch text, job descriptions, `job_targets.raw_text`, posting URLs, and email
+addresses. Credentials and auth headers are never logged.
 Cloudflare request URL query strings are redacted. See
 [Production logs](../deployment.md#production-logs) for dashboard filters,
 live tail commands, sampling, and source-map limitations.

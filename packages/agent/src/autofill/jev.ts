@@ -50,6 +50,8 @@ const OPEN = "Is this an open-ended question that needs a written answer?"
 const REPLY_PICK = `Which option does the applicant's reply choose for this field on a job application? ${FROM_REPLY}`
 const LOCATION_PICK =
   "The reply contains the intended city, region and country as structured data. Choose an option only if it denotes that same city. Recognize equivalent names and abbreviations. Reject nearby cities, suburbs, broader regions and conflicting countries or regions. If the target is ambiguous or no single option is equivalent, choose insufficient. Never choose an option just because it is first or textually similar."
+const SEARCH_PICK =
+  "The reply contains the intended target for a search field. Choose only a rendered option that denotes the same entity or value. Recognize established aliases, abbreviations and translations. Use supporting details to distinguish campuses, countries and similarly named entities. If multiple options remain plausible or none is equivalent, choose insufficient. Do not substitute a related entity or choose by list order or textual similarity alone."
 const REPLY_SELECT = `Does the applicant's reply choose this option for this field on a job application? ${FROM_REPLY}`
 const REPLY_ANSWERS = `Does the applicant's reply answer this field on a job application? ${FROM_REPLY}`
 
@@ -161,18 +163,20 @@ function questionsOf(
       instructions(
         item.intent === "location"
           ? LOCATION_PICK
-          : answering
-            ? REPLY_PICK
-            : `${PICK} ${from}`,
+          : item.intent === "search"
+            ? SEARCH_PICK
+            : answering
+              ? REPLY_PICK
+              : `${PICK} ${from}`,
         itemLines(item)
       ),
-      item.intent === "location"
+      item.intent
         ? {
             ...Object.fromEntries(
               item.options.map((option, k) => [`o${k + 1}`, dataBlock(option)])
             ),
             insufficient:
-              "No unique option denotes the intended city with compatible region and country.",
+              "No unique option denotes the intended target with compatible supporting details.",
           }
         : choiceCriteria(item.options, answering, source)
     )

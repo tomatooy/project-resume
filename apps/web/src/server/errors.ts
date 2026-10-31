@@ -112,7 +112,7 @@ function logRequestError(error: unknown, log: Logger): void {
   if (appError.status >= 500) {
     log.error("request_failed", { errorClass: errorClassOf(error) }, error)
   } else {
-    log.info("request_rejected", {
+    log.warn("request_rejected", {
       status: appError.status,
       errorClass: appError.code,
     })

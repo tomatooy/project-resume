@@ -8,6 +8,8 @@ export function fieldIdentity(field: FieldDescriptor): string {
     field.label,
     field.help,
     field.section,
+    field.record,
+    field.searchable,
     field.required,
     field.multiple,
     field.maxLength,

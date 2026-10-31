@@ -160,7 +160,9 @@ export function keyFields(
 const modelField = ({ key, field }: KeyedField): ModelField => ({
   key,
   label: field.label,
-  help: field.help,
+  help: field.record
+    ? [field.section, field.help].filter(Boolean).join("\n") || undefined
+    : field.help,
 })
 
 const labels = (field: FieldDescriptor): string[] =>

@@ -35,12 +35,12 @@ export type ComboParts = {
   options(): HTMLElement[]
   /** The value label when a result also renders supporting details. */
   optionLabel?(option: HTMLElement): string
-  matchSearch?(target: string, labels: readonly string[]): number | null
+  optionDescription?(option: HTMLElement): string
   values(): string[]
   clearer(): HTMLElement | null
 }
 
-export type ResolveLocation = (
+export type ResolveSearch = (
   fieldId: string,
   options: Option[]
 ) => Promise<Option | null>
@@ -69,19 +69,18 @@ export type FieldHandle = {
   write(
     fill: Fill,
     cancelled?: () => boolean,
-    resolveLocation?: ResolveLocation
+    resolveSearch?: ResolveSearch
   ): Promise<WriteOutcome>
   clear(): Promise<void>
   focus(): void
 }
 
-/** What a vendor knows about its pages: posting keys, the form, its fields. */
+/** Vendor page identity, field detection and attachment metadata. */
 export type VendorAdapter = {
   vendor: AutofillVendor
   postingKey(url: URL): string | null
-  findForm(doc: Document): Element | null
   formLink(doc: Document, url: URL): string | null
-  scan(form: Element): ScannedField[]
+  scan(root: Element): ScannedField[]
   page(doc: Document, url: URL): PageInfo
   attachedName?(field: ScannedField): string | null
 }

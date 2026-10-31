@@ -35,6 +35,7 @@ const IGNORED_TYPES = new Set([
   "reset",
   "image",
   "password",
+  "search",
 ])
 const TEXT_CONTROLS = [
   "text",
@@ -43,6 +44,7 @@ const TEXT_CONTROLS = [
   "url",
   "number",
   "date",
+  "month",
 ] as const satisfies readonly Control[]
 const PLACEHOLDER = /^(?:(?:select|choose)\b.*?(?:\.{3}|…)|-{2,}.*-{2,})$/i
 
@@ -226,10 +228,13 @@ function grouped(group: Group, root: Element): Built {
  */
 export function scanGeneric(
   root: Element,
-  options: { idOf?: (control: HTMLElement) => string | null } = {}
+  options: {
+    idOf?: (control: HTMLElement) => string | null
+    ignore?: (control: HTMLElement) => boolean
+  } = {}
 ): ScannedField[] {
   const entries: Entry[] = []
-  const groups = new Map<string, Group>()
+  const groups = new Map<Element, Map<string, Group>>()
   for (const control of root.querySelectorAll("input, select, textarea")) {
     if (
       !(
@@ -237,7 +242,8 @@ export function scanGeneric(
         control instanceof HTMLSelectElement ||
         control instanceof HTMLTextAreaElement
       ) ||
-      !usable(control)
+      !usable(control) ||
+      options.ignore?.(control)
     )
       continue
     if (
@@ -246,7 +252,16 @@ export function scanGeneric(
     ) {
       const type = control.type === "radio" ? "radio" : "checkbox"
       const key = `${type}:${control.name}`
-      const known = control.name ? groups.get(key) : undefined
+      const scope =
+        control.closest(
+          "fieldset, [role=group], [role=radiogroup], [data-field-path], .application-question"
+        ) ?? root
+      let scoped = groups.get(scope)
+      if (!scoped) {
+        scoped = new Map<string, Group>()
+        groups.set(scope, scoped)
+      }
+      const known = control.name ? scoped.get(key) : undefined
       if (known) {
         known.members.push(control)
         continue
@@ -257,7 +272,7 @@ export function scanGeneric(
         first: control,
         members: [control],
       }
-      if (control.name) groups.set(key, group)
+      if (control.name) scoped.set(key, group)
       entries.push({ group })
       continue
     }

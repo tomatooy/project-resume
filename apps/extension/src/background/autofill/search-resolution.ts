@@ -1,5 +1,5 @@
 import { classifyField } from "@workspace/autofill"
-import type { Fill, LocationTarget, Option } from "@workspace/autofill/fields"
+import type { Fill, Option } from "@workspace/autofill/fields"
 import { locationTarget } from "@workspace/autofill/location"
 import { fieldIdentity } from "../../autofill/field-identity"
 import { api } from "../../lib/api"
@@ -12,32 +12,41 @@ import {
   updateSession,
 } from "./session"
 
-type Request = Extract<ContentMessage, { type: "autofill-resolve-location" }>
+type Request = Extract<ContentMessage, { type: "autofill-resolve-search" }>
+type SearchFill = Extract<Fill, { kind: "search" }>
 type Pending = {
   tabId: number
   session: AutofillSession
-  targets: Map<string, LocationTarget>
+  targets: Map<string, SearchFill>
   calls: Map<string, { signature: string; result: Promise<Option | null> }>
   selections: Map<string, Option>
 }
 const pending = new Map<string, Pending>()
 
 /** A content script may resolve only a search the worker is currently writing. */
-export async function withLocationResolution<T>(
+export async function withSearchResolution<T>(
   tabId: number,
   session: AutofillSession,
   fills: Fill[],
   send: (requestId: string) => Promise<T>
 ): Promise<{ reply: T; selections: Map<string, Option> }> {
-  const targets = new Map<string, LocationTarget>()
+  const targets = new Map<string, SearchFill>()
   for (const fill of fills) {
     if (fill.kind !== "search") continue
     const field = session.fields.find(({ id }) => id === fill.fieldId)
     if (!field) continue
-    const { key } = classifyField(session.vendor, field)
-    if (key !== "address.location" && key !== "address.city") continue
-    const target = fill.location ?? locationTarget(fill.target)
-    if (target) targets.set(fill.fieldId, target)
+    const { key, zone } = classifyField(session.vendor, field)
+    if (
+      zone !== "normal" ||
+      (field.control !== "combobox" && field.control !== "select")
+    )
+      continue
+    const location =
+      fill.location ??
+      (key === "address.location" || key === "address.city"
+        ? locationTarget(fill.target)
+        : null)
+    targets.set(fill.fieldId, { ...fill, ...(location ? { location } : {}) })
   }
   const requestId = crypto.randomUUID()
   const selections = new Map<string, Option>()
@@ -55,7 +64,7 @@ export async function withLocationResolution<T>(
   }
 }
 
-export async function resolveLocationRequest(
+export async function resolveSearchRequest(
   tabId: number,
   frame: AutofillFrame,
   message: Request
@@ -100,7 +109,9 @@ export async function resolveLocationRequest(
       (await frameVisible(tabId, frame)) === false
     )
       return null
-    const result = await api.autofill.resolveLocation(
+    const field = session.fields.find(({ id }) => id === message.fieldId)
+    if (!field) return null
+    const result = await api.autofill.resolveSearch(
       {
         page: {
           vendor: session.vendor,
@@ -112,7 +123,9 @@ export async function resolveLocationRequest(
         applicationId: session.started.applicationId,
         useJob: false,
         counts: countsOf(session),
-        target,
+        field,
+        target: target.target,
+        ...(target.location ? { location: target.location } : {}),
         options: message.options,
       },
       { signal: AbortSignal.timeout(10_000) }
@@ -127,8 +140,10 @@ export async function resolveLocationRequest(
     const selected =
       (result.option &&
         message.options.find(
-          ({ id, label }) =>
-            id === result.option?.id && label === result.option.label
+          ({ id, label, description }) =>
+            id === result.option?.id &&
+            label === result.option.label &&
+            description === result.option.description
         )) ||
       null
     if (selected) request.selections.set(message.fieldId, selected)

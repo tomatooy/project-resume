@@ -3,7 +3,7 @@ import type {
   WorkerMessage,
   WorkerReply,
 } from "../lib/autofill-protocol"
-import type { ResolveLocation } from "./types"
+import type { ResolveSearch } from "./types"
 import { fieldRow, trace, traceTable } from "./debug"
 import { createDiscovery } from "./discovery"
 import { isShown, LIMITS, scriptClick } from "./dom"
@@ -112,7 +112,7 @@ export function startAutofill(
   const discovery = createDiscovery()
   let fields: ScannedField[] = []
   let handles = new Map<string, FieldHandle>()
-  let watched: { form: Element; unwatch: () => void } | null = null
+  let watched: { root: Element; unwatch: () => void } | null = null
   // Requests run one at a time, and scans wait until none is left.
   let queue: Promise<unknown> = Promise.resolve()
   let queued = 0
@@ -169,10 +169,9 @@ export function startAutofill(
   const read = (): Scan => {
     const url = new URL(location.href)
     const key = postingKey(url)
-    const found = adapter && key !== null ? adapter.findForm(document) : null
-    const form = found && isShown(found) ? found : null
+    const root = adapter && key !== null ? document.body : null
     fields = discovery.enrich(
-      adapter && form ? adapter.scan(form) : [],
+      adapter && root ? adapter.scan(root) : [],
       scanUrl(url.href)
     )
     handles = new Map(
@@ -184,12 +183,12 @@ export function startAutofill(
         hasValue: descriptor.hasValue,
       }))
     )
-    if ((watched?.form ?? null) !== form) {
+    if ((watched?.root ?? null) !== root) {
       watched?.unwatch()
-      watched = form
+      watched = root
         ? {
-            form,
-            unwatch: owner.watch(form, (event) => {
+            root,
+            unwatch: owner.watch(root, (event) => {
               const field = fieldAt(fields, event.target)
               if (!field) return null
               if (event.type !== "click") {
@@ -216,8 +215,9 @@ export function startAutofill(
       url: scanUrl(url.href),
       postingKey: key,
       page: adapter ? adapter.page(document, url) : NO_PAGE,
-      form: form !== null,
-      formLink: adapter && !form ? adapter.formLink(document, url) : null,
+      form: fields.length > 0,
+      formLink:
+        adapter && fields.length === 0 ? adapter.formLink(document, url) : null,
       fields: fields.map((field) => field.descriptor),
     }
     const next = JSON.stringify(snapshot)
@@ -420,11 +420,11 @@ export function startAutofill(
       case "autofill-write": {
         const { fills, force, identities, requestId } = message
         const url = scanUrl(location.href)
-        const resolveLocation: ResolveLocation = async (fieldId, options) => {
+        const resolveSearch: ResolveSearch = async (fieldId, options) => {
           if (!requestId || !alive() || scanUrl(location.href) !== url)
             return null
           const response = await send({
-            type: "autofill-resolve-location",
+            type: "autofill-resolve-search",
             requestId,
             fieldId,
             options,
@@ -445,7 +445,11 @@ export function startAutofill(
             return null
           return (
             options.find(
-              ({ id, label }) => id === option.id && label === option.label
+              ({ id, label, description }) =>
+                id === option.id &&
+                label === option.label &&
+                description ===
+                  ("description" in option ? option.description : undefined)
             ) ?? null
           )
         }
@@ -467,7 +471,7 @@ export function startAutofill(
                 fills,
                 new Set(force),
                 owner,
-                resolveLocation
+                resolveSearch
               ),
             }
           } finally {

@@ -18,7 +18,7 @@ import {
 import { draft, run, syncOverlay, writeFills } from "./controller"
 import { registerOrigin, takeOrigin } from "./origin"
 import { sendToContent } from "./send"
-import { resolveLocationRequest } from "./location-resolution"
+import { resolveSearchRequest } from "./search-resolution"
 import {
   type AutofillSession,
   applyScan,
@@ -129,7 +129,7 @@ async function onContent(
   message: ContentMessage
 ): Promise<void> {
   switch (message.type) {
-    case "autofill-resolve-location":
+    case "autofill-resolve-search":
       return
     case "autofill-scan":
       if (message.url !== scanUrl(frame.url)) return
@@ -197,12 +197,12 @@ export function registerAutofill(): void {
     }
     const parsed = ContentMessageSchema.safeParse(raw)
     if (!parsed.success) return false
-    if (parsed.data.type === "autofill-resolve-location") {
+    if (parsed.data.type === "autofill-resolve-search") {
       const message = parsed.data
       void contentFrame(sender)
         .then(async (from) => ({
           option: from
-            ? await resolveLocationRequest(from.tabId, from.frame, message)
+            ? await resolveSearchRequest(from.tabId, from.frame, message)
             : null,
         }))
         .then(respond, () => respond({ option: null }))

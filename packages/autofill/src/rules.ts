@@ -32,7 +32,12 @@ import {
   searchMatch,
   US_STATES,
 } from "./match"
-import { effectiveIdentity, type Identity, type Profile } from "./profile"
+import {
+  effectiveHistory,
+  effectiveIdentity,
+  type Identity,
+  type Profile,
+} from "./profile"
 import { optionState } from "./options"
 
 export type RuleContext = {
@@ -63,6 +68,7 @@ type Answer = {
   number?: string
   /** Date controls: YYYY-MM-DD. */
   date?: string
+  month?: string
   /** Checkboxes, and Yes or No options. */
   yesNo?: YesNo
   /** Option labels to look for, best first. */
@@ -363,7 +369,38 @@ function graduation(
           year: "numeric",
         })
       : year
-  return { text, number: year, choices: [text, year] }
+  return { text, number: year, month, choices: [text, year] }
+}
+
+function recordAnswer(
+  field: FieldDescriptor,
+  education: Profile["education"]
+): Answer | null {
+  const binding = field.record
+  if (!binding) return null
+  const item = education[binding.index]
+  if (!item) return null
+  if (binding.field === "current")
+    return item.end ? yesNo(item.end === "present" ? "yes" : "no") : null
+  const value = item[binding.field]
+  if (binding.field !== "start" && binding.field !== "end") return plain(value)
+  if (!value || value === "present") return null
+  const [year, month] = value.split("-")
+  if (!year || !month) return null
+  if (binding.part === "year")
+    return { text: year, number: year, choices: [year] }
+  if (binding.part === "month") {
+    const name = new Date(`${value}-01T00:00:00Z`).toLocaleDateString("en-US", {
+      timeZone: "UTC",
+      month: "long",
+    })
+    return {
+      text: name,
+      number: String(Number(month)),
+      choices: [name, name.slice(0, 3), month, String(Number(month))],
+    }
+  }
+  return graduation(value, "date")
 }
 
 function years(value: number | null | undefined): Answer | null {
@@ -542,6 +579,8 @@ function valueFill(field: FieldDescriptor, answer: Answer): Fill | null {
       return textFill(base, field, answer.number)
     case "date":
       return textFill(base, field, answer.date)
+    case "month":
+      return textFill(base, field, answer.month ?? answer.date?.slice(0, 7))
     case "select":
     case "combobox":
     case "radio":
@@ -591,6 +630,7 @@ function routeOf(
   if (zone === "write") return "write"
   if (answer && waitsForOptions(field)) return "pending"
   if (zone === "forbidden") return "page"
+  if (field.record && !answer) return field.required ? "page" : "skip"
   if (!field.required && !answer && profileBacked(key)) return "skip"
   return "ai"
 }
@@ -612,9 +652,15 @@ export function ruleFills(
     today: ctx.today,
   }
   const result: RuleResult = { fills: [], overwrites: [], classes: [] }
+  const { education } = effectiveHistory(ctx.profile, ctx.resume)
   for (const field of fields) {
     const { key, zone, anchor } = classifyField(ctx.vendor, field)
-    const answer = key ? ANSWERS[key](data, normalizeText(field.label)) : null
+    const answer =
+      field.record && zone === "normal"
+        ? recordAnswer(field, education)
+        : key
+          ? ANSWERS[key](data, normalizeText(field.label))
+          : null
     const fill = ruleFill(field, zone, answer)
     const route = routeOf(field, key, zone, answer, fill)
     if (fill && route === "filled") result.overwrites.push(fill)

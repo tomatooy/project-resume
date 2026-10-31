@@ -1,7 +1,7 @@
 import type { Fill } from "@workspace/autofill/fields"
 import { fillText, traceTable } from "./debug"
 import type { Owner } from "./owner"
-import type { FieldHandle, ResolveLocation, WriteOutcome } from "./types"
+import type { FieldHandle, ResolveSearch, WriteOutcome } from "./types"
 
 /** Why a write ended as it did, for the trace. */
 const WHY: Record<WriteOutcome, string> = {
@@ -21,7 +21,7 @@ export async function writeAll(
   fills: Fill[],
   force: ReadonlySet<string>,
   owner: Owner,
-  resolveLocation?: ResolveLocation
+  resolveSearch?: ResolveSearch
 ): Promise<Record<string, WriteOutcome>> {
   const results = new Map<string, WriteOutcome>()
   const rows: Record<string, string>[] = []
@@ -51,7 +51,7 @@ export async function writeAll(
       .write(
         fill,
         () => owner.isOwned(id) || handleFor(id) === undefined,
-        resolveLocation
+        resolveSearch
       )
       .catch((): WriteOutcome => "failed")
     // A failed write may leave part of its value, or land late; either is

@@ -38,8 +38,6 @@ import { createTypeSafeClientFromEnv } from "./typesafe"
 export type { Services } from "@workspace/resume-core"
 export { createServices }
 
-const AUTOFILL_TRACE = import.meta.env.DEV && import.meta.env.MODE !== "test"
-
 /**
  * Builds the model client only if consolidation actually runs, so a server
  * function that never touches memory does not need an AI key to be present.
@@ -57,32 +55,22 @@ const lazyResumeParser: ResumeParser = {
 /** Same reason as the summarizer: only tailoring needs the key. */
 const lazyJobParser: JobParser = {
   async parse(input) {
-    const startedAt = Date.now()
     try {
       return await createJobParser(createModelsFromEnv()).parse(input)
     } catch (error) {
       createLogger().error("tailor_job_parse_failed", undefined, error)
       throw error
-    } finally {
-      createLogger().info("tailor_job_parse_duration", {
-        latencyMs: Date.now() - startedAt,
-      })
     }
   },
 }
 
 const lazyResumeTailor: ResumeTailor = {
   async tailor(input) {
-    const startedAt = Date.now()
     try {
       return await createResumeTailor(createModelsFromEnv()).tailor(input)
     } catch (error) {
       createLogger().error("tailor_resume_generate_failed", undefined, error)
       throw error
-    } finally {
-      createLogger().info("tailor_resume_generate_duration", {
-        latencyMs: Date.now() - startedAt,
-      })
     }
   },
 }
@@ -111,49 +99,22 @@ export function lazyAutofillModels(): AutofillModels {
       models: process.env.DEEPSEEK_API_KEY
         ? createModelsFromEnv()
         : missingKey("deepseek_missing"),
-      typesafe:
-        typesafe && AUTOFILL_TRACE ? traceJevClient(typesafe) : typesafe,
+      typesafe: typesafe ? traceJevClient(typesafe) : null,
     })
     return built
   }
-  return {
+  return traceAutofillModels({
     get model() {
       return models().model
     },
     ready: () => models().ready(),
-    judge: (input) => logAutofillCall("judge", () => models().judge(input)),
-    shortText: (input) =>
-      logAutofillCall("shortText", () => models().shortText(input)),
-    questions: (input) =>
-      logAutofillCall("questions", () => models().questions(input)),
-    fillFromAnswer: (input) =>
-      logAutofillCall("fillFromAnswer", () => models().fillFromAnswer(input)),
-    mergeNotes: (input) =>
-      logAutofillCall("mergeNotes", () => models().mergeNotes(input)),
-    generate: (input) =>
-      logAutofillCall("generate", () => models().generate(input)),
-  }
-}
-
-async function logAutofillCall<T>(
-  step: string,
-  call: () => Promise<T>
-): Promise<T> {
-  const startedAt = performance.now()
-  try {
-    return await call()
-  } catch (error) {
-    // Capture before the domain service degrades to rules or questions.
-    createLogger().error(
-      "autofill_model_failed",
-      {
-        step,
-        latencyMs: Math.round(performance.now() - startedAt),
-      },
-      error
-    )
-    throw error
-  }
+    judge: (input) => models().judge(input),
+    shortText: (input) => models().shortText(input),
+    questions: (input) => models().questions(input),
+    fillFromAnswer: (input) => models().fillFromAnswer(input),
+    mergeNotes: (input) => models().mergeNotes(input),
+    generate: (input) => models().generate(input),
+  })
 }
 
 /**
@@ -188,10 +149,7 @@ export function supabasePorts(
     autofillProfiles: new SupabaseAutofillProfileRepository(db, userId),
     autofillNotes: new SupabaseAutofillNotesRepository(db, userId),
     autofillApplications: new SupabaseAutofillApplicationRepository(db, userId),
-    // Applicant records and model answers: `vite dev` only.
-    autofillModels: AUTOFILL_TRACE
-      ? traceAutofillModels(lazyAutofillModels())
-      : lazyAutofillModels(),
+    autofillModels: lazyAutofillModels(),
     ...over,
   }
 }

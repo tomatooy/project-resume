@@ -24,7 +24,7 @@ import type {
 import type { AutofillAction, AutofillView } from "../../lib/autofill-view"
 import { autofillFrame, sameDocument } from "./frames"
 import { sendToContent } from "./send"
-import { withLocationResolution } from "./location-resolution"
+import { withSearchResolution } from "./search-resolution"
 import {
   type AutofillSession,
   applyScan,
@@ -250,7 +250,7 @@ async function sendWrites(
   const {
     reply: { results },
     selections,
-  } = await withLocationResolution(tabId, session, fills, (requestId) =>
+  } = await withSearchResolution(tabId, session, fills, (requestId) =>
     sendToContent(tabId, session, {
       type: "autofill-write",
       requestId,
@@ -266,7 +266,12 @@ async function sendWrites(
     return fill.kind === "search" &&
       results[fill.fieldId] === "written" &&
       selection
-      ? { ...fill, selection: selection.label, source: "ai" }
+      ? {
+          ...fill,
+          selection: selection.label,
+          selectionDescription: selection.description,
+          source: "ai",
+        }
       : fill
   })
   traceWrites(session, written, results)

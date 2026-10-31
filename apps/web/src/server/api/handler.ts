@@ -55,7 +55,7 @@ export async function handleApi(request: Request): Promise<Response> {
     if (safe.status >= 500)
       log.error("api_context_failed", { status: safe.status }, error)
     else
-      log.info("api_rejected", { status: safe.status, errorClass: safe.code })
+      log.warn("api_rejected", { status: safe.status, errorClass: safe.code })
     return Response.json(safe.toJSON(), { status: safe.status, headers })
   }
 }

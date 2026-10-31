@@ -2,11 +2,13 @@ import {
   applicantContext,
   type ContextInput,
   companiesMatch,
+  classifyField,
   compatibleLocation,
   effectiveIdentity,
   type Fill,
   matchLocation,
   missingAnswers,
+  normalizeText,
   plainQuestions,
   ruleFills,
 } from "@workspace/autofill"
@@ -31,6 +33,8 @@ import type {
   PlanResult,
   ResolveLocationInput,
   ResolveLocationResult,
+  ResolveSearchInput,
+  ResolveSearchResult,
   ResumeChoice,
   StartInput,
   StartResult,
@@ -82,7 +86,7 @@ import type { VersionService } from "./version-service"
 
 /** How many recent origin links the company rule looks through. */
 const ORIGINS_SCANNED = 50
-const LOCATION_MS = 8_000
+const SEARCH_MS = 8_000
 
 const NO_USAGE: ModelUsage = { inputTokens: 0, outputTokens: 0 }
 /** What a call that had nothing to ask returns, without being made. */
@@ -293,17 +297,48 @@ export class AutofillService {
   async resolveLocation(
     input: ResolveLocationInput
   ): Promise<ResolveLocationResult> {
+    return this.resolveSearch({
+      ...input,
+      field: {
+        id: "_systemfield_location",
+        label: "Current location",
+        control: "combobox",
+        optionState: "search",
+        required: false,
+        hasValue: false,
+      },
+      target: [input.target.city, input.target.region, input.target.country]
+        .filter(Boolean)
+        .join(", "),
+      location: input.target,
+    })
+  }
+
+  async resolveSearch(input: ResolveSearchInput): Promise<ResolveSearchResult> {
     const started = Date.now()
     await this.deps.runs.assertWithinHourlyLimit("autofill")
     if (!(await this.deps.resumes.findById(input.resumeId)))
       throw new AppError("NOT_FOUND", "Resume not found")
-    const options = input.options.filter(({ label }) =>
-      compatibleLocation(input.target, label)
+    if (
+      classifyField(input.page.vendor, input.field).zone !== "normal" ||
+      (input.field.control !== "combobox" && input.field.control !== "select")
     )
-    const exact = matchLocation(
-      input.target,
-      options.map(({ label }) => label)
+      return this.respond(input, { option: null })
+    const options = input.options.filter(
+      ({ label }) =>
+        !input.location || compatibleLocation(input.location, label)
     )
+    const matches = options.flatMap(({ label }, index) =>
+      normalizeText(label) === normalizeText(input.target) ? [index] : []
+    )
+    const exact = input.location
+      ? matchLocation(
+          input.location,
+          options.map(({ label }) => label)
+        )
+      : matches.length === 1
+        ? (matches[0] ?? null)
+        : null
     if (exact !== null)
       return this.respond(input, { option: options[exact] ?? null })
     if (!options.length || !this.deps.models.ready().judge)
@@ -313,18 +348,26 @@ export class AutofillService {
       "autofill.infer",
       started,
       async (count) => {
-        const step = deadlineAt(started + LOCATION_MS)
+        const step = deadlineAt(started + SEARCH_MS)
         const output = await within(step.call.signal, () =>
           this.deps.models.judge({
             ...step.call,
             context: {},
-            reply: { text: JSON.stringify(input.target) },
+            reply: {
+              text: JSON.stringify(input.location ?? { target: input.target }),
+            },
             choices: [
               {
-                key: "location",
-                label: "Current location",
-                intent: "location",
-                options: options.map(({ label }) => label),
+                key: "candidate",
+                label: input.field.label,
+                help:
+                  [input.field.section, input.field.help]
+                    .filter(Boolean)
+                    .join("\n") || undefined,
+                intent: input.location ? "location" : "search",
+                options: options.map(({ label, description }) =>
+                  description ? `${label} (${description})` : label
+                ),
               },
             ],
             multi: [],
@@ -334,7 +377,7 @@ export class AutofillService {
           .then(count, countFailure(count))
           .catch(() => null)
         step.clear()
-        const verdict = output?.choices.location
+        const verdict = output?.choices.candidate
         const candidate =
           verdict &&
           !verdict.applicant &&
@@ -346,7 +389,10 @@ export class AutofillService {
             : undefined
         const unique =
           candidate &&
-          options.filter(({ label }) => label === candidate.label).length === 1
+          options.filter(
+            ({ label, description }) =>
+              label === candidate.label && description === candidate.description
+          ).length === 1
         return {
           value: unique ? candidate : null,
           failure: output ? null : stepFailure(step.call.signal),

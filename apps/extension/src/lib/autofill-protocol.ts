@@ -47,7 +47,7 @@ export const ScanSchema = z.object({
 export const ContentMessageSchema = z.discriminatedUnion("type", [
   ScanSchema,
   z.object({
-    type: z.literal("autofill-resolve-location"),
+    type: z.literal("autofill-resolve-search"),
     requestId: z.uuid(),
     fieldId: FieldIdSchema,
     options: z.array(OptionSchema).min(1).max(20),

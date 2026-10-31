@@ -1,3 +1,4 @@
+import { EducationItemSchema } from "@workspace/resume-schema"
 import { z } from "zod"
 
 import { CanonicalKeySchema, ProfileSectionSchema } from "./keys"
@@ -24,6 +25,7 @@ export const ControlSchema = z.enum([
   "url",
   "number",
   "date",
+  "month",
   "textarea",
   "select",
   "combobox",
@@ -41,8 +43,30 @@ export type Control = z.infer<typeof ControlSchema>
 export const OptionSchema = z.object({
   id: z.string().min(1).max(64),
   label: z.string().max(LIMITS.option),
+  description: z.string().max(LIMITS.option).optional(),
 })
 export type Option = z.infer<typeof OptionSchema>
+
+const educationFields = EducationItemSchema.pick({
+  school: true,
+  degree: true,
+  field: true,
+  start: true,
+  end: true,
+}).keyof()
+
+/** The record and component a repeated control edits. */
+export const RecordFieldSchema = z.object({
+  kind: z.literal("education"),
+  index: z
+    .number()
+    .int()
+    .min(0)
+    .max(LIMITS.fields - 1),
+  field: z.enum([...educationFields.options, "current"]),
+  part: z.enum(["month", "year"]).optional(),
+})
+export type RecordField = z.infer<typeof RecordFieldSchema>
 
 export const FieldDescriptorSchema = z.object({
   /** Stable for the posting: vendor key, else name or id, else a structural path. */
@@ -50,6 +74,7 @@ export const FieldDescriptorSchema = z.object({
   label: z.string().max(LIMITS.label),
   help: z.string().max(LIMITS.help).optional(),
   section: z.string().max(LIMITS.label).optional(),
+  record: RecordFieldSchema.optional(),
   control: ControlSchema,
   options: z.array(OptionSchema).max(LIMITS.options).optional(),
   optionState: z.enum(["pending", "ready", "search", "unavailable"]).optional(),
@@ -101,6 +126,7 @@ export const FillSchema = z
       location: LocationTargetSchema.optional(),
       /** A previously confirmed result, reused on restore without another AI call. */
       selection: z.string().min(1).max(LIMITS.option).optional(),
+      selectionDescription: z.string().max(LIMITS.option).optional(),
     }),
     FillBaseSchema.extend({
       kind: z.literal("check"),
